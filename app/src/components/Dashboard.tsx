@@ -77,7 +77,9 @@ function getLocalFallback(categoryBourso: string, name: string, cache: Record<st
     nam.includes("épargne") ||
     nam.includes("virement interne") ||
     nam.includes("virement vers") ||
-    nam.includes("virement depuis")
+    nam.includes("virement depuis") ||
+    nam.includes("tristan buguet") ||
+    nam.includes("virement de m tristan buguet")
   ) {
     return { type: "Épargne & Trésorerie", isSub: false, isInternalTransfer: true };
   }
@@ -691,7 +693,40 @@ export function Dashboard() {
           }
         }
 
-        return [...actuallyNew, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const combined = [...actuallyNew, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        // Rattachement intelligent des salaires versés en début de mois
+        const salaryMonths = new Set<string>();
+        combined.forEach(tx => {
+          const nam = tx.name.toLowerCase();
+          const isSalary = tx.amount > 0 && (nam.includes("salaire") || nam.includes("employeur") || nam.includes("paie") || nam.includes("remuneration") || nam.includes("rémunération"));
+          if (isSalary) {
+            salaryMonths.add(tx.month);
+          }
+        });
+
+        const adjusted = combined.map(tx => {
+          const nam = tx.name.toLowerCase();
+          const isSalary = tx.amount > 0 && (nam.includes("salaire") || nam.includes("employeur") || nam.includes("paie") || nam.includes("remuneration") || nam.includes("rémunération"));
+          
+          if (isSalary) {
+            const day = parseInt(tx.date.split("-")[2], 10);
+            if (day <= 5) {
+              const [yyyy, mm] = tx.month.split("-");
+              const prevMonthObj = new Date(parseInt(yyyy), parseInt(mm) - 2, 1);
+              const prevMonthStr = `${prevMonthObj.getFullYear()}-${(prevMonthObj.getMonth() + 1).toString().padStart(2, '0')}`;
+              
+              if (!salaryMonths.has(prevMonthStr)) {
+                // Shift this salary to the previous month
+                salaryMonths.add(prevMonthStr);
+                return { ...tx, month: prevMonthStr };
+              }
+            }
+          }
+          return tx;
+        });
+
+        return adjusted;
       });
 
       const allNewDates = newTransactions.map(t => new Date(t.date).getTime()).filter(t => !isNaN(t)).sort();
@@ -832,17 +867,18 @@ export function Dashboard() {
         const isAids = 
           nam.includes("caf") ||
           nam.includes("allocation") ||
-          nam.includes("cpam") ||
           nam.includes("pole emploi") ||
           nam.includes("france travail");
 
-        const isRefund = 
-          (!isSalary && !isAids && tx.type !== "Revenus & Aides") ||
-          nam.includes("avoir") || 
-          nam.includes("remboursement") || 
-          nam.includes("annulation") || 
-          nam.includes("retour") ||
-          tx.type === "Virements proches & Remboursements";
+        const isHealthRefund = 
+          nam.includes("cpam") || 
+          nam.includes("mutuelle") || 
+          tx.type === "Santé & Soins" ||
+          nam.includes("ameli");
+
+        const isIncome = isSalary || isAids || tx.type === "Revenus & Aides" || isHealthRefund;
+
+        const isRefund = !isIncome;
 
         if (isRefund) {
           // It's a refund! Deduct from expenses instead of counting as income
