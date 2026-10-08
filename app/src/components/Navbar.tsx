@@ -6,6 +6,8 @@ import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { useTheme } from "@/components/ThemeProvider";
 
+import Link from "next/link";
+
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutGrid },
   { id: "expenses", label: "Dépenses", icon: PieChart },
@@ -34,6 +36,24 @@ export function Navbar() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [inboxCount, setInboxCount] = useState(0);
+  const [hasData, setHasData] = useState(true);
+
+  useEffect(() => {
+    const checkData = () => {
+      const savedTx = localStorage.getItem('financeTransactions_v1');
+      if (savedTx) {
+        try {
+          const parsed = JSON.parse(savedTx);
+          setHasData(parsed.length > 0);
+        } catch(e) { setHasData(false); }
+      } else {
+        setHasData(false);
+      }
+    };
+    checkData();
+    window.addEventListener("finance-data-state", checkData);
+    return () => window.removeEventListener("finance-data-state", checkData);
+  }, []);
 
   // Avoid hydration mismatch by only rendering theme toggle after mount
   useEffect(() => setMounted(true), []);
@@ -53,23 +73,40 @@ export function Navbar() {
   return (
     <header className="fixed top-6 left-0 right-0 z-50 flex items-center justify-between h-16 w-full px-12">
       {/* Logo */}
-      <div className="flex items-center gap-2">
-        <KronaLogo className="w-8 h-8 text-neutral-900 dark:text-white shrink-0" />
+      <Link 
+        href="/"
+        onClick={(e) => {
+          setActiveTab("dashboard");
+        }}
+        className="flex items-center gap-2 cursor-pointer group outline-none rounded-xl p-1 -m-1 transition-opacity hover:opacity-80 active:scale-95"
+        aria-label="Accueil krona"
+      >
+        <KronaLogo className="w-8 h-8 text-neutral-900 dark:text-white shrink-0 transition-transform duration-200 group-hover:scale-105" />
         <span className="text-xl font-bold lowercase tracking-tight text-neutral-900 dark:text-white hidden sm:block transition-colors">krona</span>
-      </div>
+      </Link>
 
       {/* Pill Navbar */}
-      <nav className="flex items-center bg-card/60 backdrop-blur-2xl shadow-sm border border-border rounded-full p-1 relative transition-colors">
+      <nav className={clsx(
+        "flex items-center bg-card/60 backdrop-blur-2xl shadow-sm border border-border rounded-full p-1 relative transition-colors",
+        !hasData && "opacity-30 pointer-events-none cursor-default"
+      )}>
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           return (
-             <button
+            <motion.button
+              type="button"
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => {
+                setActiveTab(item.id);
+                window.dispatchEvent(new CustomEvent("navigate-tab", { detail: { tab: item.id } }));
+              }}
               className={clsx(
-                "relative px-5 py-2.5 rounded-full text-sm font-medium transition-colors flex items-center gap-2 outline-none",
-                isActive ? "text-background" : "text-muted-foreground hover:text-foreground"
+                "relative px-5 py-2.5 rounded-full text-sm font-medium transition-colors flex items-center gap-2 outline-none cursor-pointer",
+                isActive 
+                  ? "text-background" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08]"
               )}
             >
               {isActive && (
@@ -83,7 +120,7 @@ export function Navbar() {
                 <Icon size={16} />
                 <span className="hidden md:inline">{item.label}</span>
               </span>
-            </button>
+            </motion.button>
           );
         })}
       </nav>
@@ -92,9 +129,13 @@ export function Navbar() {
       <div className="flex items-center gap-3">
         {/* CSV Import CTA */}
         <motion.button 
+          type="button"
           whileTap={{ scale: 0.96 }} 
           onClick={triggerCSVUpload}
-          className="h-10 px-4 rounded-full bg-black text-white dark:bg-white dark:text-black font-medium flex items-center gap-2 shadow-[0_1px_2px_rgba(0,0,0,0.1)] transition-colors hover:opacity-90"
+          className={clsx(
+            "h-10 px-4 rounded-full bg-black text-white dark:bg-white dark:text-black font-medium flex items-center gap-2 shadow-[0_1px_2px_rgba(0,0,0,0.1)] transition-all hover:opacity-90 hover:shadow-md cursor-pointer",
+            !hasData && "invisible opacity-0"
+          )}
         >
           <Plus size={16} />
           <span className="hidden sm:inline">Importer CSV</span>
@@ -105,9 +146,12 @@ export function Navbar() {
         {/* Theme Switcher */}
         {mounted && (
           <motion.button 
+            type="button"
             whileTap={{ scale: 0.95 }} 
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center text-foreground hover:bg-muted transition-colors"
+            className="w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer"
+            aria-label="Basculer le thème"
+            title={theme === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}
           >
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </motion.button>
@@ -115,26 +159,39 @@ export function Navbar() {
 
         {/* Settings */}
         <motion.button 
+          type="button"
           whileTap={{ scale: 0.95 }} 
           onClick={() => window.dispatchEvent(new CustomEvent("open-settings"))}
-          className="w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center text-foreground hover:bg-muted transition-colors"
+          className="w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer"
+          aria-label="Paramètres"
+          title="Paramètres"
         >
           <Settings size={18} />
         </motion.button>
 
         {/* Notifications / Profile */}
         <motion.button 
+          type="button"
           whileTap={{ scale: 0.95 }} 
           onClick={() => window.dispatchEvent(new CustomEvent("open-inbox"))}
-          className="relative w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center text-foreground hover:bg-muted transition-colors"
+          className="relative w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer"
+          aria-label="Notifications"
+          title="Notifications"
         >
           <Bell size={18} />
           {inboxCount > 0 && (
             <div className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-background shadow-sm" />
           )}
         </motion.button>
-        <motion.button whileTap={{ scale: 0.95 }} className="w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center overflow-hidden hover:bg-muted transition-colors">
-          <User size={18} className="text-muted-foreground hover:text-foreground transition-colors" />
+        <motion.button 
+          type="button"
+          whileTap={{ scale: 0.95 }} 
+          onClick={() => window.dispatchEvent(new CustomEvent("open-settings"))}
+          className="w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center overflow-hidden text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer group"
+          aria-label="Profil utilisateur"
+          title="Profil"
+        >
+          <User size={18} className="text-muted-foreground group-hover:text-foreground transition-colors" />
         </motion.button>
       </div>
     </header>
