@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+:root {
+  /* Light Mode (Apple/Notion style) */
+  --background: #f5f5f7; 
+  --foreground: #09090b; 
+  --muted: #f4f4f5; 
+  --muted-foreground: #71717a; 
+  --border: rgba(0, 0, 0, 0.06);
+  --card: #ffffff;
+  --card-foreground: #09090b;
+  --pie-1: #0a0a0a;
+  --pie-2: #262626;
+  --pie-3: #404040;
+  --pie-4: #525252;
+  --pie-5: #737373;
+  --pie-track: rgba(0,0,0,0.04);
+}
+
+.dark {
+  /* Dark Mode */
+  --background: #09090b;
+  --foreground: #ffffff;
+  --muted: #18181b;
+  --muted-foreground: #a1a1aa;
+  --border: rgba(255, 255, 255, 0.08);
+  --card: #09090b;
+  --card-foreground: #ffffff;
+  --pie-1: #ffffff;
+  --pie-2: #d4d4d8;
+  --pie-3: #a1a1aa;
+  --pie-4: #71717a;
+  --pie-5: #52525b;
+  --pie-track: rgba(255, 255, 255, 0.06);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --font-sans: var(--font-space-grotesk);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-space-grotesk), sans-serif;
+  overflow: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Hide scrollbars for internal scrolling elements if needed */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
