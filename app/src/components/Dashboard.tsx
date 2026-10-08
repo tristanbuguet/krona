@@ -583,9 +583,9 @@ export function Dashboard() {
             month: dateInfo.month,
             isSubscription: fallback.isSub,
             isInternalTransfer: fallback.isInternalTransfer,
-          };
+          } as Transaction;
         })
-        .filter((row): row is Transaction => row !== null && row.amount !== 0);
+        .filter(row => row !== null && row.amount !== 0) as Transaction[];
 
       const unknownLabels = Array.from(new Set(
         parsedRows
@@ -636,7 +636,7 @@ export function Dashboard() {
 
       const finalCache = { ...cache, ...newMapping };
 
-      const newTransactions = parsedRows.map(row => {
+      const newTransactions: Transaction[] = parsedRows.map(row => {
         // Absolute rule: internal transfers must never be overridden by cache
         if (row.isInternalTransfer) {
           return {
@@ -704,7 +704,7 @@ export function Dashboard() {
       } else if (newTransactions.length > 0) {
         // Fallback to the most recent month if no new tx but we still want to select something
         const sortedMonths = Array.from(new Set(newTransactions.map(t => t.month))).sort().reverse();
-        setSelectedMonth(sortedMonths[0]);
+        if (sortedMonths.length > 0) setSelectedMonth(sortedMonths[0]);
       }
 
       setProcessState(null);
@@ -1420,7 +1420,7 @@ export function Dashboard() {
                       fillOpacity={0.8} 
                       radius={[4, 4, 0, 0]}
                       className="cursor-pointer transition-opacity hover:opacity-100"
-                      onClick={(data) => {
+                      onClick={(data: any) => {
                         if (data && data.rawMonth) {
                           setSelectedMonth(data.rawMonth);
                         }
