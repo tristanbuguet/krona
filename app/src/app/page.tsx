@@ -7,7 +7,6 @@ import { Dashboard } from "@/components/Dashboard";
 export default function Home() {
   const [hasRealData, setHasRealData] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(true);
-  const [isDemoMode, setIsDemoMode] = useState(false);
 
   useEffect(() => {
     const checkData = () => {
@@ -33,15 +32,9 @@ export default function Home() {
     return () => window.removeEventListener("finance-data-state", checkData);
   }, []);
 
-  useEffect(() => {
-    const handleDemoState = (e: any) => {
-      setIsDemoMode(e.detail?.isDemoMode || false);
-    };
-    window.addEventListener("demo-mode-state", handleDemoState);
-    return () => window.removeEventListener("demo-mode-state", handleDemoState);
-  }, []);
-
-  const isBlurred = !hasRealData && showWelcomeModal && !isDemoMode;
+  // When no real data has been imported, demo mode is active both under the blur and when modal is dismissed
+  const isDemoMode = !hasRealData;
+  const isBlurred = !hasRealData && showWelcomeModal;
 
   const handleExitDemo = useCallback(() => {
     setShowWelcomeModal(true);

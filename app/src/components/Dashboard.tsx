@@ -570,11 +570,11 @@ export function Dashboard({
   // Sync demo mode state with Navbar
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const isCurrentlyDemo = propIsDemoMode !== undefined ? propIsDemoMode : demoMode;
+      const isCurrentlyDemo = propIsDemoMode !== undefined ? propIsDemoMode : (transactions.length === 0);
       (window as any).__IS_DEMO_MODE__ = isCurrentlyDemo;
       window.dispatchEvent(new CustomEvent("demo-mode-state", { detail: { isDemoMode: isCurrentlyDemo } }));
     }
-  }, [demoMode, propIsDemoMode]);
+  }, [transactions.length, propIsDemoMode]);
 
   // Load transactions and settings from localStorage on mount
   useEffect(() => {
@@ -702,7 +702,7 @@ export function Dashboard({
     setActiveTab("dashboard");
     window.dispatchEvent(new CustomEvent("finance-data-state"));
     window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: true } }));
-    window.dispatchEvent(new CustomEvent("demo-mode-state", { detail: { isDemoMode: false } }));
+    window.dispatchEvent(new CustomEvent("demo-mode-state", { detail: { isDemoMode: true } }));
     setShowResetModal(false);
   };
 
@@ -715,9 +715,9 @@ export function Dashboard({
   }, [transactions]);
 
   const hasRealData = Boolean(transactions && transactions.length > 0);
-  const isDemo = propIsDemoMode !== undefined ? propIsDemoMode : demoMode;
-  const isWelcomeOpen = !hasRealData && !isDemo && (propShowWelcomeModal !== undefined ? propShowWelcomeModal : internalWelcomeOpen);
-  const activeTransactions = hasRealData ? transactions : (isDemo ? initialTransactions : []);
+  const isDemo = propIsDemoMode !== undefined ? propIsDemoMode : !hasRealData;
+  const isWelcomeOpen = !hasRealData && (propShowWelcomeModal !== undefined ? propShowWelcomeModal : internalWelcomeOpen);
+  const activeTransactions = hasRealData ? transactions : initialTransactions;
 
   const uniqueMonths = useMemo(() => {
     return Array.from(new Set(activeTransactions.map(tx => tx.month))).sort().reverse();
