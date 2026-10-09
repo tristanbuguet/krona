@@ -31,12 +31,49 @@ const KronaLogo = ({ className = "w-6 h-6" }: { className?: string }) => (
   </svg>
 );
 
-export function Navbar() {
+interface NavbarProps {
+  isDemoMode?: boolean;
+  isBlurred?: boolean;
+  onExitDemo?: () => void;
+}
+
+export function Navbar({ 
+  isDemoMode: propIsDemoMode, 
+  isBlurred: propIsBlurred, 
+  onExitDemo 
+}: NavbarProps = {}) {
+  const [internalDemoMode, setInternalDemoMode] = useState(true);
+  const [internalBlurred, setInternalBlurred] = useState(true);
+  const isDemoMode = propIsDemoMode !== undefined ? propIsDemoMode : internalDemoMode;
+  const isBlurred = propIsBlurred !== undefined ? propIsBlurred : internalBlurred;
   const [activeTab, setActiveTab] = useState("dashboard");
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [inboxCount, setInboxCount] = useState(0);
-  const [hasData, setHasData] = useState(true);
+  const [hasData, setHasData] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && (window as any).__IS_DEMO_MODE__ !== undefined) {
+      setInternalDemoMode(!!(window as any).__IS_DEMO_MODE__);
+    }
+    const handleDemoState = (e: any) => {
+      setInternalDemoMode(!!e.detail?.isDemoMode);
+    };
+    const handleWelcomeModal = (e: any) => {
+      setInternalBlurred(!!e.detail?.isOpen);
+    };
+    const handleNav = (e: any) => {
+      if (e.detail?.tab) setActiveTab(e.detail.tab);
+    };
+    window.addEventListener("demo-mode-state", handleDemoState);
+    window.addEventListener("welcome-modal-state", handleWelcomeModal);
+    window.addEventListener("navigate-tab", handleNav);
+    return () => {
+      window.removeEventListener("demo-mode-state", handleDemoState);
+      window.removeEventListener("welcome-modal-state", handleWelcomeModal);
+      window.removeEventListener("navigate-tab", handleNav);
+    };
+  }, []);
 
   useEffect(() => {
     const checkData = () => {
@@ -44,16 +81,29 @@ export function Navbar() {
       if (savedTx) {
         try {
           const parsed = JSON.parse(savedTx);
-          setHasData(parsed.length > 0);
-        } catch(e) { setHasData(false); }
+          const has = Boolean(parsed && parsed.length > 0);
+          setHasData(has);
+          if (propIsDemoMode === undefined) {
+            setInternalDemoMode(!has);
+          }
+          if (propIsBlurred === undefined) {
+            setInternalBlurred(!has);
+          }
+        } catch(e) { 
+          setHasData(false);
+          if (propIsDemoMode === undefined) setInternalDemoMode(true);
+          if (propIsBlurred === undefined) setInternalBlurred(true);
+        }
       } else {
         setHasData(false);
+        if (propIsDemoMode === undefined) setInternalDemoMode(true);
+        if (propIsBlurred === undefined) setInternalBlurred(true);
       }
     };
     checkData();
     window.addEventListener("finance-data-state", checkData);
     return () => window.removeEventListener("finance-data-state", checkData);
-  }, []);
+  }, [propIsDemoMode, propIsBlurred]);
 
   // Avoid hydration mismatch by only rendering theme toggle after mount
   useEffect(() => setMounted(true), []);
@@ -70,8 +120,21 @@ export function Navbar() {
     window.dispatchEvent(new CustomEvent("trigger-csv-upload"));
   };
 
+  const handleExitDemo = () => {
+    if (onExitDemo) {
+      onExitDemo();
+    }
+    setInternalBlurred(true);
+    setActiveTab("dashboard");
+    window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: true } }));
+    window.dispatchEvent(new CustomEvent("exit-demo-mode"));
+  };
+
   return (
-    <header className="fixed top-6 left-0 right-0 z-50 flex items-center justify-between h-16 w-full px-12">
+    <header className={clsx(
+      "fixed top-6 left-0 right-0 z-40 flex items-center justify-between h-16 w-full px-12 transition-all duration-700",
+      isBlurred && "blur-[6px] opacity-25 pointer-events-none select-none"
+    )}>
       {/* Logo */}
       <Link 
         href="/"
@@ -87,26 +150,28 @@ export function Navbar() {
 
       {/* Pill Navbar */}
       <nav className={clsx(
-        "flex items-center bg-card/60 backdrop-blur-2xl shadow-sm border border-border rounded-full p-1 relative transition-colors",
-        !hasData && "opacity-30 pointer-events-none cursor-default"
+        "flex items-center bg-card/60 backdrop-blur-2xl backdrop-saturate-150 shadow-sm border border-border rounded-full p-1 relative transition-colors"
       )}>
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
+          const isItemDisabled = isDemoMode && item.id !== "dashboard";
           return (
             <motion.button
               type="button"
               key={item.id}
-              whileTap={{ scale: 0.96 }}
+              whileTap={isItemDisabled ? undefined : { scale: 0.96 }}
               onClick={() => {
+                if (isItemDisabled) return;
                 setActiveTab(item.id);
                 window.dispatchEvent(new CustomEvent("navigate-tab", { detail: { tab: item.id } }));
               }}
               className={clsx(
-                "relative px-5 py-2.5 rounded-full text-sm font-medium transition-colors flex items-center gap-2 outline-none cursor-pointer",
+                "relative px-5 py-2.5 rounded-full text-sm font-medium transition-colors flex items-center gap-2 outline-none cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
                 isActive 
                   ? "text-background" 
-                  : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08]"
+                  : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08]",
+                isItemDisabled && "opacity-40 pointer-events-none"
               )}
             >
               {isActive && (
@@ -131,14 +196,17 @@ export function Navbar() {
         <motion.button 
           type="button"
           whileTap={{ scale: 0.96 }} 
-          onClick={triggerCSVUpload}
-          className={clsx(
-            "h-10 px-4 rounded-full bg-black text-white dark:bg-white dark:text-black font-medium flex items-center gap-2 shadow-[0_1px_2px_rgba(0,0,0,0.1)] transition-all hover:opacity-90 hover:shadow-md cursor-pointer",
-            !hasData && "invisible opacity-0"
-          )}
+          onClick={isDemoMode ? handleExitDemo : triggerCSVUpload}
+          className="h-10 px-4 rounded-full bg-black text-white dark:bg-white dark:text-black text-sm font-medium flex items-center gap-2 shadow-[0_1px_2px_rgba(0,0,0,0.1)] transition-all hover:opacity-90 hover:shadow-md cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
         >
-          <Plus size={16} />
-          <span className="hidden sm:inline">Importer CSV</span>
+          {isDemoMode ? (
+            <span>Quitter la démo</span>
+          ) : (
+            <>
+              <Plus size={16} />
+              <span className="hidden sm:inline">Importer un CSV</span>
+            </>
+          )}
         </motion.button>
 
         <div className="w-px h-6 bg-border mx-1"></div>
@@ -149,7 +217,7 @@ export function Navbar() {
             type="button"
             whileTap={{ scale: 0.95 }} 
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer"
+            className="w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
             aria-label="Basculer le thème"
             title={theme === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}
           >
@@ -160,9 +228,12 @@ export function Navbar() {
         {/* Settings */}
         <motion.button 
           type="button"
-          whileTap={{ scale: 0.95 }} 
-          onClick={() => window.dispatchEvent(new CustomEvent("open-settings"))}
-          className="w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer"
+          whileTap={isDemoMode ? undefined : { scale: 0.95 }} 
+          onClick={isDemoMode ? undefined : () => window.dispatchEvent(new CustomEvent("open-settings"))}
+          className={clsx(
+            "w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
+            isDemoMode && "opacity-40 pointer-events-none cursor-not-allowed"
+          )}
           aria-label="Paramètres"
           title="Paramètres"
         >
@@ -172,9 +243,12 @@ export function Navbar() {
         {/* Notifications / Profile */}
         <motion.button 
           type="button"
-          whileTap={{ scale: 0.95 }} 
-          onClick={() => window.dispatchEvent(new CustomEvent("open-inbox"))}
-          className="relative w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer"
+          whileTap={isDemoMode ? undefined : { scale: 0.95 }} 
+          onClick={isDemoMode ? undefined : () => window.dispatchEvent(new CustomEvent("open-inbox"))}
+          className={clsx(
+            "relative w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
+            isDemoMode && "opacity-40 pointer-events-none cursor-not-allowed"
+          )}
           aria-label="Notifications"
           title="Notifications"
         >
@@ -185,9 +259,12 @@ export function Navbar() {
         </motion.button>
         <motion.button 
           type="button"
-          whileTap={{ scale: 0.95 }} 
-          onClick={() => window.dispatchEvent(new CustomEvent("open-settings"))}
-          className="w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl border border-border flex items-center justify-center overflow-hidden text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer group"
+          whileTap={isDemoMode ? undefined : { scale: 0.95 }} 
+          onClick={isDemoMode ? undefined : () => window.dispatchEvent(new CustomEvent("open-profile"))}
+          className={clsx(
+            "w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border flex items-center justify-center overflow-hidden text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer group focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
+            isDemoMode && "opacity-40 pointer-events-none cursor-not-allowed"
+          )}
           aria-label="Profil utilisateur"
           title="Profil"
         >

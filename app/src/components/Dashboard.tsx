@@ -1,12 +1,14 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Area, AreaChart, LineChart, Line, Legend, ResponsiveContainer, Tooltip, XAxis, PieChart, Pie, Cell, BarChart, Bar, ReferenceLine } from "recharts";
+import { Area, AreaChart, LineChart, Line, Legend, ResponsiveContainer, Tooltip, XAxis, PieChart, Pie, Cell, BarChart, Bar, ReferenceLine, CartesianGrid } from "recharts";
 import { CSVUploader } from "./CSVUploader";
-import { SubscriptionManager } from "./SubscriptionManager";
-import { useState, useMemo, useEffect } from "react";
+import { CloseButton } from "./ui/CloseButton";
+import { SubscriptionManager, detectSubscriptions } from "./SubscriptionManager";
+import { AiInsightsCard } from "./AiInsightsCard";
+import { useState, useMemo, useEffect, useRef } from "react";
 import clsx from "clsx";
-import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, Loader2, ChevronDown, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, CreditCard, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, Loader2, ChevronDown, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, CreditCard, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays, ArrowRight, Search } from "lucide-react";
 
 type Transaction = {
   id: string;
@@ -58,10 +60,21 @@ const OFFICIAL_CATEGORIES = [
   "Transports",
   "Abonnements & Forfaits",
   "Santé & Soins",
+  "Logement & Maison",
   "Virements proches & Remboursements",
   "Revenus & Aides",
   "Épargne & Trésorerie"
 ];
+
+function cleanMerchantName(rawLabel: string) {
+  let name = rawLabel.toUpperCase();
+  name = name.replace(/^(CARTE\sX\d{4}\s\d{2}\/\d{2}|CARTE\s|CB\*\s|VIR\sRECU\s|VIR\sSEPA\s|PRLV\sSEPA\s|PAIEMENT\sCB\s)/, "");
+  name = name.replace(/\s\d{2}\/\d{2}(\/\d{2,4})?(\s|$)/g, " ");
+  name = name.replace(/\s[A-Z0-9]{8,}\s*$/, "");
+  name = name.replace(/\s+/g, " ").trim();
+  if (!name) return "Inconnu";
+  return name.split(" ").map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(" ");
+}
 
 function getLocalFallback(categoryBourso: string, name: string, cache: Record<string, any>) {
   const cat = categoryBourso.toLowerCase();
@@ -125,21 +138,43 @@ function getLocalFallback(categoryBourso: string, name: string, cache: Record<st
 }
 
 const formatMonthLabel = (yyyyMM: string) => {
-  if (yyyyMM === "Tout") return "Toutes les périodes";
+  if (yyyyMM === "Tout" || yyyyMM === "all") return "Toutes les périodes";
+  if (yyyyMM === "demo-month") return "Mois d'exemple";
   const [yyyy, mm] = yyyyMM.split("-");
   const date = new Date(parseInt(yyyy), parseInt(mm) - 1);
   return date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }).replace(/^\w/, c => c.toUpperCase());
 };
 
 const initialTransactions: Transaction[] = [
-  { id: "1", name: "Netflix", type: "Abonnements & Forfaits", amount: -15.99, date: "2026-10-15", month: "2026-10", isSubscription: true },
-  { id: "2", name: "Uber Eats", type: "Restos & Fast-Food", amount: -25.50, date: "2026-10-12", month: "2026-10" },
-  { id: "3", name: "Virement Salaire", type: "Revenus & Aides", amount: 2800.00, date: "2026-10-01", month: "2026-10" },
+  { id: "demo-1", name: "Employeur (Salaire)", type: "Revenus & Aides", amount: 3200.00, date: "2026-10-01", month: "demo-month" },
+  { id: "demo-2", name: "Netflix", type: "Abonnements & Forfaits", amount: -15.99, date: "2026-10-02", month: "demo-month", isSubscription: true },
+  { id: "demo-3", name: "Loyer", type: "Logement & Maison", amount: -950.00, date: "2026-10-02", month: "demo-month" },
+  { id: "demo-4", name: "Carrefour", type: "Alimentation & Courses", amount: -84.20, date: "2026-10-03", month: "demo-month" },
+  { id: "demo-5", name: "Uber", type: "Transports", amount: -12.50, date: "2026-10-04", month: "demo-month" },
+  { id: "demo-6", name: "Spotify", type: "Abonnements & Forfaits", amount: -10.99, date: "2026-10-05", month: "demo-month", isSubscription: true },
+  { id: "demo-7", name: "Boulangerie", type: "Alimentation & Courses", amount: -4.50, date: "2026-10-05", month: "demo-month" },
+  { id: "demo-8", name: "Orange (Internet)", type: "Abonnements & Forfaits", amount: -39.99, date: "2026-10-06", month: "demo-month", isSubscription: true },
+  { id: "demo-9", name: "Pharmacie", type: "Santé & Soins", amount: -14.20, date: "2026-10-08", month: "demo-month" },
+  { id: "demo-10", name: "Restaurant Le Sud", type: "Restos & Fast-Food", amount: -45.00, date: "2026-10-09", month: "demo-month" },
+  { id: "demo-11", name: "Monoprix", type: "Alimentation & Courses", amount: -32.10, date: "2026-10-10", month: "demo-month" },
+  { id: "demo-12", name: "Amazon", type: "Shopping & Mode", amount: -29.90, date: "2026-10-12", month: "demo-month" },
+  { id: "demo-13", name: "Basic Fit", type: "Abonnements & Forfaits", amount: -29.99, date: "2026-10-14", month: "demo-month", isSubscription: true },
+  { id: "demo-14", name: "RATP", type: "Transports", amount: -84.10, date: "2026-10-15", month: "demo-month", isSubscription: true },
+  { id: "demo-15", name: "Franprix", type: "Alimentation & Courses", amount: -18.40, date: "2026-10-17", month: "demo-month" },
+  { id: "demo-16", name: "Uber Eats", type: "Restos & Fast-Food", amount: -22.50, date: "2026-10-18", month: "demo-month" },
+  { id: "demo-17", name: "Cinéma Gaumont", type: "Sorties & Soirées", amount: -28.00, date: "2026-10-20", month: "demo-month" },
+  { id: "demo-18", name: "Virement Livret A", type: "Épargne & Trésorerie", amount: -300.00, date: "2026-10-22", month: "demo-month", isInternalTransfer: true },
+  { id: "demo-19", name: "Leclerc", type: "Alimentation & Courses", amount: -115.30, date: "2026-10-24", month: "demo-month" },
+  { id: "demo-20", name: "Remboursement Sécu", type: "Santé & Soins", amount: 18.50, date: "2026-10-26", month: "demo-month" },
+  { id: "demo-21", name: "Asos", type: "Shopping & Mode", amount: -65.00, date: "2026-10-27", month: "demo-month" },
+  { id: "demo-22", name: "Starbucks", type: "Restos & Fast-Food", amount: -6.50, date: "2026-10-28", month: "demo-month" },
+  { id: "demo-23", name: "Boulangerie", type: "Alimentation & Courses", amount: -3.20, date: "2026-10-29", month: "demo-month" },
+  { id: "demo-24", name: "Uber", type: "Transports", amount: -18.00, date: "2026-10-30", month: "demo-month" }
 ];
 
-function Card({ children, className = "", noPadding = false }: { children: React.ReactNode; className?: string, noPadding?: boolean }) {
+function Card({ children, className = "", noPadding = false, onClick }: { children: React.ReactNode; className?: string; noPadding?: boolean; onClick?: () => void }) {
   return (
-    <div className={`bg-card border border-border rounded-3xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col ${noPadding ? "" : "p-6 xl:p-8"} ${className}`}>
+    <div onClick={onClick} className={`bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col ${noPadding ? "" : "p-5 md:p-6"} ${className}`}>
       {children}
     </div>
   );
@@ -165,16 +200,16 @@ const CustomTooltip = ({ active, payload }: any) => {
     const data = payload[0].payload;
     if (!data.dateFormatted) return null;
     return (
-      <div className="bg-neutral-900/90 dark:bg-black/90 backdrop-blur-xl border border-white/[0.1] rounded-2xl p-3 shadow-xl min-w-[180px]">
+      <div className="bg-neutral-900/90 dark:bg-black/90 backdrop-blur-xl backdrop-saturate-150 border border-white/[0.1] rounded-2xl p-3 shadow-xl min-w-[180px]">
         <div className="text-xs text-neutral-400 font-medium mb-1">{data.dateFormatted}</div>
-        <div className="text-base font-bold text-white mb-1">{data.amount.toFixed(2)} €</div>
-        {!data.rawMonth && <div className="text-xs text-neutral-400 mb-2">Total cumulé : {data.cumulative.toFixed(2)} €</div>}
+        <div className="text-base font-bold text-white mb-1 tabular-nums">{data.amount.toFixed(2)} €</div>
+        {!data.rawMonth && <div className="text-xs text-neutral-400 mb-2">Total cumulé : <span className="tabular-nums">{data.cumulative.toFixed(2)} €</span></div>}
         {data.topTx && data.topTx.length > 0 && (
           <div className="pt-2 border-t border-white/[0.1] flex flex-col gap-1.5 mt-1">
             {data.topTx.map((tx: any, i: number) => (
               <div key={i} className="flex justify-between items-center text-[11px]">
                 <span className="text-neutral-300 truncate pr-3 max-w-[120px]">{tx.name}</span>
-                <span className="text-neutral-400 whitespace-nowrap">{tx.amount.toFixed(2)} €</span>
+                <span className="text-neutral-400 tabular-nums whitespace-nowrap">{tx.amount.toFixed(2)} €</span>
               </div>
             ))}
           </div>
@@ -190,7 +225,7 @@ const CustomRaceTooltip = ({ active, payload }: any) => {
     const data = payload[0].payload;
     const sorted = [...payload].sort((a, b) => b.value - a.value);
     return (
-      <div className="bg-neutral-900/90 dark:bg-black/90 backdrop-blur-xl border border-white/[0.1] rounded-2xl p-3 shadow-xl min-w-[180px]">
+      <div className="bg-neutral-900/90 dark:bg-black/90 backdrop-blur-xl backdrop-saturate-150 border border-white/[0.1] rounded-2xl p-3 shadow-xl min-w-[180px]">
         <div className="text-xs text-neutral-400 font-medium mb-3">Jour {data.day}</div>
         <div className="flex flex-col gap-1.5">
           {sorted.map((entry, i) => (
@@ -199,7 +234,7 @@ const CustomRaceTooltip = ({ active, payload }: any) => {
                 <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: entry.color }} />
                 <span className="text-neutral-300 truncate max-w-[90px]">{formatMonthLabel(entry.dataKey)}</span>
               </div>
-              <span className="text-neutral-100 font-medium whitespace-nowrap pl-3">{entry.value.toFixed(2)} €</span>
+              <span className="text-neutral-100 font-medium tabular-nums whitespace-nowrap pl-3">{entry.value.toFixed(2)} €</span>
             </div>
           ))}
         </div>
@@ -228,24 +263,24 @@ const CategoryIcon = ({ type, isSubscription, isInternalTransfer }: { type: stri
   }
 };
 
-const TransactionRow = ({ tx, hideDescription }: { tx: Transaction, hideDescription?: boolean }) => {
+const TransactionRow = ({ tx, hideDescription, isSubscription }: { tx: Transaction, hideDescription?: boolean, isSubscription?: boolean }) => {
   return (
     <motion.div 
       whileTap={{ scale: 0.98 }} 
-      className="flex items-center justify-between min-h-[58px] px-4 py-3 rounded-2xl cursor-pointer group hover:bg-neutral-50 dark:hover:bg-muted/40 transition-all border border-transparent hover:border-black/5 dark:hover:border-white/5"
+      className="flex items-center justify-between py-3.5 px-2 cursor-pointer group hover:bg-neutral-50 dark:hover:bg-white/[0.02] transition-colors rounded-xl"
     >
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-full bg-neutral-800/80 dark:bg-white/[0.06] border border-white/[0.06] flex items-center justify-center shrink-0">
-          <CategoryIcon type={tx.type} isSubscription={tx.isSubscription} isInternalTransfer={tx.isInternalTransfer} />
+        <div className="w-9 h-9 rounded-full bg-neutral-100 dark:bg-white/[0.06] border border-black/5 dark:border-white/[0.06] flex items-center justify-center shrink-0">
+          <CategoryIcon type={tx.type} isSubscription={isSubscription ?? tx.isSubscription} isInternalTransfer={tx.isInternalTransfer} />
         </div>
         <div className="min-w-0">
-          <div className="font-medium text-sm xl:text-base text-foreground truncate max-w-[120px] xl:max-w-[180px]">{tx.name}</div>
+          <div className="font-semibold text-sm text-foreground truncate max-w-[140px] sm:max-w-[240px] xl:max-w-[300px]">{tx.name}</div>
           {!hideDescription && tx.type && (
             <div className="flex items-center gap-2 mt-0.5">
               {tx.type === "Épargne & Trésorerie" || tx.isInternalTransfer ? (
-                <span className="text-[10px] uppercase font-bold bg-neutral-200/50 dark:bg-neutral-800 text-neutral-500 px-2 py-0.5 rounded-full shrink-0">Virement interne</span>
+                <span className="text-[10px] bg-black/5 dark:bg-white/[0.06] text-neutral-400 px-1.5 py-0.5 rounded tracking-wide">VIREMENT INTERNE</span>
               ) : (
-                <div className="text-xs xl:text-sm text-muted-foreground truncate max-w-[120px] xl:max-w-[180px]">
+                <div className="text-xs text-neutral-500 truncate max-w-[140px] sm:max-w-[240px] xl:max-w-[300px]">
                   {tx.type}
                 </div>
               )}
@@ -254,10 +289,10 @@ const TransactionRow = ({ tx, hideDescription }: { tx: Transaction, hideDescript
         </div>
       </div>
       <div className="text-right shrink-0">
-        <div className={`font-bold text-sm xl:text-base text-foreground`}>
+        <div className="text-sm font-medium tabular-nums text-foreground">
           {tx.amount > 0 ? "+" : ""}{tx.amount.toFixed(2)} €
         </div>
-        <div className="text-xs xl:text-sm text-muted-foreground mt-0.5">{tx.date}</div>
+        <div className="text-xs text-neutral-500 mt-0.5">{tx.date}</div>
       </div>
     </motion.div>
   );
@@ -266,19 +301,31 @@ const TransactionRow = ({ tx, hideDescription }: { tx: Transaction, hideDescript
 const SHOW_AI_COACH = false;
 
 const CalendarModal = ({ 
-  isOpen, 
+  isOpen = true, 
   onClose, 
   transactions, 
   selectedMonth, 
   onSelectMonth 
 }: { 
-  isOpen: boolean, 
+  isOpen?: boolean, 
   onClose: () => void, 
   transactions: Transaction[], 
-  selectedMonth: string,
+  selectedMonth: string | null,
   onSelectMonth: (m: string) => void 
 }) => {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
 
   const availableYears = useMemo(() => {
     const years = Array.from(new Set(transactions.map(t => parseInt(t.date.slice(0, 4)))));
@@ -307,7 +354,7 @@ const CalendarModal = ({
           if (tx.amount < 0 && !tx.isInternalTransfer && tx.type !== "Épargne & Trésorerie") {
             stats[m].expenses += Math.abs(tx.amount);
           }
-          if (tx.amount > 0 || (!tx.isInternalTransfer && tx.type !== "Épargne & Trésorerie")) {
+          if (!tx.isInternalTransfer && tx.type !== "Épargne & Trésorerie") {
              stats[m].balance += tx.amount;
           }
         }
@@ -316,32 +363,45 @@ const CalendarModal = ({
     return stats;
   }, [transactions, selectedYear]);
 
-  if (!isOpen) return null;
-
   const months = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop translucide Apple avec animation fluide d'ouverture et de fermeture */}
       <motion.div 
+        initial={{ opacity: 0 }} 
+        animate={{ opacity: 1 }} 
+        exit={{ opacity: 0 }} 
+        transition={{ duration: 0.2 }}
+        className="absolute inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-md"
+        onClick={onClose}
+      />
+
+      {/* Contenu de la modale avec animation spring scale & fade */}
+      <motion.div 
+        ref={modalRef}
         initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        className="w-full max-w-4xl bg-neutral-900 border border-white/[0.08] rounded-3xl p-6 md:p-8 shadow-2xl relative flex flex-col max-h-[90vh]"
+        transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-4xl bg-card border border-border dark:border-white/[0.08] rounded-3xl p-6 md:p-8 shadow-2xl relative z-10 flex flex-col max-h-[90vh] mx-4"
       >
-        <button onClick={onClose} className="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 transition-colors">
-          <X size={20} className="text-neutral-400 hover:text-white" />
-        </button>
+        <CloseButton onClick={onClose} className="absolute top-6 right-6 z-10" iconSize={18} />
 
-        <h2 className="text-2xl font-bold tracking-tight text-white mb-6">Vue annuelle</h2>
+        <h2 className="text-2xl font-bold tracking-tight text-foreground mb-6">Vue annuelle</h2>
         
-        <div className="flex gap-2 mb-8 border-b border-white/[0.06] pb-4">
+        <div className="flex gap-2 mb-8 border-b border-border pb-4">
           {availableYears.map(y => (
             <button 
               key={y} 
+              type="button"
               onClick={() => setSelectedYear(y)}
               className={clsx(
-                "px-4 py-2 rounded-xl text-sm font-medium transition-all",
-                selectedYear === y ? "bg-white text-black" : "text-neutral-400 hover:text-white hover:bg-white/5"
+                "h-9 px-4 rounded-full text-sm font-medium transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer",
+                selectedYear === y 
+                  ? "bg-foreground text-background shadow-sm" 
+                  : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
               )}
             >
               {y}
@@ -369,23 +429,23 @@ const CalendarModal = ({
                   }}
                   className={clsx(
                     "rounded-2xl border transition-all p-4 flex flex-col justify-between h-[110px]",
-                    isActive ? "bg-neutral-900/60 cursor-pointer hover:bg-neutral-800" : "bg-transparent border-dashed border-white/[0.04] opacity-30 pointer-events-none",
-                    isSelected ? "border-white/40 ring-1 ring-white/20" : isActive ? "border-white/[0.06] hover:border-white/20" : ""
+                    isActive ? "bg-black/[0.02] dark:bg-white/[0.03] cursor-pointer hover:bg-black/[0.05] dark:hover:bg-white/[0.06]" : "bg-transparent border-dashed border-border/40 opacity-30 pointer-events-none",
+                    isSelected ? "border-foreground/40 ring-1 ring-foreground/20" : isActive ? "border-border hover:border-foreground/20" : ""
                   )}
                 >
                   <div className="flex justify-between items-start mb-2">
-                    <span className="font-semibold text-white truncate pr-2">{monthName}</span>
-                    {isActive && <span className="text-[10px] bg-white/[0.08] text-neutral-300 px-2 py-0.5 rounded-full shrink-0">{stat.count} op</span>}
+                    <span className="font-semibold text-foreground truncate pr-2">{monthName}</span>
+                    {isActive && <span className="text-[10px] bg-black/5 dark:bg-white/[0.08] text-neutral-600 dark:text-neutral-300 px-2 py-0.5 rounded-full shrink-0 font-medium">{stat.count} op</span>}
                   </div>
                   {isActive && (
                     <div className="mt-auto flex justify-between items-end">
                       <div>
                         <div className="text-[10px] text-neutral-500 uppercase tracking-wider mb-0.5">Dépenses</div>
-                        <div className="text-sm font-bold text-white">{stat.expenses.toFixed(0)} €</div>
+                        <div className="text-sm font-bold text-foreground tabular-nums">{stat.expenses.toFixed(0)} €</div>
                       </div>
                       <div className="text-right">
                         <div className="text-[10px] text-neutral-500 uppercase tracking-wider mb-0.5">Solde</div>
-                        <div className={clsx("text-sm font-bold", stat.balance >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                        <div className={clsx("text-sm font-bold tabular-nums", stat.balance >= 0 ? "text-emerald-500 dark:text-emerald-400" : "text-rose-500 dark:text-rose-400")}>
                           {stat.balance > 0 ? "+" : ""}{stat.balance.toFixed(0)} €
                         </div>
                       </div>
@@ -401,20 +461,78 @@ const CalendarModal = ({
   );
 };
 
-export function Dashboard() {
+interface DashboardProps {
+  isDemoMode?: boolean;
+  showWelcomeModal?: boolean;
+  onDismissWelcome?: () => void;
+  onExitDemo?: () => void;
+}
+
+export function Dashboard({
+  isDemoMode: propIsDemoMode,
+  showWelcomeModal: propShowWelcomeModal,
+  onDismissWelcome,
+  onExitDemo,
+}: DashboardProps = {}) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [processState, setProcessState] = useState<null | "reading" | "analyzing" | "calculating">(null);
   const [toastMessage, setToastMessage] = useState<{ text: string, visible: boolean } | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState<string>("Tout");
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
+  const [internalWelcomeOpen, setInternalWelcomeOpen] = useState(true);
   
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [isSubsHovered, setIsSubsHovered] = useState(false);
+  const subsHoverTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleSubsMouseEnter = () => {
+    if (subsHoverTimerRef.current) clearTimeout(subsHoverTimerRef.current);
+    subsHoverTimerRef.current = setTimeout(() => {
+      setIsSubsHovered(true);
+    }, 120);
+  };
+
+  const handleSubsMouseLeave = () => {
+    if (subsHoverTimerRef.current) clearTimeout(subsHoverTimerRef.current);
+    subsHoverTimerRef.current = setTimeout(() => {
+      setIsSubsHovered(false);
+    }, 150);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (subsHoverTimerRef.current) clearTimeout(subsHoverTimerRef.current);
+    };
+  }, []);
+
   const [showInbox, setShowInbox] = useState(false);
+  const inboxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (showInbox && inboxRef.current && !inboxRef.current.contains(target)) {
+        if (!target.closest('[aria-label="Notifications"]')) {
+          setShowInbox(false);
+        }
+      }
+    };
+    if (showInbox) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showInbox]);
+
+  const [showTransactionsDrawer, setShowTransactionsDrawer] = useState(false);
+  const [drawerSearch, setDrawerSearch] = useState("");
+  const [drawerFilter, setDrawerFilter] = useState("all");
   const [settingsTab, setSettingsTab] = useState<"income" | "subs" | "budgets">("income");
   const [isSaved, setIsSaved] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [categoryBudgets, setCategoryBudgets] = useState<Record<string, number>>({});
+  const [ignoredSubscriptions, setIgnoredSubscriptions] = useState<string[]>([]);
   
   const [coachTips, setCoachTips] = useState<{type: string, text: string}[] | null>(null);
   const [isCoachLoading, setIsCoachLoading] = useState(false);
@@ -427,23 +545,54 @@ export function Dashboard() {
     savingsGoal: 0
   });
 
-  // Settings & Inbox Modal Listeners
+  // Settings, Inbox & Navigation Listeners
   useEffect(() => {
     const handleOpenSettings = () => setShowSettingsModal(true);
     const handleOpenInbox = () => setShowInbox(true);
     const handleNav = (e: any) => setActiveTab(e.detail.tab);
+    const handleExitDemo = () => {
+      setDemoMode(false);
+      setInternalWelcomeOpen(true);
+      setActiveTab("dashboard");
+    };
     window.addEventListener("open-settings", handleOpenSettings);
     window.addEventListener("open-inbox", handleOpenInbox);
     window.addEventListener("navigate-tab", handleNav);
+    window.addEventListener("exit-demo-mode", handleExitDemo);
     return () => {
       window.removeEventListener("open-settings", handleOpenSettings);
       window.removeEventListener("open-inbox", handleOpenInbox);
       window.removeEventListener("navigate-tab", handleNav);
+      window.removeEventListener("exit-demo-mode", handleExitDemo);
     };
   }, []);
 
+  // Sync demo mode state with Navbar
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const isCurrentlyDemo = propIsDemoMode !== undefined ? propIsDemoMode : (transactions.length === 0);
+      (window as any).__IS_DEMO_MODE__ = isCurrentlyDemo;
+      window.dispatchEvent(new CustomEvent("demo-mode-state", { detail: { isDemoMode: isCurrentlyDemo } }));
+    }
+  }, [transactions.length, propIsDemoMode]);
+
   // Load transactions and settings from localStorage on mount
   useEffect(() => {
+    try {
+      const cache = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
+      let changed = false;
+      Object.keys(cache).forEach(k => {
+        const lowerK = k.toLowerCase();
+        if (lowerK.includes('galeries lafayette') || lowerK.includes('societe anonyme des galeries la')) {
+           if (cache[k].categorie !== 'Revenus & Aides') {
+             cache[k].categorie = 'Revenus & Aides';
+             changed = true;
+           }
+        }
+      });
+      if (changed) localStorage.setItem('krona_merchant_knowledge', JSON.stringify(cache));
+    } catch (e) {}
+
     const savedTx = localStorage.getItem('financeTransactions_v1');
     if (savedTx) {
       let parsed = JSON.parse(savedTx) as Transaction[];
@@ -492,27 +641,35 @@ export function Dashboard() {
     if (savedIncome) {
       setIncomeSettings(JSON.parse(savedIncome));
     }
+
+    const savedIgnoredSubs = localStorage.getItem('krona_ignored_subscriptions');
+    if (savedIgnoredSubs) {
+      try { setIgnoredSubscriptions(JSON.parse(savedIgnoredSubs)); } catch(e) {}
+    }
   }, []);
 
-  // Keyboard Shortcuts for Modals
+  // Keyboard Shortcuts for Modals & Drawers
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setShowSettingsModal(false);
         setShowResetModal(false);
-      }
-      
-      if (e.key === "Enter" && showResetModal) {
-        confirmReset();
+        setShowInbox(false);
+        setShowCalendarModal(false);
+        setIsSubsHovered(false);
+        setShowTransactionsDrawer(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showSettingsModal, showResetModal, showInbox]);
+  }, []);
 
   const confirmReset = () => {
+    if (!selectedMonth || selectedMonth === "Tout" || selectedMonth === "all") return;
+    let remainingMonths: string[] = [];
     setTransactions(prev => {
       const updated = prev.filter(tx => tx.month !== selectedMonth);
+      remainingMonths = Array.from(new Set(updated.map(tx => tx.month))).sort().reverse();
       if (updated.length === 0) {
         localStorage.removeItem('financeTransactions_v1');
       } else {
@@ -520,7 +677,32 @@ export function Dashboard() {
       }
       return updated;
     });
-    setSelectedMonth("Tout");
+    if (remainingMonths.length === 1) {
+      setSelectedMonth(remainingMonths[0]);
+    } else if (remainingMonths.length > 1) {
+      setSelectedMonth("Tout");
+    } else {
+      setSelectedMonth(null);
+    }
+    setShowResetModal(false);
+  };
+
+  const confirmResetAll = () => {
+    localStorage.removeItem('financeTransactions_v1');
+    localStorage.removeItem('categoryBudgets');
+    localStorage.removeItem('fixedIncomeSettings');
+    localStorage.removeItem('krona_ignored_subscriptions');
+    localStorage.removeItem('krona_merchant_knowledge');
+    setTransactions([]);
+    setSelectedMonth(null);
+    setDemoMode(false);
+    setInternalWelcomeOpen(true);
+    setCategoryBudgets({});
+    setIgnoredSubscriptions([]);
+    setActiveTab("dashboard");
+    window.dispatchEvent(new CustomEvent("finance-data-state"));
+    window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: true } }));
+    window.dispatchEvent(new CustomEvent("demo-mode-state", { detail: { isDemoMode: true } }));
     setShowResetModal(false);
   };
 
@@ -532,13 +714,36 @@ export function Dashboard() {
     window.dispatchEvent(new CustomEvent("finance-data-state"));
   }, [transactions]);
 
-  const hasData = transactions && transactions.length > 0;
-  const activeTransactions = hasData ? transactions : initialTransactions;
+  const hasRealData = Boolean(transactions && transactions.length > 0);
+  const isDemo = propIsDemoMode !== undefined ? propIsDemoMode : !hasRealData;
+  const isWelcomeOpen = !hasRealData && (propShowWelcomeModal !== undefined ? propShowWelcomeModal : internalWelcomeOpen);
+  const activeTransactions = hasRealData ? transactions : initialTransactions;
+
+  const uniqueMonths = useMemo(() => {
+    return Array.from(new Set(activeTransactions.map(tx => tx.month))).sort().reverse();
+  }, [activeTransactions]);
+
+  const hasMultipleMonths = uniqueMonths.length > 1;
 
   const availableMonths = useMemo(() => {
-    const months = Array.from(new Set(activeTransactions.map(tx => tx.month))).sort().reverse();
-    return ["Tout", ...months];
-  }, [activeTransactions]);
+    if (hasMultipleMonths) {
+      return ["Tout", ...uniqueMonths];
+    }
+    return uniqueMonths;
+  }, [uniqueMonths, hasMultipleMonths]);
+
+  // Synchronisation stricte : si 1 seul mois, bascule automatiquement dessus
+  useEffect(() => {
+    if (!hasMultipleMonths && uniqueMonths.length === 1) {
+      if (selectedMonth === "Tout" || selectedMonth === "all" || !selectedMonth || !uniqueMonths.includes(selectedMonth)) {
+        setSelectedMonth(uniqueMonths[0]);
+      }
+    } else if (hasMultipleMonths) {
+      if (selectedMonth && selectedMonth !== "Tout" && selectedMonth !== "all" && !uniqueMonths.includes(selectedMonth)) {
+        setSelectedMonth("Tout");
+      }
+    }
+  }, [hasMultipleMonths, uniqueMonths, selectedMonth]);
 
   const handleUpload = async (data: any[]) => {
     try {
@@ -547,7 +752,7 @@ export function Dashboard() {
       // Artificial slight delay for smoothness
       await new Promise(r => setTimeout(r, 600));
 
-      const cache = JSON.parse(localStorage.getItem('financeCategoryCache_v2') || '{}');
+      const cache = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
 
       const parsedRows = data
         .filter((row: any[], i: number) => {
@@ -555,14 +760,14 @@ export function Dashboard() {
           // Accept lines with at least a date and an amount column, even if missing trailing columns
           return row.length >= 6 && row[0] && (row[6] !== undefined || row[5] !== undefined);
         })
-        .map((row: any[]) => {
+        .map((row: any[], index: number) => {
           const dateStr = String(row[0]).trim();
           const rawLibelle = String(row[2] || "").trim();
           const suggLibelle = String(row[3] || "").trim();
           const categoryBourso = String(row[4] || "").trim();
           const rawAmount = String(row[6] !== undefined ? row[6] : row[5] || "0").trim();
           
-          const name = suggLibelle || rawLibelle || "Unknown";
+          const name = cleanMerchantName(suggLibelle || rawLibelle || "Unknown");
           const fallback = getLocalFallback(categoryBourso, name, cache);
           
           const cleanedAmount = rawAmount.replace(/\s/g, '').replace('€', '').replace(',', '.');
@@ -574,7 +779,17 @@ export function Dashboard() {
             return null;
           }
 
-          const rawId = `${dateInfo.date}_${amount}_${name.trim().toLowerCase()}_${categoryBourso}`;
+          // Règle métier stricte : Galeries Lafayette
+          const lowerName = name.toLowerCase();
+          if (lowerName.includes('galeries lafayette') || lowerName.includes('societe anonyme des galeries la')) {
+            if (amount > 0) {
+              fallback.type = "Revenus & Aides";
+            } else {
+              fallback.type = "Shopping & Mode";
+            }
+          }
+
+          const rawId = `${dateInfo.date}_${amount}_${name.trim().toLowerCase()}_${categoryBourso}_${index}`;
           
           return {
             id: rawId,
@@ -602,28 +817,28 @@ export function Dashboard() {
       if (unknownLabels.length > 0) {
         console.log("Labels envoyés à Gemini:", unknownLabels);
         try {
-          const res = await fetch("/api/classify", {
+          const res = await fetch("/api/categorize", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ labels: unknownLabels }),
+            body: JSON.stringify({ transactions: unknownLabels }),
           });
           
           console.log("Status de l'API Gemini:", res.status);
           if (res.ok) {
             const result = await res.json();
-            if (result.classifications && Array.isArray(result.classifications)) {
-              result.classifications.forEach((item: any) => {
+            if (result.categorized && Array.isArray(result.categorized)) {
+              result.categorized.forEach((item: any) => {
                 // Ensure Gemini returned an official category
-                if (OFFICIAL_CATEGORIES.includes(item.categorie)) {
-                  newMapping[item.libelle] = {
-                    categorie: item.categorie,
+                if (OFFICIAL_CATEGORIES.includes(item.category)) {
+                  newMapping[item.raw] = {
+                    categorie: item.category,
                     isSubscription: item.isSubscription || false
                   };
                 }
               });
               
               const updatedCache = { ...cache, ...newMapping };
-              localStorage.setItem('financeCategoryCache_v2', JSON.stringify(updatedCache));
+              localStorage.setItem('krona_merchant_knowledge', JSON.stringify(updatedCache));
             }
           } else {
             console.warn("L'API Gemini a retourné un statut:", res.status);
@@ -699,7 +914,7 @@ export function Dashboard() {
         const salaryMonths = new Set<string>();
         combined.forEach(tx => {
           const nam = tx.name.toLowerCase();
-          const isSalary = tx.amount > 0 && (nam.includes("salaire") || nam.includes("employeur") || nam.includes("paie") || nam.includes("remuneration") || nam.includes("rémunération"));
+          const isSalary = tx.amount > 0 && (nam.includes("salaire") || nam.includes("employeur") || /\b(paie|paye)\b/i.test(nam) || nam.includes("remuneration") || nam.includes("rémunération"));
           if (isSalary) {
             salaryMonths.add(tx.month);
           }
@@ -707,11 +922,13 @@ export function Dashboard() {
 
         const adjusted = combined.map(tx => {
           const nam = tx.name.toLowerCase();
-          const isSalary = tx.amount > 0 && (nam.includes("salaire") || nam.includes("employeur") || nam.includes("paie") || nam.includes("remuneration") || nam.includes("rémunération"));
+          const isSalary = tx.amount > 0 && (nam.includes("salaire") || nam.includes("employeur") || /\b(paie|paye)\b/i.test(nam) || nam.includes("remuneration") || nam.includes("rémunération"));
           
           if (isSalary) {
             const day = parseInt(tx.date.split("-")[2], 10);
-            if (day <= 5) {
+            const isLatePayment = incomeSettings.salaryDay > 15 ? day < 15 : day <= 5;
+            
+            if (isLatePayment) {
               const [yyyy, mm] = tx.month.split("-");
               const prevMonthObj = new Date(parseInt(yyyy), parseInt(mm) - 2, 1);
               const prevMonthStr = `${prevMonthObj.getFullYear()}-${(prevMonthObj.getMonth() + 1).toString().padStart(2, '0')}`;
@@ -734,24 +951,28 @@ export function Dashboard() {
       const newestDate = allNewDates.length ? new Date(allNewDates[allNewDates.length - 1]).toLocaleDateString("fr-FR") : "?";
       console.log(`Importé : ${newTransactions.length} opérations sur ${uniqueMonths.size} mois (du ${oldestDate} au ${newestDate})`);
 
-      if (majorityMonth !== "Tout") {
+      const allResultMonths = Array.from(new Set(newTransactions.map(t => t.month))).sort().reverse();
+      if (allResultMonths.length === 1) {
+        setSelectedMonth(allResultMonths[0]);
+      } else if (majorityMonth !== "Tout" && majorityMonth !== "all") {
         setSelectedMonth(majorityMonth);
-      } else if (newTransactions.length > 0) {
-        // Fallback to the most recent month if no new tx but we still want to select something
-        const sortedMonths = Array.from(new Set(newTransactions.map(t => t.month))).sort().reverse();
-        if (sortedMonths.length > 0) setSelectedMonth(sortedMonths[0]);
+      } else if (allResultMonths.length > 0) {
+        setSelectedMonth(allResultMonths[0]);
       }
 
       setProcessState(null);
+      setDemoMode(false);
+      setInternalWelcomeOpen(false);
+      window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: false } }));
+      window.dispatchEvent(new CustomEvent("demo-mode-state", { detail: { isDemoMode: false } }));
       setToastMessage({
-        text: `Import réussi : ${addedCount} nouvelles opérations ajoutées sur ${uniqueMonths.size} mois (${duplicatesCount} doublons ignorés).`,
+        text: `Relevé importé · ${addedCount} opérations`,
         visible: true
       });
       
       setTimeout(() => {
-        setToastMessage(prev => prev ? { ...prev, visible: false } : null);
-        setTimeout(() => setToastMessage(null), 400); // Wait for exit animation
-      }, 5000);
+        setToastMessage(null);
+      }, 3000);
       
     } catch (e) {
       console.error("Upload error", e);
@@ -759,23 +980,21 @@ export function Dashboard() {
     }
   };
 
-  const handleUpdateSubscription = (merchantName: string, isSub: boolean) => {
-    // 1. Update cache so future imports remember this
-    const cache = JSON.parse(localStorage.getItem('financeCategoryCache_v2') || '{}');
-    if (cache[merchantName]) {
-      cache[merchantName].isSubscription = isSub;
-    } else {
-      const tx = transactions.find(t => t.name === merchantName);
-      cache[merchantName] = { categorie: tx?.type || "Autre", isSubscription: isSub };
-    }
-    localStorage.setItem('financeCategoryCache_v2', JSON.stringify(cache));
-
-    // 2. Update existing transactions and save
-    setTransactions(prev => {
-      const updated = prev.map(tx => tx.name === merchantName ? { ...tx, isSubscription: isSub } : tx);
-      localStorage.setItem('financeTransactions_v1', JSON.stringify(updated));
+  const handleIgnoreSubscription = (merchantName: string) => {
+    setIgnoredSubscriptions(prev => {
+      const updated = [...prev, merchantName];
+      localStorage.setItem('krona_ignored_subscriptions', JSON.stringify(updated));
       return updated;
     });
+  };
+
+  const activeSubscriptionMerchants = useMemo(() => {
+    return detectSubscriptions(activeTransactions, ignoredSubscriptions);
+  }, [activeTransactions, ignoredSubscriptions]);
+
+  const isTxSubscription = (tx: Transaction) => {
+    if (ignoredSubscriptions.includes(tx.name)) return false;
+    return activeSubscriptionMerchants.has(tx.name) || tx.type === "Abonnements & Forfaits";
   };
 
   const handleSaveIncomeSettings = (newSettings: FixedIncomeSettings) => {
@@ -804,9 +1023,12 @@ export function Dashboard() {
   };
 
   const filteredTransactions = useMemo(() => {
-    if (selectedMonth === "Tout") return activeTransactions;
-    return activeTransactions.filter(tx => tx.month === selectedMonth);
-  }, [activeTransactions, selectedMonth]);
+    if (hasMultipleMonths && (selectedMonth === "Tout" || selectedMonth === "all" || !selectedMonth)) return activeTransactions;
+    if (selectedMonth && selectedMonth !== "Tout" && selectedMonth !== "all") {
+      return activeTransactions.filter(tx => tx.month === selectedMonth);
+    }
+    return activeTransactions;
+  }, [activeTransactions, selectedMonth, hasMultipleMonths]);
 
   const inboxTx = useMemo(() => {
     return filteredTransactions.filter(tx => tx.type === "Autre");
@@ -817,7 +1039,7 @@ export function Dashboard() {
   }, [inboxTx.length]);
 
 
-  const isAllTime = selectedMonth === "Tout";
+  const isAllTime = hasRealData && !isDemo && hasMultipleMonths && (selectedMonth === "Tout" || selectedMonth === "all" || !selectedMonth);
   const monthsCount = useMemo(() => {
     return Math.max(1, new Set(transactions.map(t => t.date.slice(0, 7))).size);
   }, [transactions]);
@@ -826,6 +1048,7 @@ export function Dashboard() {
     let exp = 0;
     let inc = 0;
     let subTotal = 0;
+    let saved = 0;
     const catMap: Record<string, number> = {};
     const timeMap: Record<string, number> = {};
     
@@ -836,7 +1059,10 @@ export function Dashboard() {
       const isInternal = tx.type === "Épargne & Trésorerie" || tx.isInternalTransfer;
       const nam = tx.name.toLowerCase();
       
-      if (isInternal) return; // Completely ignore
+      if (isInternal) {
+        saved += tx.amount;
+        return;
+      }
 
       if (tx.amount < 0) {
         // Normal expenses
@@ -846,23 +1072,22 @@ export function Dashboard() {
           catMap[tx.type] = (catMap[tx.type] || 0) + Math.abs(tx.amount);
         }
         
-        if (tx.isSubscription || tx.type === "Abonnements & Forfaits") {
+        if (isTxSubscription(tx)) {
           subTotal += Math.abs(tx.amount);
         }
 
         const day = tx.date.split("-").slice(1).join("/");
-        const label = selectedMonth === "Tout" ? tx.month : tx.date.split("-")[2];
+        const label = (selectedMonth === "Tout" || !selectedMonth) ? tx.month : tx.date.split("-")[2];
         timeMap[label] = (timeMap[label] || 0) + Math.abs(tx.amount);
       } else {
         // Positive amounts (Refunds or Incomes)
         const isSalary = 
-          tx.amount >= incomeSettings.salary * 0.6 ||
           nam.includes("salaire") ||
           nam.includes("remuneration") ||
           nam.includes("rémunération") ||
-          nam.includes("paye") ||
-          nam.includes("vir sepa societe") ||
-          nam.includes("employeur");
+          /\b(paie|paye)\b/i.test(nam) ||
+          nam.includes("employeur") ||
+          (nam.includes("vir sepa") && tx.amount >= incomeSettings.salary * 0.6);
 
         const isAids = 
           nam.includes("caf") ||
@@ -870,13 +1095,7 @@ export function Dashboard() {
           nam.includes("pole emploi") ||
           nam.includes("france travail");
 
-        const isHealthRefund = 
-          nam.includes("cpam") || 
-          nam.includes("mutuelle") || 
-          tx.type === "Santé & Soins" ||
-          nam.includes("ameli");
-
-        const isIncome = isSalary || isAids || tx.type === "Revenus & Aides" || isHealthRefund;
+        const isIncome = isSalary || isAids || tx.type === "Revenus & Aides";
 
         const isRefund = !isIncome;
 
@@ -885,13 +1104,18 @@ export function Dashboard() {
           exp -= tx.amount;
           if (exp < 0) exp = 0;
           
+          if (isTxSubscription(tx)) {
+            subTotal -= tx.amount;
+            if (subTotal < 0) subTotal = 0;
+          }
+          
           if (catMap[tx.type] !== undefined) {
             catMap[tx.type] -= tx.amount;
             if (catMap[tx.type] < 0) catMap[tx.type] = 0;
           }
           
           const day = tx.date.split("-").slice(1).join("/");
-          const label = selectedMonth === "Tout" ? tx.month : tx.date.split("-")[2];
+          const label = (selectedMonth === "Tout" || !selectedMonth) ? tx.month : tx.date.split("-")[2];
           if (timeMap[label] !== undefined) {
             timeMap[label] -= tx.amount;
             if (timeMap[label] < 0) timeMap[label] = 0;
@@ -906,7 +1130,7 @@ export function Dashboard() {
     });
 
     let autoAppliedInfo: string | null = null;
-    if (incomeSettings.autoApply && selectedMonth !== "Tout") {
+    if (incomeSettings.autoApply && selectedMonth && selectedMonth !== "Tout") {
       let added = 0;
       let msgs = [];
       if (!hasSalary && incomeSettings.salary > 0) {
@@ -924,15 +1148,27 @@ export function Dashboard() {
       }
     }
 
-    const sortedCats = Object.entries(catMap)
+    const allSortedCats = Object.entries(catMap)
       .filter(([name]) => name !== "Épargne & Trésorerie")
       .map(([name, value]) => ({ name, value: isAllTime ? value / monthsCount : value, max: exp > 0 ? exp : 1 }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5);
+      .sort((a, b) => b.value - a.value);
+
+    let sortedCats = allSortedCats;
+    if (allSortedCats.length > 5) {
+      const top4 = allSortedCats.slice(0, 4);
+      const restValue = allSortedCats.slice(4).reduce((sum, cat) => sum + cat.value, 0);
+      sortedCats = [...top4, { name: "Autre", value: restValue, max: exp > 0 ? exp : 1 }];
+    }
 
     let timeline: any[] = [];
-    if (selectedMonth !== "Tout") {
-      const [yyyy, mm] = selectedMonth.split("-");
+    if (selectedMonth && selectedMonth !== "Tout") {
+      let yyyy: string, mm: string;
+      if (selectedMonth === "demo-month") {
+        yyyy = "2026";
+        mm = "10";
+      } else {
+        [yyyy, mm] = selectedMonth.split("-");
+      }
       const lastDay = new Date(parseInt(yyyy), parseInt(mm), 0).getDate();
       let cumulative = 0;
       for (let i = 1; i <= lastDay; i++) {
@@ -984,21 +1220,31 @@ export function Dashboard() {
   }, [filteredTransactions, selectedMonth, incomeSettings]);
 
   const dailyPace = useMemo(() => {
-    if (selectedMonth === "Tout") return null;
-    const [yyyy, mm] = selectedMonth.split("-");
+    if (!selectedMonth || selectedMonth === "Tout") return null;
+    let yyyy: string, mm: string;
+    if (selectedMonth === "demo-month") {
+      yyyy = "2026";
+      mm = "10";
+    } else {
+      [yyyy, mm] = selectedMonth.split("-");
+    }
     const now = new Date();
     const isCurrentMonth = now.getFullYear() === parseInt(yyyy) && now.getMonth() + 1 === parseInt(mm);
     
+    const totalBudget = Object.values(categoryBudgets).reduce((a, b) => a + b, 0);
+    const hasBudgets = totalBudget > 0;
+    const referenceValue = hasBudgets ? (totalBudget - expenses) : balance;
+
     if (isCurrentMonth) {
       // Days remaining including today
       const lastDay = new Date(parseInt(yyyy), parseInt(mm), 0).getDate();
       const today = now.getDate();
       const daysRemaining = (lastDay - today) + 1;
-      return { type: "current", amount: balance / daysRemaining, isNegative: balance < 0 };
+      return { type: "current", amount: referenceValue / daysRemaining, isNegative: referenceValue < 0 };
     } else {
-      return { type: "past", amount: balance };
+      return { type: "past", amount: referenceValue };
     }
-  }, [selectedMonth, balance]);
+  }, [selectedMonth, balance, expenses, categoryBudgets]);
 
   const activeSubscriptions = useMemo(() => {
     let sourceTx = filteredTransactions;
@@ -1007,14 +1253,196 @@ export function Dashboard() {
       sourceTx = transactions.filter(t => recentMonths.includes(t.month));
     }
     const subs = sourceTx
-      .filter(tx => tx.isSubscription || tx.type === "Abonnements & Forfaits")
+      .filter(tx => isTxSubscription(tx))
       .map(tx => {
         return { ...tx, amount: -Math.abs(tx.amount) };
       });
       
     const uniqueSubs = Array.from(new Map(subs.map(item => [item.name, item])).values());
-    return uniqueSubs.slice(0, 10);
+    return uniqueSubs;
   }, [filteredTransactions, transactions, isAllTime]);
+
+  const topMerchants = useMemo(() => {
+    const merchantMap: Record<string, {
+      name: string;
+      total: number;
+      count: number;
+      category: string;
+    }> = {};
+
+    filteredTransactions.forEach(tx => {
+      if (tx.isInternalTransfer || tx.type === "Épargne & Trésorerie") return;
+      if (isTxSubscription(tx) || tx.isSubscription || tx.type === "Abonnements & Forfaits") return;
+
+      const rawMerchant = tx.name;
+      
+      const namLower = tx.name.toLowerCase();
+      const isIncome = 
+        namLower.includes("salaire") ||
+        namLower.includes("remuneration") ||
+        namLower.includes("rémunération") ||
+        /\b(paie|paye)\b/i.test(namLower) ||
+        namLower.includes("employeur") ||
+        (namLower.includes("vir sepa") && tx.amount >= incomeSettings.salary * 0.6) ||
+        namLower.includes("caf") ||
+        namLower.includes("allocation") ||
+        namLower.includes("pole emploi") ||
+        namLower.includes("france travail") ||
+        tx.type === "Revenus & Aides";
+
+      if (tx.amount > 0 && isIncome) return;
+
+      if (!merchantMap[rawMerchant]) {
+        merchantMap[rawMerchant] = {
+          name: rawMerchant,
+          total: 0,
+          count: 0,
+          category: tx.type,
+        };
+      }
+
+      merchantMap[rawMerchant].total -= tx.amount;
+      merchantMap[rawMerchant].count += 1;
+    });
+
+    return Object.values(merchantMap)
+      .filter(m => m.total > 0)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 4);
+  }, [filteredTransactions, activeSubscriptionMerchants, ignoredSubscriptions, incomeSettings]);
+
+  const spendingCadence = useMemo(() => {
+    const savingsGoal = incomeSettings.savingsGoal || 0;
+    const savingsPercentage = income > 0 && savingsGoal > 0 ? Math.round((savingsGoal / income) * 100) : null;
+    
+    const now = new Date();
+    let daysRemaining = 0;
+    let isCurrentMonth = false;
+    let isPastMonth = false;
+    let totalDaysInMonth = 30;
+    let currentDayNumber = 15;
+
+    if (selectedMonth && selectedMonth !== "Tout" && selectedMonth !== "all") {
+      if (selectedMonth === "demo-month") {
+        isCurrentMonth = true;
+        totalDaysInMonth = 30;
+        currentDayNumber = 12;
+        daysRemaining = 18;
+      } else {
+        const [yyyy, mm] = selectedMonth.split("-").map(Number);
+        totalDaysInMonth = new Date(yyyy, mm, 0).getDate();
+        const isSameYear = now.getFullYear() === yyyy;
+        const isSameMonth = (now.getMonth() + 1) === mm;
+
+        if (isSameYear && isSameMonth) {
+          isCurrentMonth = true;
+          currentDayNumber = now.getDate();
+          daysRemaining = Math.max(1, totalDaysInMonth - currentDayNumber + 1);
+        } else if (now.getFullYear() > yyyy || (isSameYear && (now.getMonth() + 1) > mm)) {
+          isPastMonth = true;
+          currentDayNumber = totalDaysInMonth;
+          daysRemaining = 0;
+        } else {
+          currentDayNumber = 1;
+          daysRemaining = totalDaysInMonth;
+        }
+      }
+    } else {
+      totalDaysInMonth = 30;
+      currentDayNumber = 30;
+      daysRemaining = 30;
+    }
+
+    // Calcul projection de fin de mois (Directive Vague 2)
+    const daysInMonth = totalDaysInMonth;
+    const currentDay = currentDayNumber;
+    const remainingDaysForProjection = Math.max(0, daysInMonth - currentDay);
+    const dailyAverageForProjection = currentDay > 0 ? (expenses / currentDay) : 0;
+    const projectedEndOfMonthBalance = balance - (dailyAverageForProjection * remainingDaysForProjection);
+
+    const totalBudget = Object.keys(categoryBudgets).length > 0 ? Object.values(categoryBudgets).reduce((a, b) => a + b, 0) : 0;
+    const refValue = totalBudget > 0 ? (totalBudget - expenses) : balance;
+    const baseAmount = Math.max(0, refValue);
+    
+    const dailyBudget = daysRemaining > 0 ? (baseAmount / daysRemaining) : 0;
+    const pastDailyAverage = totalDaysInMonth > 0 ? (expenses / totalDaysInMonth) : 0;
+    const isTight = !isPastMonth && (refValue <= 0 || dailyBudget <= 0);
+
+    const weekTotals = [0, 0, 0, 0];
+    
+    if (expensesTimeline && expensesTimeline.length > 0 && !isAllTime) {
+      expensesTimeline.forEach((entry: any) => {
+        const day = parseInt(entry.day, 10);
+        if (isNaN(day)) return;
+        const amount = entry.amount;
+        if (day >= 1 && day <= 7) weekTotals[0] += amount;
+        else if (day >= 8 && day <= 14) weekTotals[1] += amount;
+        else if (day >= 15 && day <= 21) weekTotals[2] += amount;
+        else if (day >= 22) weekTotals[3] += amount;
+      });
+    }
+
+    const maxWeekAmount = Math.max(...weekTotals, 1);
+    const peakWeekIndex = weekTotals.indexOf(Math.max(...weekTotals));
+
+    const weeks = [
+      { id: "s1", label: "S1", dates: "J1–7", amount: weekTotals[0], pct: Math.round((weekTotals[0] / maxWeekAmount) * 100), isPeak: peakWeekIndex === 0 && weekTotals[0] > 0 },
+      { id: "s2", label: "S2", dates: "J8–14", amount: weekTotals[1], pct: Math.round((weekTotals[1] / maxWeekAmount) * 100), isPeak: peakWeekIndex === 1 && weekTotals[1] > 0 },
+      { id: "s3", label: "S3", dates: "J15–21", amount: weekTotals[2], pct: Math.round((weekTotals[2] / maxWeekAmount) * 100), isPeak: peakWeekIndex === 2 && weekTotals[2] > 0 },
+      { id: "s4", label: "S4", dates: "J22–Fin", amount: weekTotals[3], pct: Math.round((weekTotals[3] / maxWeekAmount) * 100), isPeak: peakWeekIndex === 3 && weekTotals[3] > 0 },
+    ];
+
+    return {
+      savingsGoal,
+      savingsPercentage,
+      disposableRemaining: refValue,
+      daysRemaining,
+      isCurrentMonth,
+      isPastMonth,
+      dailyBudget,
+      pastDailyAverage,
+      isTight,
+      weeks,
+      maxWeekAmount,
+      peakWeekIndex,
+      projectedEndOfMonthBalance
+    };
+  }, [filteredTransactions, balance, income, expenses, expensesTimeline, isAllTime, incomeSettings, selectedMonth, categoryBudgets]);
+
+  const displayedDrawerTx = useMemo(() => {
+    let list = filteredTransactions;
+
+    if (drawerFilter === "debit") {
+      list = list.filter(tx => tx.amount < 0 && !tx.isInternalTransfer && tx.type !== "Épargne & Trésorerie");
+    } else if (drawerFilter === "credit") {
+      list = list.filter(tx => tx.amount > 0);
+    } else if (drawerFilter === "sub") {
+      list = list.filter(tx => isTxSubscription(tx) || tx.type === "Abonnements & Forfaits");
+    } else if (drawerFilter === "transfer") {
+      list = list.filter(tx => tx.isInternalTransfer || tx.type === "Épargne & Trésorerie");
+    }
+
+    if (drawerSearch.trim()) {
+      const q = drawerSearch.toLowerCase().trim();
+      list = list.filter(tx => 
+        tx.name.toLowerCase().includes(q) || 
+        tx.type.toLowerCase().includes(q) ||
+        cleanMerchantName(tx.name).toLowerCase().includes(q)
+      );
+    }
+
+    return list;
+  }, [filteredTransactions, drawerFilter, drawerSearch, activeSubscriptionMerchants, ignoredSubscriptions]);
+
+  const { drawerDebitsTotal, drawerCreditsTotal } = useMemo(() => {
+    let deb = 0;
+    let cred = 0;
+    displayedDrawerTx.forEach(tx => {
+      if (tx.amount < 0) deb += Math.abs(tx.amount);
+      else cred += tx.amount;
+    });
+    return { drawerDebitsTotal: deb, drawerCreditsTotal: cred };
+  }, [displayedDrawerTx]);
 
   const generateFallbackTips = () => {
     const tips: { type: string; text: string }[] = [];
@@ -1050,27 +1478,15 @@ export function Dashboard() {
     filteredTransactions.filter(tx => tx.amount < 0 && tx.type !== "Épargne & Trésorerie").forEach(tx => {
       merchantMap[tx.name] = (merchantMap[tx.name] || 0) + Math.abs(tx.amount);
     });
-    const topMerchants = Object.entries(merchantMap)
+    const coachMerchants = Object.entries(merchantMap)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([name, amount]) => ({ name, amount }));
 
     try {
-      const res = await fetch('/api/coach', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ income, expenses, balance, dailyPace, categoryData, savedAmount, topMerchants, subs })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.tips && data.tips.length > 0) {
-          setCoachTips(data.tips);
-        } else {
-          setCoachTips(generateFallbackTips());
-        }
-      } else {
-        setCoachTips(generateFallbackTips());
-      }
+      // Coach temporairement désactivé
+      // const res = await fetch('/api/coach', { ...
+      setCoachTips(generateFallbackTips());
     } catch (err) {
       console.error("AI Tips Network Error:", err);
       setCoachTips(generateFallbackTips());
@@ -1086,18 +1502,18 @@ export function Dashboard() {
   return (
     <div className="w-full px-8 xl:px-12 pt-28 pb-10 h-full flex flex-col overflow-hidden relative">
       <AnimatePresence>
-        {toastMessage && toastMessage.visible && (
+        {toastMessage && (
           <motion.div
-            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            initial={{ opacity: 0, y: 12, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-            className="fixed top-8 left-1/2 -translate-x-1/2 z-[200] bg-neutral-900/80 dark:bg-black/80 backdrop-blur-2xl saturate-150 border border-white/[0.1] shadow-2xl rounded-full px-5 py-3 flex items-center gap-3"
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            transition={{ type: "spring", bounce: 0, duration: 0.3 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-neutral-900/90 border border-white/[0.08] backdrop-blur-md text-white px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-sm"
           >
-            <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+            <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
               <Check size={14} strokeWidth={3} />
             </div>
-            <span className="text-sm font-medium text-white">{toastMessage.text}</span>
+            <span className="font-medium text-white">{toastMessage.text}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1133,13 +1549,13 @@ export function Dashboard() {
       </AnimatePresence>
 
       {/* Onboarding Empty State */}
-      {!hasData && (
+      {isWelcomeOpen && (
         <div className="absolute inset-0 z-40 flex items-center justify-center p-6 bg-transparent">
           <motion.div 
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="relative z-50 w-full max-w-xl mx-auto p-8 bg-neutral-900/80 dark:bg-black/80 backdrop-blur-2xl border border-white/[0.1] rounded-3xl shadow-2xl text-center"
+            className="relative z-50 w-full max-w-xl mx-auto p-8 bg-neutral-900/80 dark:bg-black/80 backdrop-blur-2xl backdrop-saturate-150 border border-white/[0.1] rounded-2xl shadow-2xl text-center"
           >
             {/* Logo */}
             <div className="w-12 h-12 mx-auto mb-5 rounded-2xl bg-white/[0.05] border border-white/[0.1] flex items-center justify-center text-white">
@@ -1193,65 +1609,79 @@ export function Dashboard() {
             <button 
               type="button" 
               onClick={() => {
-                setTransactions(initialTransactions);
-                localStorage.setItem('financeTransactions_v1', JSON.stringify(initialTransactions));
+                setDemoMode(true);
+                setInternalWelcomeOpen(false);
+                if (onDismissWelcome) onDismissWelcome();
+                window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: false } }));
               }} 
               className="text-xs text-neutral-400 hover:text-white underline underline-offset-4 transition-colors cursor-pointer"
             >
               Charger un exemple pour tester
             </button>
 
-            <div className="text-[11px] text-neutral-500 flex items-center justify-center gap-1.5 mt-8">
-              <ShieldCheck size={14} />
-              <span>Vos données restent 100 % sur votre machine. Aucun compte bancaire connecté, aucun serveur externe.</span>
+            <div className="flex items-center justify-center gap-2 text-xs text-neutral-400 mt-4">
+              <ShieldCheck className="text-neutral-300 w-4 h-4" />
+              <span>Vos données restent 100 % sur votre machine. Aucun compte, aucun serveur.</span>
             </div>
           </motion.div>
         </div>
       )}
 
       {/* Main Content Area (Blurred when empty) */}
-      <div className={`flex flex-col flex-1 h-full min-h-0 w-full transition-all duration-700 ${!hasData ? 'blur-[3px] opacity-15 pointer-events-none select-none' : ''}`}>
+      <div className={`flex flex-col flex-1 h-full min-h-0 w-full transition-all duration-700 ${isWelcomeOpen ? 'blur-[6px] opacity-25 pointer-events-none select-none' : ''}`}>
+        
       {/* Header & Month Selector */}
       <div className="flex justify-between items-center mb-6 shrink-0">
-        <h1 className="text-xl font-bold text-foreground">
+        <h1 className="text-xl font-bold tracking-tight text-foreground">
           {activeTab === "budgets" ? "Budgets & Plafonds" : "Vue d'ensemble"}
         </h1>
         
-        <div className={clsx("flex items-center gap-3 transition-opacity", !hasData && "opacity-0")}>
-          {selectedMonth !== "Tout" && (
+        <div className="flex items-center gap-3 transition-opacity">
+          {hasRealData && (
             <motion.button
               type="button"
               whileTap={{ scale: 0.95 }}
               onClick={() => setShowResetModal(true)}
-              className="w-9 h-9 flex items-center justify-center rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
-              title="Réinitialiser ce mois"
-              aria-label="Réinitialiser ce mois"
+              className="w-9 h-9 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+              title="Supprimer des données"
+              aria-label="Supprimer des données"
             >
               <Trash2 size={16} />
             </motion.button>
           )}
           
-          <div className="relative">
-            <select 
-              value={selectedMonth} 
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="appearance-none bg-card border border-border text-foreground font-medium text-sm py-2 pl-4 pr-10 rounded-full shadow-sm outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-black/20 dark:hover:border-white/20 transition-all cursor-pointer"
-              aria-label="Sélectionner la période"
-            >
-              {availableMonths.map(m => (
-                <option key={m} value={m}>{formatMonthLabel(m)}</option>
-              ))}
-            </select>
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-              <ChevronDown size={16} className="text-muted-foreground" />
+          {!hasRealData || isDemo ? (
+            <div className="h-9 px-4 rounded-full bg-white/[0.04] border border-white/[0.08] flex items-center gap-2 text-xs md:text-sm font-medium text-white select-none">
+              <span className="w-1.5 h-1.5 rounded-full bg-neutral-400" />
+              <span>Aperçu (Exemple)</span>
             </div>
-          </div>
+          ) : (
+            <div className="relative">
+              <select 
+                value={selectedMonth || (hasMultipleMonths ? "Tout" : uniqueMonths[0] || "")} 
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="h-9 appearance-none bg-card border border-border text-foreground font-medium text-sm py-1.5 pl-4 pr-10 rounded-full shadow-sm outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+                aria-label="Sélectionner la période"
+              >
+                {availableMonths.map(m => (
+                  <option key={m} value={m}>{formatMonthLabel(m)}</option>
+                ))}
+              </select>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                <ChevronDown size={14} className="text-neutral-400" />
+              </div>
+            </div>
+          )}
           
           <button
             type="button"
             onClick={() => setShowCalendarModal(true)}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-card border border-border text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-black/20 dark:hover:border-white/20 transition-all cursor-pointer"
+            className={clsx(
+              "w-9 h-9 flex items-center justify-center rounded-full bg-card border border-border text-foreground transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
+              hasRealData && !isDemo ? "hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 cursor-pointer" : "opacity-40 pointer-events-none"
+            )}
             title="Vue annuelle"
+            aria-label="Vue annuelle"
           >
             <CalendarDays size={16} />
           </button>
@@ -1260,19 +1690,19 @@ export function Dashboard() {
 
       {activeTab === "budgets" ? (
         <div className="flex-1 min-h-0 flex flex-col space-y-6 overflow-y-auto no-scrollbar pb-6">
-          <Card className="flex flex-col md:flex-row items-start md:items-center justify-between p-6 xl:p-8 shrink-0">
+          <Card className="flex flex-col md:flex-row items-start md:items-center justify-between p-5 md:p-6 shrink-0">
             <div>
               <h2 className="text-lg font-semibold text-foreground mb-1">Synthèse globale</h2>
-              <div className="text-sm text-muted-foreground">
-                Budget dépensé : {Object.entries(categoryBudgets).reduce((acc, [cat, budget]) => {
+              <div className="text-sm text-neutral-400">
+                Budget dépensé : <span className="tabular-nums text-foreground font-medium">{Object.entries(categoryBudgets).reduce((acc, [cat, budget]) => {
                   const spent = categoryData.find(c => c.name === cat)?.value || 0;
                   return acc + Math.min(spent, budget);
-                }, 0).toFixed(0)} € / {Object.values(categoryBudgets).reduce((a, b) => a + b, 0).toFixed(0)} € alloués
+                }, 0).toFixed(0)} €</span> / <span className="tabular-nums text-neutral-400">{Object.values(categoryBudgets).reduce((a, b) => a + b, 0).toFixed(0)} € alloués</span>
               </div>
             </div>
-            <div className="mt-4 md:mt-0 text-right">
-              <div className="text-sm text-muted-foreground mb-1">Reste à allouer (Mensuel)</div>
-              <div className="text-2xl font-bold text-foreground">
+            <div className="mt-4 md:mt-0 text-left md:text-right">
+              <div className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Reste à allouer (Mensuel)</div>
+              <div className="text-2xl font-bold text-foreground tabular-nums">
                 {((incomeSettings.salary || 0) + (incomeSettings.aids || 0) - (incomeSettings.savingsGoal || 0) - Object.values(categoryBudgets).reduce((a, b) => a + b, 0)).toFixed(2)} €
               </div>
             </div>
@@ -1285,22 +1715,22 @@ export function Dashboard() {
                const isExceeded = spent > budget;
                const progress = Math.min(100, (spent / budget) * 100);
                return (
-                 <Card key={cat} className="flex flex-col justify-between p-6 h-full transition-colors hover:bg-neutral-50 dark:hover:bg-white/[0.02]">
+                 <Card key={cat} className="flex flex-col justify-between p-5 md:p-6 h-full transition-colors hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
                    <div className="flex justify-between items-start mb-6">
-                     <div className="flex items-center gap-3">
-                       <div className={`w-3 h-3 rounded-full ${CATEGORY_COLORS[cat]?.dot || CATEGORY_COLORS["Autre"].dot}`} />
-                       <h3 className="font-semibold text-foreground">{cat}</h3>
+                     <div className="flex items-center gap-3 min-w-0 pr-2">
+                       <div className={`w-3 h-3 rounded-full shrink-0 ${CATEGORY_COLORS[cat]?.dot || CATEGORY_COLORS["Autre"].dot}`} />
+                       <h3 className="font-semibold text-foreground truncate" title={cat}>{cat}</h3>
                      </div>
                      {isExceeded && (
-                       <span className="text-[10px] uppercase font-bold text-rose-500 bg-rose-500/10 px-2 py-1 rounded-sm shrink-0">
+                       <span className="text-[10px] uppercase font-bold text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded-full shrink-0 tabular-nums">
                          +{(spent - budget).toFixed(0)} €
                        </span>
                      )}
                    </div>
                    <div>
                      <div className="flex justify-between items-end mb-2">
-                       <div className="text-2xl font-bold text-foreground">{spent.toFixed(0)} €</div>
-                       <div className="text-sm text-muted-foreground font-medium mb-1">/ {budget} €</div>
+                       <div className="text-2xl font-bold text-foreground tabular-nums">{spent.toFixed(0)} €</div>
+                       <div className="text-sm text-neutral-400 font-medium mb-0.5 tabular-nums">/ {budget} €</div>
                      </div>
                      <div className="h-1.5 w-full bg-neutral-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
                        <motion.div 
@@ -1309,8 +1739,8 @@ export function Dashboard() {
                          className={`h-full rounded-full ${isExceeded ? "bg-rose-500/80" : (CATEGORY_COLORS[cat]?.fill || CATEGORY_COLORS["Autre"].fill)}`}
                        />
                      </div>
-                     <div className="text-xs text-muted-foreground mt-3 text-right">
-                       {isExceeded ? "Budget dépassé" : `Reste ${(budget - spent).toFixed(2)} €`}
+                     <div className="text-xs text-neutral-500 mt-3 text-right">
+                       {isExceeded ? "Budget dépassé" : <>Reste <span className="tabular-nums font-medium text-foreground">{(budget - spent).toFixed(2)} €</span></>}
                      </div>
                    </div>
                  </Card>
@@ -1322,8 +1752,12 @@ export function Dashboard() {
                   <Flag size={20} />
                 </div>
                 <h3 className="text-base font-medium text-foreground mb-1">Aucun plafond configuré</h3>
-                <p className="text-sm text-muted-foreground max-w-sm mb-6">Définissez vos budgets dans les paramètres pour suivre vos objectifs.</p>
-                <button onClick={() => { setSettingsTab("budgets"); setShowSettingsModal(true); }} className="px-5 py-2.5 rounded-full bg-black text-white dark:bg-white dark:text-black text-sm font-semibold hover:opacity-90 transition-opacity">
+                <p className="text-sm text-neutral-400 max-w-sm mb-6">Définissez vos budgets dans les paramètres pour suivre vos objectifs.</p>
+                <button 
+                  type="button"
+                  onClick={() => { setSettingsTab("budgets"); setShowSettingsModal(true); }} 
+                  className="h-10 px-5 rounded-full bg-black text-white dark:bg-white dark:text-black text-sm font-medium hover:opacity-90 active:scale-95 transition-all focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer"
+                >
                   Configurer mes budgets
                 </button>
               </div>
@@ -1332,8 +1766,21 @@ export function Dashboard() {
         </div>
       ) : (
         <>
-      {/* Top Stats Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6 shrink-0">
+          {/* Backdrop Spotlight au survol des abonnements */}
+          <AnimatePresence>
+            {isSubsHovered && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-20 pointer-events-none transition-opacity duration-200"
+              />
+            )}
+          </AnimatePresence>
+
+          {/* Top Stats Row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6 shrink-0">
         {[
           { 
             label: isAllTime ? "Moyenne gagnée" : "Revenus & Entrées", 
@@ -1350,58 +1797,189 @@ export function Dashboard() {
             actionIcon: <ArrowUpRight size={16} /> 
           },
           { 
-            label: isAllTime ? "Total épargné" : "Reste à vivre (Solde)", 
-            value: (
-              <span className={balance < 0 ? "text-rose-500 dark:text-rose-400" : ""}>
-                {isAllTime ? `${balance > 0 ? "+" : ""}${balance.toFixed(2)} €` : `${balance.toFixed(2)} €`}
-              </span>
+            label: isAllTime ? "Total épargné" : (Object.keys(categoryBudgets).length > 0 ? "Reste sur budget" : "Reste à vivre (Solde)"), 
+            value: (() => {
+              const totalBudget = Object.values(categoryBudgets).reduce((a, b) => a + b, 0);
+              const hasBudgets = totalBudget > 0;
+              const refValue = hasBudgets && !isAllTime ? (totalBudget - expenses) : balance;
+              return (
+                <span className={refValue < 0 ? "text-rose-500 dark:text-rose-400" : ""}>
+                  {isAllTime ? `${balance > 0 ? "+" : ""}${balance.toFixed(2)} €` : `${refValue.toFixed(2)} €`}
+                </span>
+              );
+            })(), 
+            change: isAllTime ? "Économisé sur l'ensemble de la période" : (
+              Object.keys(categoryBudgets).length > 0 
+                ? ( (Object.values(categoryBudgets).reduce((a,b)=>a+b,0) - expenses) >= 0 ? "Sous budget" : "Dépassement de budget" )
+                : ( balance >= 0 ? "Épargne potentielle" : "Déficit mensuel" )
             ), 
-            change: isAllTime ? "Économisé sur l'ensemble de la période" : (dailyPace ? (
-              dailyPace.type === "current" ? (
-                dailyPace.isNegative ? "Dépassement de budget" : `soit ~${dailyPace.amount.toFixed(2)} € / jour disponible`
-              ) : (
-                `Mois clôturé (${dailyPace.amount > 0 ? '+' : ''}${dailyPace.amount.toFixed(0)} € épargnés)`
-              )
-            ) : "Net calculé"), 
-            pos: balance >= 0,
-            actionIcon: <Wallet size={16} />
+            pos: (Object.keys(categoryBudgets).length > 0 && !isAllTime ? (Object.values(categoryBudgets).reduce((a, b) => a + b, 0) - expenses) : balance) >= 0,
+            actionIcon: <Wallet size={16} />,
+            gauge: (() => {
+              const savingsRate = income > 0 ? Math.max(0, Math.min(100, Math.round((balance / income) * 100))) : 0;
+              return { rate: savingsRate };
+            })()
           },
           { 
             label: isAllTime ? "Poids annuel" : "Abonnements récurrents", 
             value: isAllTime ? `${(subs / monthsCount * 12).toFixed(2)} € / an` : `${subs.toFixed(2)} €`, 
-            change: isAllTime ? "Coût estimé sur une année complète" : `${activeSubscriptions.length} identifiés`, 
+            change: isAllTime ? "Coût estimé sur une année complète" : `${activeSubscriptions.length} abonnement${activeSubscriptions.length > 1 ? 's' : ''} identifié${activeSubscriptions.length > 1 ? 's' : ''}`, 
             pos: true, 
-            icon: !isAllTime ? <RefreshCcw size={14} className="inline mr-1" /> : null, 
+            icon: null, 
             actionIcon: <Repeat size={16} /> 
           },
-        ].map((stat, i) => (
-          <motion.div whileTap={{ scale: 0.98 }} key={i}>
-            <Card className="h-full justify-between transition-colors hover:bg-neutral-50 dark:hover:bg-muted/50 cursor-pointer">
-              <div className="flex justify-between items-start mb-4">
-                <span className="text-sm font-medium text-muted-foreground">{stat.label}</span>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400">
-                  {stat.actionIcon}
-                </div>
-              </div>
-              <div>
-                {hasData ? (
-                  <>
-                    <div className="text-3xl xl:text-4xl font-semibold mb-2 tracking-tight text-foreground">{stat.value}</div>
-                    <div className="text-sm font-medium flex items-center">
-                      {stat.icon}
-                      <span className={stat.pos ? "text-foreground" : "text-muted-foreground"}>{stat.change}</span>
+        ].map((stat, i) => {
+          const isSubsCard = i === 3;
+
+          // 1. Cartes simples de présentation (dont Reste à vivre / Solde) : aucun clic, aucune flèche
+          if (!isSubsCard) {
+            return (
+              <div key={i} className="h-full">
+                <Card className="h-full flex flex-col justify-between transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
+                  <div className="flex justify-between items-start mb-4">
+                    <span className="text-sm font-medium text-neutral-400 transition-colors font-sans">
+                      {stat.label}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 transition-all">
+                        {stat.actionIcon}
+                      </div>
                     </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="h-9 w-28 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse mb-2" />
-                    <div className="h-4 w-20 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-                  </>
-                )}
+                  </div>
+                  <div className="flex flex-col">
+                    <div className="text-3xl xl:text-4xl font-semibold mb-2 tracking-tight text-foreground tabular-nums font-sans">
+                      {stat.value}
+                    </div>
+                    <div className="flex items-center justify-between text-xs font-medium w-full">
+                      <div className="flex items-center">
+                        {stat.icon}
+                        <span className={stat.pos ? "text-neutral-400" : "text-neutral-500"}>{stat.change}</span>
+                      </div>
+                      {stat.gauge && stat.gauge.rate > 0 && (
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-10 h-1 bg-black/5 dark:bg-white/[0.08] rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-emerald-500 dark:bg-emerald-400 rounded-full transition-all duration-500 ease-out" 
+                              style={{ width: `${stat.gauge.rate}%` }} 
+                            />
+                          </div>
+                          <span className="font-sans font-medium tabular-nums text-emerald-600 dark:text-emerald-400 text-[11px]">
+                            {stat.gauge.rate}%
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </Card>
               </div>
-            </Card>
-          </motion.div>
-        ))}
+            );
+          }
+
+          // 2. Carte "Abonnements récurrents" : micro-flèche, élévation Spotlight & Popover d'inspection au survol
+          return (
+            <div 
+              key={i}
+              className={clsx(
+                "h-full relative",
+                isSubsHovered && "z-30"
+              )}
+              onMouseEnter={handleSubsMouseEnter}
+              onMouseLeave={handleSubsMouseLeave}
+            >
+              <Card 
+                className={clsx(
+                  "h-full flex flex-col justify-between transition-all duration-200 group cursor-pointer",
+                  isSubsHovered 
+                    ? "relative z-30 ring-1 ring-white/10 !bg-[#0F0F11] !border-white/10 shadow-2xl text-white" 
+                    : "hover:bg-black/[0.01] dark:hover:bg-white/[0.02]"
+                )}
+                onClick={() => {
+                  setIsSubsHovered(false);
+                  setSettingsTab("subs");
+                  setShowSettingsModal(true);
+                }}
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <span className={clsx(
+                    "text-sm font-medium transition-colors font-sans",
+                    isSubsHovered ? "text-neutral-300" : "text-neutral-400 group-hover:text-neutral-300"
+                  )}>
+                    {stat.label}
+                  </span>
+                  <div className={clsx(
+                    "w-8 h-8 rounded-full flex items-center justify-center transition-all",
+                    isSubsHovered 
+                      ? "border border-white/20 text-white bg-white/[0.08]" 
+                      : "bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 group-hover:border-white/20 group-hover:text-foreground"
+                  )}>
+                    {stat.actionIcon}
+                  </div>
+                </div>
+                <div className="flex flex-col">
+                  <div className={clsx(
+                    "text-3xl xl:text-4xl font-semibold mb-2 tracking-tight tabular-nums font-sans",
+                    isSubsHovered ? "text-white" : "text-foreground"
+                  )}>
+                    {stat.value}
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-normal w-full">
+                    <span className="text-neutral-400">
+                      {stat.change}
+                    </span>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Popover sous la carte (Hover Spotlight) */}
+              <AnimatePresence>
+                {isSubsHovered && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.18, ease: "easeOut" }}
+                    onMouseEnter={handleSubsMouseEnter}
+                    onMouseLeave={handleSubsMouseLeave}
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute top-full left-0 right-0 mt-2 z-30 bg-[#0F0F11]/95 border border-white/[0.08] rounded-2xl p-3 shadow-2xl backdrop-blur-xl before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']"
+                  >
+                    {activeSubscriptions.length === 0 ? (
+                      <div className="py-2 text-center text-xs text-neutral-400 font-sans">
+                        Aucun abonnement détecté ce mois-ci
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1 max-h-56 overflow-y-auto no-scrollbar">
+                        {activeSubscriptions.map((sub, idx) => (
+                          <div
+                            key={sub.id || `sub-${idx}`}
+                            className="flex items-center justify-between px-2.5 py-2 hover:bg-white/[0.03] rounded-xl transition-colors"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-9 h-9 rounded-full bg-white/[0.05] border border-white/[0.06] flex items-center justify-center shrink-0">
+                                <Repeat size={14} className="text-neutral-300" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-white truncate font-sans">
+                                  {sub.name}
+                                </div>
+                                <div className="text-xs text-neutral-400 mt-0.5 font-sans truncate">
+                                  {sub.date ? `Dernier prélèvement : ${sub.date}` : "Prélèvement récurrent"}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-sm font-semibold tabular-nums text-white shrink-0 ml-3">
+                              {Math.abs(sub.amount).toFixed(2)} €
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
       </div>
 
       {/* Main Content Area */}
@@ -1409,16 +1987,12 @@ export function Dashboard() {
         
         {/* Col 1: Main Chart */}
         <Card className="flex flex-col min-h-0 h-full">
-          <div className="flex justify-between items-center mb-8 shrink-0">
+          <div className="flex justify-between items-center mb-6 shrink-0">
             <div>
-              <h2 className="text-sm font-medium text-muted-foreground mb-1">Évolution des dépenses</h2>
+              <h2 className="text-sm font-medium text-neutral-400 mb-1">Évolution des dépenses</h2>
               <div className="flex items-baseline gap-2">
-                {hasData ? (
-                  <div className="text-3xl font-semibold text-foreground">{expenses.toFixed(2)} €</div>
-                ) : (
-                  <div className="h-9 w-28 bg-black/5 dark:bg-white/5 rounded-lg animate-pulse" />
-                )}
-                <div className="text-sm font-medium text-muted-foreground">{isAllTime ? "Total cumulé toutes périodes" : "Dépensés sur le mois"}</div>
+                <div className="text-3xl font-semibold text-foreground tabular-nums">{expenses.toFixed(2)} €</div>
+                <div className="text-xs font-medium text-neutral-500">{isAllTime ? "Total cumulé toutes périodes" : "Dépensés sur le mois"}</div>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -1428,16 +2002,22 @@ export function Dashboard() {
             </div>
           </div>
           
-          <div className="flex-1 w-full min-h-[200px]">
-            {hasData ? (
-              <ResponsiveContainer width="100%" height="100%">
+          <div className="flex-1 w-full min-h-[200px] bg-transparent flex flex-col">
+            {expensesTimeline.length === 0 || expenses === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-neutral-400">
+                <Activity size={32} className="stroke-1 text-neutral-400/40 mb-3" />
+                <p className="text-sm font-medium text-foreground">Aucune dépense sur cette période</p>
+                <p className="text-xs text-neutral-500 mt-0.5">Les débits apparaîtront au fil de tes opérations</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%" className="bg-transparent">
                 {isAllTime ? (
                   <BarChart data={expensesTimeline} margin={{ top: 10, right: 0, left: 0, bottom: 20 }}>
                     <XAxis 
                       dataKey="day" 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'monospace' }} 
+                      tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-space-grotesk)' }} 
                       dy={10} 
                     />
                     <Tooltip 
@@ -1452,7 +2032,7 @@ export function Dashboard() {
                     />
                     <Bar 
                       dataKey="amount" 
-                      fill="#FFFFFF" 
+                      fill="#ffffff" 
                       fillOpacity={0.8} 
                       radius={[4, 4, 0, 0]}
                       className="cursor-pointer transition-opacity hover:opacity-100"
@@ -1466,78 +2046,64 @@ export function Dashboard() {
                 ) : (
                   <AreaChart data={expensesTimeline} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="var(--foreground)" stopOpacity={0.12}/>
-                        <stop offset="95%" stopColor="var(--foreground)" stopOpacity={0}/>
+                      <linearGradient id="teaserGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#ffffff" stopOpacity={0.15}/>
+                        <stop offset="100%" stopColor="#ffffff" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} fill="none" stroke="var(--border)" strokeOpacity={0.5} />
                     <XAxis 
                       dataKey="day" 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'monospace' }} 
+                      tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-space-grotesk)' }} 
                       dy={10} 
+                      fill="none"
                       ticks={['01', '05', '10', '15', '20', '25', '30']}
                     />
                     <Tooltip 
                       content={<CustomTooltip />}
-                      cursor={{ stroke: 'var(--foreground)', strokeWidth: 1, strokeDasharray: '3 3', strokeOpacity: 0.3 }}
+                      cursor={{ stroke: '#ffffff', strokeWidth: 1, strokeDasharray: '3 3', strokeOpacity: 0.3, fill: 'none' }}
                     />
                     <Area 
                       type="monotone" 
                       dataKey="cumulative" 
-                      stroke="var(--foreground)" 
+                      stroke="#ffffff" 
                       strokeWidth={2} 
                       fillOpacity={1} 
-                      fill="url(#colorValue)"
-                      activeDot={{ r: 4, strokeWidth: 0, fill: "var(--foreground)" }}
+                      fill="url(#teaserGradient)"
+                      activeDot={{ r: 4, strokeWidth: 0, fill: "#ffffff" }}
                     />
                   </AreaChart>
                 )}
               </ResponsiveContainer>
-            ) : (
-              <div className="w-full h-full bg-black/5 dark:bg-white/5 rounded-xl animate-pulse" />
             )}
           </div>
         </Card>
 
         {/* Col 2: Categories & Subscriptions */}
         <div className="flex flex-col gap-6 min-h-0 h-full">
-          <Card className="flex-1 min-h-0 flex flex-col">
-            <div className="flex justify-between items-start mb-6 shrink-0">
+          <Card className="flex-1 min-h-0 flex flex-col p-6">
+            <div className="flex justify-between items-start shrink-0">
               <div>
-                <h3 className="text-base font-medium text-foreground">Répartition</h3>
-                <div className="text-xs text-muted-foreground mt-0.5">Top 5 de tes dépenses</div>
+                <h3 className="text-base font-semibold tracking-tight text-foreground">Répartition</h3>
+                <div className="text-xs text-neutral-400 mt-0.5">Top 5 de tes dépenses</div>
               </div>
               <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
                 <PieChartIcon size={16} />
               </div>
             </div>
             
-            {!hasData ? (
-              <div className="flex-1 grid grid-cols-1 2xl:grid-cols-2 gap-8 items-center">
-                <div className="relative w-full h-[260px] flex items-center justify-center">
-                  <div className="w-48 h-48 rounded-full border-[14px] border-black/5 dark:bg-transparent dark:border-white/5 animate-pulse" />
+            {categoryData.length === 0 ? (
+              <div className="flex-1 py-12 flex flex-col items-center justify-center text-center text-neutral-400 mt-4">
+                <div className="w-10 h-10 rounded-full bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-3 text-neutral-400">
+                  <PieChartIcon size={18} />
                 </div>
-                <div className="flex flex-col justify-center space-y-5">
-                  {[1, 2, 3, 4, 5].map(i => (
-                    <div key={i} className="flex flex-col gap-2">
-                      <div className="flex justify-between items-center text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full bg-black/5 dark:bg-white/5 animate-pulse" />
-                          <div className="h-4 w-24 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-                        </div>
-                        <div className="h-4 w-12 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-                      </div>
-                      <div className="h-1.5 w-full bg-black/5 dark:bg-white/5 rounded-full overflow-hidden" />
-                    </div>
-                  ))}
-                </div>
+                <p className="text-sm font-medium text-foreground">Aucune dépense catégorisée</p>
+                <p className="text-xs text-neutral-500 mt-0.5">Les débits classés s'afficheront ici</p>
               </div>
-            ) : categoryData.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">Aucune dépense catégorisée</div>
             ) : (
-              <div className="flex-1 grid grid-cols-1 2xl:grid-cols-2 gap-8 items-center">
+              <div className="flex-1 grid grid-cols-1 2xl:grid-cols-2 gap-8 items-center mt-4">
                 <div className="relative w-full h-[260px] flex items-center justify-center">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -1566,7 +2132,7 @@ export function Dashboard() {
                         ))}
                       </Pie>
                       <Tooltip 
-                        contentStyle={{ backgroundColor: 'var(--card)', borderRadius: '12px', border: '1px solid var(--border)', color: 'var(--foreground)', boxShadow: '0 8px 30px rgba(0,0,0,0.1)' }}
+                        contentStyle={{ backgroundColor: 'var(--card)', borderRadius: '16px', border: '1px solid var(--border)', color: 'var(--foreground)', boxShadow: '0 8px 30px rgba(0,0,0,0.1)' }}
                         itemStyle={{ color: 'var(--foreground)', fontWeight: 600, fontSize: '13px' }}
                         formatter={(value: any) => [`${Number(value).toFixed(2)} €`, '']}
                       />
@@ -1574,7 +2140,7 @@ export function Dashboard() {
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-1">
                     <span className="text-[10px] font-medium text-neutral-400 tracking-wider mb-0.5">{isAllTime ? "MOYENNE MENS." : "DÉPENSÉ"}</span>
-                    <span className="font-bold text-3xl tracking-tight text-foreground">{isAllTime ? (expenses / monthsCount).toFixed(0) : expenses.toFixed(0)} €</span>
+                    <span className="font-bold text-3xl tracking-tight text-foreground tabular-nums">{isAllTime ? (expenses / monthsCount).toFixed(0) : expenses.toFixed(0)} €</span>
                   </div>
                 </div>
 
@@ -1590,15 +2156,15 @@ export function Dashboard() {
                         <div className="flex justify-between items-center text-sm">
                           <div className="flex items-center min-w-0">
                             <div className={`w-2 h-2 rounded-full mr-2.5 shrink-0 ${CATEGORY_COLORS[cat.name]?.dot || CATEGORY_COLORS["Autre"].dot}`} />
-                            <span className="font-medium text-neutral-800 dark:text-neutral-200 truncate" title={cat.name}>{cat.name}</span>
+                            <span className="font-medium text-foreground truncate" title={cat.name}>{cat.name}</span>
                           </div>
                           <div className="flex items-center gap-2 shrink-0 ml-3">
                             {isExceeded && (
-                              <span className="text-[10px] uppercase font-bold text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded-sm">
+                              <span className="text-[10px] uppercase font-bold text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded-sm tabular-nums">
                                 +{(cat.value - budget).toFixed(0)} €
                               </span>
                             )}
-                            <span className="font-semibold text-neutral-900 dark:text-white" title={hasBudget && !isExceeded ? `Reste ${(budget - cat.value).toFixed(2)} €` : undefined}>
+                            <span className="font-semibold text-foreground tabular-nums" title={hasBudget && !isExceeded ? `Reste ${(budget - cat.value).toFixed(2)} €` : undefined}>
                               {hasBudget ? `${cat.value.toFixed(0)} € / ${budget} €` : (isAllTime ? `~${cat.value.toFixed(0)} € / mois` : `${cat.value.toFixed(0)} €`)}
                             </span>
                           </div>
@@ -1619,111 +2185,174 @@ export function Dashboard() {
             )}
           </Card>
 
-          <Card noPadding className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            <div className="flex justify-between items-start p-6 xl:p-8 pb-4 shrink-0 border-b border-border">
-              <h3 className="text-base font-medium text-foreground">Abonnements</h3>
-              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
-                <CreditCard size={16} />
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto no-scrollbar p-4 xl:p-6 space-y-1 relative">
-              {!hasData ? (
-                <>
-                  {[1, 2, 3, 4].map(i => (
-                    <div key={i} className="flex items-center justify-between min-h-[58px] px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-black/5 dark:bg-white/5 animate-pulse shrink-0" />
-                        <div className="h-4 w-28 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-                      </div>
-                      <div className="flex flex-col items-end gap-1.5 shrink-0">
-                        <div className="h-4 w-16 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-                        <div className="h-3 w-12 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : activeSubscriptions.length === 0 ? (
-                <div className="text-sm text-muted-foreground flex h-full items-center justify-center">Aucun abonnement détecté</div>
-              ) : activeSubscriptions.map((sub, i) => (
-                <TransactionRow key={`sub-${i}`} tx={sub} hideDescription />
-              ))}
-            </div>
-          </Card>
+          <AiInsightsCard 
+            income={income}
+            expenses={expenses}
+            balance={balance}
+            subs={subs}
+            projectedSavings={spendingCadence.projectedEndOfMonthBalance}
+            className="flex-1 min-h-0"
+          />
         </div>
 
-        {/* Col 3: Transactions & CSV */}
+        {/* Col 3: Insight Cards */}
         <div className="flex flex-col gap-6 min-h-0 h-full">
-          {/* Coach Card */}
-          {SHOW_AI_COACH && (
-            <div className="bg-neutral-900/40 dark:bg-white/[0.03] border border-white/[0.08] rounded-3xl p-6 xl:p-8 shrink-0">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-semibold text-foreground">
-                  Le coup d'œil du mois
-                </h3>
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-amber-400/90 shrink-0">
-                    <Sparkles size={14} />
-                  </div>
-                  <button onClick={fetchTips} disabled={isCoachLoading} className="p-1 rounded-full hover:bg-neutral-200 dark:hover:bg-white/10 transition-colors disabled:opacity-50 text-muted-foreground hover:text-foreground shrink-0">
-                    <RefreshCcw size={14} className={isCoachLoading ? "animate-spin" : ""} />
-                  </button>
-                  <span className="text-[10px] uppercase font-bold bg-neutral-200/50 dark:bg-neutral-800 text-neutral-500 px-2 py-0.5 rounded-full shrink-0">Coach</span>
+          {/* Carte 1: Top Commerçants */}
+          <Card className="flex-1 min-h-0 h-full flex flex-col p-6 relative overflow-hidden">
+            <div className="flex justify-between items-start shrink-0">
+              <div>
+                <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Top Commerçants</h3>
+                <div className="text-xs text-neutral-400 mt-0.5 font-sans">
+                  {isAllTime ? "Enseignes les plus sollicitées" : "Principaux débits du mois"}
                 </div>
               </div>
-              {isCoachLoading ? (
-                <div className="flex flex-col gap-3 py-1">
-                  <div className="h-4 bg-neutral-200 dark:bg-neutral-800/50 rounded animate-pulse w-3/4"></div>
-                  <div className="h-4 bg-neutral-200 dark:bg-neutral-800/50 rounded animate-pulse w-full"></div>
-                  <div className="h-4 bg-neutral-200 dark:bg-neutral-800/50 rounded animate-pulse w-5/6"></div>
+              <div 
+                className="flex items-center shrink-0 cursor-pointer group active:scale-95 transition-transform"
+                onClick={() => setShowTransactionsDrawer(true)}
+              >
+                <span className="text-xs font-medium text-neutral-400 group-hover:text-white transition-colors mr-2.5 font-sans">
+                  Voir tout
+                </span>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0 group-hover:border-black/20 dark:group-hover:border-white/[0.15] transition-colors">
+                  <ShoppingBag size={16} />
                 </div>
-              ) : coachTips && (
-                <div className="space-y-3">
-                  {coachTips.map((tip, i) => (
-                    <div key={i} className="flex items-start gap-3">
-                      {tip.type === "warning" && <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />}
-                      {tip.type === "success" && <CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" />}
-                      {tip.type === "tip" && <Info size={16} className="text-blue-500 shrink-0 mt-0.5" />}
-                      <p className="text-sm text-neutral-800 dark:text-neutral-200 leading-snug">{tip.text}</p>
+              </div>
+            </div>
+
+            {topMerchants.length === 0 ? (
+              <div className="flex-1 py-12 flex flex-col items-center justify-center text-center text-neutral-400 mt-4">
+                <div className="w-10 h-10 rounded-full bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-3 text-neutral-400">
+                  <ShoppingBag size={18} />
+                </div>
+                <p className="text-sm font-medium text-foreground font-sans">Aucun débit marchand</p>
+                <p className="text-xs text-neutral-500 mt-0.5 font-sans">Tes dépenses par enseigne apparaîtront ici</p>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col gap-3 mt-4">
+                {topMerchants.slice(0, 4).map((merchant) => {
+                  const maxSpent = topMerchants[0]?.total || 1;
+                  const progressRatio = Math.max(6, Math.min(100, (merchant.total / maxSpent) * 100));
+
+                  return (
+                    <div
+                      key={merchant.name}
+                      className="relative overflow-hidden flex-1 flex items-center justify-between rounded-xl px-3.5 py-3.5 bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] border border-black/[0.05] dark:border-white/[0.04] transition-colors"
+                    >
+                      {/* Ligne de progression discrète en arrière-plan proportionnelle au 1er marchand */}
+                      <div
+                        className="absolute inset-y-0 left-0 bg-black/[0.03] dark:bg-white/[0.04] pointer-events-none transition-all duration-500 ease-out"
+                        style={{ width: `${progressRatio}%` }}
+                      />
+
+                      <div className="relative z-10 flex items-center justify-between gap-3 w-full">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 xl:w-9 xl:h-9 rounded-full bg-white dark:bg-neutral-800/80 border border-black/5 dark:border-white/[0.08] shadow-sm flex items-center justify-center shrink-0">
+                            <CategoryIcon type={merchant.category} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-semibold text-sm text-foreground truncate" title={merchant.name}>
+                              {merchant.name}
+                            </div>
+                            <div className="text-[11px] xl:text-xs text-neutral-500 truncate">
+                              {merchant.count} passage{merchant.count > 1 ? "s" : ""} {isAllTime ? "au total" : "ce mois-ci"}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="font-bold text-sm xl:text-base text-foreground tabular-nums">
+                            {merchant.total.toFixed(2)} €
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  ))}
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          {/* Carte 2: Rythme de dépense */}
+          <Card className="flex-1 min-h-0 flex flex-col h-full justify-between p-6">
+            <div className="shrink-0">
+              <div className="flex justify-between items-start shrink-0">
+                <div>
+                  <h3 className="text-base font-semibold tracking-tight text-foreground">Rythme de dépense</h3>
+                  <p className="text-xs text-neutral-500 mt-1">Décomposition hebdomadaire du mois</p>
+                </div>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+                  <Activity size={16} />
+                </div>
+              </div>
+
+              {/* Moyenne quotidienne réelle */}
+              <div className="flex items-baseline mt-4">
+                <span className="text-3xl font-semibold tracking-tight tabular-nums text-white">
+                  {spendingCadence.pastDailyAverage.toFixed(2)}
+                </span>
+                <span className="text-xs text-neutral-400 font-normal ml-2">
+                  / moy. par jour
+                </span>
+              </div>
+
+              {spendingCadence.weeks.some(w => w.isPeak) && (
+                <div className="mt-4 text-xs text-amber-400/90 font-medium tabular-nums font-sans">
+                  Semaine {spendingCadence.weeks.find(w => w.isPeak)?.label.replace('S', '')} · Pic du mois ({spendingCadence.weeks.find(w => w.isPeak)?.amount.toFixed(0)} €)
                 </div>
               )}
             </div>
-          )}
 
-          <Card noPadding className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            <div className="flex justify-between items-start p-6 xl:p-8 pb-4 shrink-0 border-b border-border">
-              <h3 className="text-base font-medium text-foreground">Transactions</h3>
-              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
-                <ArrowRightLeft size={16} />
-              </div>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto no-scrollbar p-4 xl:p-6 space-y-1 relative">
-              {!hasData ? (
-                <>
-                  {[1, 2, 3, 4, 5, 6].map(i => (
-                    <div key={i} className="flex items-center justify-between min-h-[58px] px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-black/5 dark:bg-white/5 animate-pulse shrink-0" />
-                        <div className="flex flex-col gap-1.5">
-                          <div className="h-4 w-32 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-                          <div className="h-3 w-20 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-1.5 shrink-0">
-                        <div className="h-4 w-16 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-                        <div className="h-3 w-12 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : filteredTransactions.map((tx) => (
-                <TransactionRow key={tx.id} tx={tx} />
+            {/* Visualiseur vertical pleine largeur (S1 à S4/S5) */}
+            <div className={`grid ${spendingCadence.weeks.length === 5 ? 'grid-cols-5' : 'grid-cols-4'} gap-4 w-full my-6 flex-1 items-end`}>
+              {spendingCadence.weeks.map((week) => (
+                <div key={week.id} className="flex flex-col items-center justify-end h-full">
+                  <div className="text-xs tabular-nums text-neutral-400 text-center mb-2">
+                    {week.amount > 0 ? `${week.amount.toFixed(0)} €` : "—"}
+                  </div>
+                  <div className="w-6 md:w-8 h-20 md:h-24 bg-black/5 dark:bg-white/[0.06] rounded-full flex flex-col justify-end overflow-hidden mx-auto relative">
+                    <motion.div
+                      initial={{ height: 0 }}
+                      animate={{ height: `${Math.max(week.amount > 0 ? 5 : 0, week.pct)}%` }}
+                      transition={{ type: "spring", stiffness: 120, damping: 20 }}
+                      className={`w-full rounded-full transition-colors ${
+                        week.isPeak
+                          ? "bg-foreground"
+                          : "bg-neutral-300 dark:bg-white/30"
+                      }`}
+                    />
+                  </div>
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 text-center mt-2.5">
+                    {week.label}
+                  </div>
+                </div>
               ))}
             </div>
+
+            {/* Objectif d'épargne */}
+            <div className="mt-6 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-neutral-500 dark:text-neutral-400 min-w-0 pr-2">
+                <Wallet size={14} className="shrink-0" />
+                {spendingCadence.savingsGoal > 0 ? (
+                  <span className="truncate text-xs">
+                    Objectif : <strong className="text-foreground font-semibold tabular-nums">{spendingCadence.savingsGoal.toFixed(0)} €</strong>
+                    {spendingCadence.savingsPercentage ? ` (${spendingCadence.savingsPercentage} %)` : ""} d&apos;épargne
+                  </span>
+                ) : (
+                  <span className="truncate text-xs">Objectif d&apos;épargne non configuré</span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsTab("budgets");
+                  setShowSettingsModal(true);
+                }}
+                className="h-9 px-4 rounded-full text-xs font-medium bg-black/[0.04] hover:bg-black/[0.08] dark:bg-white/[0.08] dark:hover:bg-white/[0.14] text-neutral-700 dark:text-white border border-border transition-all flex items-center justify-center shrink-0 active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer"
+              >
+                {spendingCadence.savingsGoal > 0 ? "Modifier" : "Définir un objectif"}
+              </button>
+            </div>
           </Card>
-          
+
           <CSVUploader onUpload={handleUpload} />
         </div>
       </div>
@@ -1738,38 +2367,41 @@ export function Dashboard() {
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }} 
-              className="absolute inset-0 bg-black/20 dark:bg-black/40 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-md"
               onClick={() => setShowSettingsModal(false)}
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 10 }} 
               animate={{ opacity: 1, scale: 1, y: 0 }} 
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-card border border-border rounded-3xl shadow-xl w-full max-w-5xl h-[85vh] md:h-[80vh] relative z-10 mx-4 flex overflow-hidden"
+              exit={{ opacity: 0, scale: 0.95, y: 10 }} 
+              className="bg-card border border-border dark:border-white/[0.08] rounded-3xl shadow-2xl w-full max-w-5xl h-[85vh] md:h-[80vh] relative z-10 mx-4 flex overflow-hidden"
             >
               {/* Sidebar */}
-              <div className="w-[240px] shrink-0 border-r border-border bg-neutral-50/50 dark:bg-neutral-900/20 flex flex-col">
+              <div className="w-[240px] shrink-0 border-r border-border bg-neutral-50/50 dark:bg-white/[0.02] flex flex-col">
                 <div className="p-6 pb-6">
-                  <h2 className="text-xl font-bold text-foreground">Paramètres</h2>
+                  <h2 className="text-xl font-bold tracking-tight text-foreground">Paramètres</h2>
                 </div>
-                <div className="flex-1 px-4 space-y-1">
+                <div className="flex-1 px-4 space-y-1.5">
                   <button 
+                    type="button"
                     onClick={() => setSettingsTab("income")} 
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${settingsTab === "income" ? "bg-neutral-200/60 dark:bg-white/[0.08] text-foreground" : "text-muted-foreground hover:bg-neutral-100 dark:hover:bg-white/[0.04]"}`}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-full text-sm font-medium transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer ${settingsTab === "income" ? "bg-foreground text-background shadow-sm" : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.04]"}`}
                   >
                     <Wallet size={16} />
                     Revenus de référence
                   </button>
                   <button 
+                    type="button"
                     onClick={() => setSettingsTab("subs")} 
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${settingsTab === "subs" ? "bg-neutral-200/60 dark:bg-white/[0.08] text-foreground" : "text-muted-foreground hover:bg-neutral-100 dark:hover:bg-white/[0.04]"}`}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-full text-sm font-medium transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer ${settingsTab === "subs" ? "bg-foreground text-background shadow-sm" : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.04]"}`}
                   >
                     <Repeat size={16} />
                     Abonnements
                   </button>
                   <button 
+                    type="button"
                     onClick={() => setSettingsTab("budgets")} 
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${settingsTab === "budgets" ? "bg-neutral-200/60 dark:bg-white/[0.08] text-foreground" : "text-muted-foreground hover:bg-neutral-100 dark:hover:bg-white/[0.04]"}`}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-full text-sm font-medium transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer ${settingsTab === "budgets" ? "bg-foreground text-background shadow-sm" : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.04]"}`}
                   >
                     <Flag size={16} />
                     Plafonds & Budgets
@@ -1782,37 +2414,35 @@ export function Dashboard() {
                 onSubmit={(e) => { e.preventDefault(); handleSaveSettingsClick(); }} 
                 className="flex-1 flex flex-col min-w-0 bg-card relative"
               >
-                <button type="button" onClick={() => setShowSettingsModal(false)} className="absolute top-6 right-6 text-muted-foreground hover:text-foreground transition-colors p-2 bg-neutral-100 dark:bg-neutral-800 rounded-full z-10">
-                  <X size={18} />
-                </button>
+                <CloseButton onClick={() => setShowSettingsModal(false)} className="absolute top-6 right-6 z-10" iconSize={18} />
                 
                 <div className="flex-1 overflow-y-auto no-scrollbar p-8 xl:p-10 pt-16 flex flex-col min-h-0">
                   {settingsTab === "income" ? (
                     <div className="max-w-xl space-y-8 w-full">
                       <div className="mb-8">
                         <h3 className="text-lg font-semibold text-foreground mb-1">Revenus mensuels attendus</h3>
-                        <p className="text-sm text-muted-foreground">Définissez vos revenus de référence pour ajuster le solde du mois en cours.</p>
+                        <p className="text-sm text-neutral-400">Définissez vos revenus de référence pour ajuster le solde du mois en cours.</p>
                       </div>
                       
                       <div>
                         <label className="block text-sm font-medium text-foreground mb-3">Salaire mensuel habituel</label>
                         <div className="flex gap-4">
                           <div className="relative flex-1">
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">€</span>
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400">€</span>
                             <input 
                               type="number" 
                               value={incomeSettings.salary || ""} 
                               onChange={e => handleSaveIncomeSettings({ ...incomeSettings, salary: parseFloat(e.target.value) || 0 })}
-                              className="w-full pl-8 pr-4 py-3 rounded-2xl bg-neutral-50 dark:bg-neutral-900 border border-border focus:outline-none focus:border-neutral-400 text-foreground" 
+                              className="w-full pl-8 pr-4 py-3 rounded-2xl bg-neutral-50 dark:bg-white/[0.03] border border-border focus:outline-none focus:border-foreground/30 text-foreground tabular-nums" 
                             />
                           </div>
                           <div className="relative w-32 shrink-0">
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Le</span>
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400 text-sm">Le</span>
                             <input 
                               type="number" 
                               value={incomeSettings.salaryDay || ""} 
                               onChange={e => handleSaveIncomeSettings({ ...incomeSettings, salaryDay: parseInt(e.target.value) || 1 })}
-                              className="w-full pl-10 pr-4 py-3 rounded-2xl bg-neutral-50 dark:bg-neutral-900 border border-border focus:outline-none focus:border-neutral-400 text-foreground" 
+                              className="w-full pl-10 pr-4 py-3 rounded-2xl bg-neutral-50 dark:bg-white/[0.03] border border-border focus:outline-none focus:border-foreground/30 text-foreground tabular-nums" 
                               min="1" max="31"
                             />
                           </div>
@@ -1821,12 +2451,12 @@ export function Dashboard() {
                       <div>
                         <label className="block text-sm font-medium text-foreground mb-3">Aides & Allocations (CAF, etc.)</label>
                         <div className="relative">
-                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">€</span>
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400">€</span>
                           <input 
                             type="number" 
                             value={incomeSettings.aids || ""} 
                             onChange={e => handleSaveIncomeSettings({ ...incomeSettings, aids: parseFloat(e.target.value) || 0 })}
-                            className="w-full pl-8 pr-4 py-3 rounded-2xl bg-neutral-50 dark:bg-neutral-900 border border-border focus:outline-none focus:border-neutral-400 text-foreground" 
+                            className="w-full pl-8 pr-4 py-3 rounded-2xl bg-neutral-50 dark:bg-white/[0.03] border border-border focus:outline-none focus:border-foreground/30 text-foreground tabular-nums" 
                           />
                         </div>
                       </div>
@@ -1840,71 +2470,71 @@ export function Dashboard() {
                         />
                         <label htmlFor="autoApply" className="text-sm text-foreground cursor-pointer leading-relaxed">
                           Appliquer automatiquement si aucun revenu n'est détecté dans le relevé du mois affiché.<br/>
-                          <span className="text-muted-foreground">Pratique pour les mois en cours si la paie n'est pas encore tombée.</span>
+                          <span className="text-neutral-500">Pratique pour les mois en cours si la paie n'est pas encore tombée.</span>
                         </label>
                       </div>
                     </div>
                   ) : settingsTab === "subs" ? (
                     <div className="flex-1 flex flex-col h-full min-h-0">
                       <div className="mb-6 shrink-0">
-                        <h3 className="text-lg font-semibold text-foreground mb-1">Abonnements récurrents</h3>
-                        <p className="text-sm text-muted-foreground">Glissez vos abonnements dans la bonne colonne pour ajuster votre budget fixe.</p>
+                        <h3 className="text-lg font-semibold text-foreground mb-1">Mes Abonnements</h3>
+                        <p className="text-sm text-neutral-400">La détection est automatique et intelligente. Masquez les faux positifs d'un simple clic.</p>
                       </div>
-                      <SubscriptionManager transactions={transactions} onUpdate={handleUpdateSubscription} />
+                      <SubscriptionManager transactions={transactions} onIgnore={handleIgnoreSubscription} />
                     </div>
                   ) : settingsTab === "budgets" ? (
                     <div className="flex-1 flex flex-col h-full min-h-0">
                       <div className="mb-6 shrink-0">
                         <h3 className="text-lg font-semibold text-foreground mb-1">Plafonds & Budgets</h3>
-                        <p className="text-sm text-muted-foreground">Définissez vos plafonds mensuels par catégorie.</p>
+                        <p className="text-sm text-neutral-400">Définissez vos plafonds mensuels par catégorie.</p>
                       </div>
                       
                       <div className="flex-1 overflow-y-auto no-scrollbar space-y-6">
-                        <div className="bg-neutral-50 dark:bg-white/[0.02] border border-border rounded-2xl p-5">
-                          <h4 className="text-sm font-semibold mb-4">Objectif d'épargne global</h4>
+                        <div className="bg-black/[0.02] dark:bg-white/[0.02] border border-border rounded-2xl p-5">
+                          <h4 className="text-sm font-semibold mb-4 text-foreground">Objectif d'épargne global</h4>
                           <div className="relative max-w-sm">
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">€</span>
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400">€</span>
                             <input 
                               type="number" 
                               value={incomeSettings.savingsGoal || ""} 
                               onChange={e => handleSaveIncomeSettings({ ...incomeSettings, savingsGoal: parseFloat(e.target.value) || 0 })}
-                              className="w-full pl-8 pr-4 py-3 rounded-xl bg-white dark:bg-neutral-900 border border-border focus:outline-none focus:border-neutral-400 text-foreground text-sm" 
+                              className="w-full pl-8 pr-4 py-3 rounded-xl bg-card border border-border focus:outline-none focus:border-foreground/30 text-foreground text-sm tabular-nums" 
                               placeholder="0"
                             />
                           </div>
                         </div>
 
                         <div className="space-y-3">
-                          <h4 className="text-sm font-semibold px-1">Plafonds mensuels (Catégories)</h4>
+                          <h4 className="text-sm font-semibold px-1 text-foreground">Plafonds mensuels (Catégories)</h4>
                           {Object.keys(CATEGORY_COLORS).filter(c => c !== "Autre" && c !== "Épargne & Trésorerie").map(cat => (
-                            <div key={cat} className="flex items-center justify-between p-4 bg-white dark:bg-card border border-border rounded-xl">
-                              <div className="flex items-center gap-3">
-                                <div className={`w-3 h-3 rounded-full ${CATEGORY_COLORS[cat].dot}`} />
-                                <span className="text-sm font-medium">{cat}</span>
+                            <div key={cat} className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                              <div className="flex items-center gap-3 min-w-0 pr-3">
+                                <div className={`w-3 h-3 rounded-full shrink-0 ${CATEGORY_COLORS[cat].dot}`} />
+                                <span className="text-sm font-medium text-foreground truncate" title={cat}>{cat}</span>
                               </div>
-                              <div className="relative w-32">
+                              <div className="relative w-32 shrink-0">
                                 <input 
                                   type="number"
                                   value={categoryBudgets[cat] || ""}
                                   onChange={e => handleSaveBudget(cat, parseFloat(e.target.value))}
                                   placeholder="Illimité"
-                                  className="w-full pl-3 pr-8 py-2 rounded-lg bg-neutral-50 dark:bg-neutral-900 border border-border focus:outline-none focus:border-neutral-400 text-sm text-right font-medium"
+                                  className="w-full pl-3 pr-8 py-2 rounded-lg bg-neutral-50 dark:bg-white/[0.03] border border-border focus:outline-none focus:border-foreground/30 text-sm text-right font-medium tabular-nums"
                                 />
-                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">€</span>
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 text-sm">€</span>
                               </div>
                             </div>
                           ))}
                         </div>
                       </div>
                       
-                      <div className="mt-6 p-4 bg-neutral-50 dark:bg-white/[0.02] border border-border rounded-2xl shrink-0">
+                      <div className="mt-6 p-4 bg-black/[0.02] dark:bg-white/[0.02] border border-border rounded-2xl shrink-0">
                         <div className="flex justify-between items-center mb-1">
-                          <span className="text-sm text-muted-foreground">Total des plafonds configurés</span>
-                          <span className="font-semibold">{Object.values(categoryBudgets).reduce((a, b) => a + b, 0).toFixed(2)} €</span>
+                          <span className="text-sm text-neutral-400">Total des plafonds configurés</span>
+                          <span className="font-semibold text-foreground tabular-nums">{Object.values(categoryBudgets).reduce((a, b) => a + b, 0).toFixed(2)} €</span>
                         </div>
                         <div className="flex justify-between items-center">
-                          <span className="text-sm text-muted-foreground">Budget dépensable (Revenus - Épargne)</span>
-                          <span className="font-semibold">{((incomeSettings.salary || 0) + (incomeSettings.aids || 0) - (incomeSettings.savingsGoal || 0)).toFixed(2)} €</span>
+                          <span className="text-sm text-neutral-400">Budget dépensable (Revenus - Épargne)</span>
+                          <span className="font-semibold text-foreground tabular-nums">{((incomeSettings.salary || 0) + (incomeSettings.aids || 0) - (incomeSettings.savingsGoal || 0)).toFixed(2)} €</span>
                         </div>
                       </div>
                     </div>
@@ -1915,13 +2545,13 @@ export function Dashboard() {
                   <button 
                     type="button"
                     onClick={() => setShowSettingsModal(false)}
-                    className="px-5 py-2.5 rounded-xl font-medium text-sm text-foreground hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                    className="h-10 px-5 rounded-full font-medium text-sm text-foreground hover:bg-black/5 dark:hover:bg-white/[0.08] active:scale-95 transition-all focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer"
                   >
                     Annuler
                   </button>
                   <button 
                     type="submit"
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm bg-black text-white dark:bg-white dark:text-black hover:opacity-90 transition-opacity"
+                    className="h-10 px-5 rounded-full font-medium text-sm bg-black text-white dark:bg-white dark:text-black hover:opacity-90 active:scale-95 transition-all flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer"
                   >
                     {isSaved ? <><Check size={16} /> Enregistré</> : "Enregistrer"}
                   </button>
@@ -1932,7 +2562,7 @@ export function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* Reset Confirmation Modal */}
+      {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {showResetModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -1940,41 +2570,47 @@ export function Dashboard() {
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }} 
-              className="absolute inset-0 bg-black/20 dark:bg-black/40 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-md"
               onClick={() => setShowResetModal(false)}
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 10 }} 
               animate={{ opacity: 1, scale: 1, y: 0 }} 
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-card border border-border p-6 rounded-3xl shadow-xl w-full max-w-sm relative z-10 mx-4"
+              exit={{ opacity: 0, scale: 0.95, y: 10 }} 
+              transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+              className="bg-card border border-border dark:border-white/[0.08] p-6 rounded-3xl shadow-2xl w-full max-w-sm relative z-10 mx-4"
             >
               <div className="flex justify-between items-start mb-4">
-                <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 text-red-500 flex items-center justify-center shrink-0">
+                <div className="w-10 h-10 rounded-full bg-rose-100 dark:bg-rose-900/30 text-rose-500 flex items-center justify-center shrink-0">
                   <Trash2 size={18} />
                 </div>
-                <button onClick={() => setShowResetModal(false)} className="text-muted-foreground hover:text-foreground transition-colors p-2 bg-neutral-100 dark:bg-neutral-800 rounded-full shrink-0">
-                  <X size={18} />
-                </button>
+                <CloseButton onClick={() => setShowResetModal(false)} />
               </div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">
-                Réinitialiser {formatMonthLabel(selectedMonth)} ?
+              <h3 className="text-lg font-bold tracking-tight text-foreground mb-2">
+                Supprimer des données
               </h3>
-              <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-                Toutes les opérations importées pour ce mois seront effacées du dashboard. Vos autres mois resteront intacts.
+              <p className="text-sm text-neutral-400 mb-6 leading-relaxed">
+                Choisis si tu souhaites effacer uniquement ce mois ou réinitialiser l'ensemble de tes données.
               </p>
-              <div className="flex gap-3">
+              <div className="flex items-center gap-3">
                 <button 
-                  onClick={() => setShowResetModal(false)}
-                  className="flex-1 py-2.5 rounded-full font-medium text-sm text-foreground bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+                  type="button"
+                  disabled={!selectedMonth || selectedMonth === "Tout" || selectedMonth === "all"}
+                  onClick={confirmReset}
+                  className={`h-10 bg-neutral-800 hover:bg-neutral-700 text-white rounded-full px-4 text-sm font-medium transition-all flex-1 text-center select-none active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none ${
+                    (!selectedMonth || selectedMonth === "Tout" || selectedMonth === "all")
+                      ? "opacity-40 pointer-events-none" 
+                      : "cursor-pointer"
+                  }`}
                 >
-                  Annuler
+                  Supprimer ce mois
                 </button>
                 <button 
-                  onClick={confirmReset}
-                  className="flex-1 py-2.5 rounded-full font-medium text-sm text-white bg-red-500 hover:bg-red-600 transition-colors"
+                  type="button"
+                  onClick={confirmResetAll}
+                  className="h-10 bg-rose-500 hover:bg-rose-600 text-white rounded-full px-4 text-sm font-medium transition-all flex-1 text-center select-none active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-rose-400/40 focus-visible:outline-none cursor-pointer"
                 >
-                  Supprimer
+                  Tout réinitialiser
                 </button>
               </div>
             </motion.div>
@@ -1985,39 +2621,30 @@ export function Dashboard() {
       {/* Inbox Popover */}
       <AnimatePresence>
         {showInbox && (
-          <>
             <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              onClick={() => setShowInbox(false)}
-              className="fixed inset-0 z-[100]" 
-            />
-            <motion.div 
+              ref={inboxRef}
               initial={{ opacity: 0, y: -10, scale: 0.95 }} 
               animate={{ opacity: 1, y: 0, scale: 1 }} 
               exit={{ opacity: 0, y: -10, scale: 0.95 }} 
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="fixed top-20 right-6 sm:right-12 w-80 sm:w-96 bg-card/90 backdrop-blur-2xl border border-border rounded-3xl shadow-2xl z-[101] overflow-hidden flex flex-col"
+              className="fixed top-[88px] right-6 sm:right-12 w-80 sm:w-96 bg-card dark:bg-[#0F0F11] border border-border dark:border-white/[0.08] shadow-2xl rounded-2xl z-[101] overflow-hidden flex flex-col"
             >
-              <div className="p-4 border-b border-border flex justify-between items-center bg-card/50">
-                <h3 className="font-semibold text-foreground flex items-center gap-2">
+              <div className="p-4 px-5 border-b border-border flex justify-between items-center">
+                <h3 className="font-semibold text-foreground flex items-center gap-2 text-sm">
                   Opérations à vérifier
                   {inboxTx.length > 0 && <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">{inboxTx.length}</span>}
                 </h3>
-                <button onClick={() => setShowInbox(false)} className="p-1.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-muted-foreground hover:text-foreground transition-colors">
-                  <X size={16} />
-                </button>
+                <CloseButton onClick={() => setShowInbox(false)} iconSize={15} />
               </div>
               
               <div className="flex-1 overflow-y-auto max-h-[60vh] p-4 space-y-3 no-scrollbar">
                 {inboxTx.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <div className="flex flex-col items-center justify-center py-8 text-center text-neutral-400">
                     <div className="w-12 h-12 rounded-full bg-green-500/10 text-green-500 flex items-center justify-center mb-3">
-                      <Check size={24} strokeWidth={3} />
+                      <Check size={22} strokeWidth={2.5} />
                     </div>
                     <p className="font-semibold text-foreground text-sm">Toutes vos dépenses sont classées</p>
-                    <p className="text-xs text-muted-foreground mt-1">Votre Inbox est vide ✓</p>
+                    <p className="text-xs text-neutral-500 mt-1">Votre Inbox est vide</p>
                   </div>
                 ) : (
                   <AnimatePresence>
@@ -2028,25 +2655,25 @@ export function Dashboard() {
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, x: -50 }}
-                        className="p-3 bg-neutral-50 dark:bg-neutral-900/50 rounded-2xl border border-black/5 dark:border-white/5"
+                        className="p-3.5 bg-neutral-50 dark:bg-white/[0.03] rounded-2xl border border-border"
                       >
-                        <div className="flex items-center justify-between gap-3 mb-3">
+                        <div className="flex items-center justify-between gap-3 mb-2.5">
                           <div className="min-w-0 flex-1">
                             <div className="font-medium text-sm text-foreground truncate" title={tx.name}>{tx.name}</div>
-                            <div className="text-xs text-muted-foreground mt-0.5">{tx.date}</div>
+                            <div className="text-xs text-neutral-500 mt-0.5">{tx.date}</div>
                           </div>
-                          <div className="font-bold text-sm text-foreground shrink-0 text-right">{tx.amount.toFixed(2)} €</div>
+                          <div className="font-bold text-sm text-foreground shrink-0 text-right tabular-nums">{tx.amount.toFixed(2)} €</div>
                         </div>
                         <div className="relative">
                           <select
-                            className="w-full h-10 appearance-none text-sm bg-neutral-100 dark:bg-white/[0.04] border border-neutral-200/60 dark:border-white/[0.08] rounded-xl pl-3 pr-10 outline-none hover:border-black/10 dark:hover:border-white/20 transition-colors text-foreground cursor-pointer"
+                            className="w-full h-9 appearance-none text-xs font-medium bg-neutral-100 dark:bg-white/[0.06] border border-border rounded-full pl-3.5 pr-8 outline-none hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-foreground/20 transition-all text-foreground cursor-pointer"
                             value=""
                             onChange={(e) => {
                               const newType = e.target.value;
                               // Update cache
-                              const cache = JSON.parse(localStorage.getItem('financeCategoryCache_v2') || '{}');
+                              const cache = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
                               cache[tx.name] = { ...cache[tx.name], categorie: newType };
-                              localStorage.setItem('financeCategoryCache_v2', JSON.stringify(cache));
+                              localStorage.setItem('krona_merchant_knowledge', JSON.stringify(cache));
                               
                               // Update transactions state
                               setTransactions(prev => {
@@ -2061,7 +2688,7 @@ export function Dashboard() {
                               <option key={c} value={c}>{c}</option>
                             ))}
                           </select>
-                          <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                          <ChevronDown size={13} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
                         </div>
                       </motion.div>
                     ))}
@@ -2069,19 +2696,139 @@ export function Dashboard() {
                 )}
               </div>
             </motion.div>
-          </>
         )}
       </AnimatePresence>
 
       <AnimatePresence>
         {showCalendarModal && (
           <CalendarModal 
+            key="calendar-modal"
             isOpen={showCalendarModal}
             onClose={() => setShowCalendarModal(false)}
             transactions={transactions}
-            selectedMonth={selectedMonth}
+            selectedMonth={selectedMonth || "Tout"}
             onSelectMonth={setSelectedMonth}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Modale des transactions détaillées (ex-Drawer) */}
+      <AnimatePresence>
+        {showTransactionsDrawer && (
+          <div className="fixed inset-0 z-[70] flex justify-end p-4 md:p-6">
+            {/* Scrim avec blur translucide Apple */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setShowTransactionsDrawer(false)}
+              className="absolute inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-md"
+            />
+
+            {/* Modale flottante latérale */}
+            <motion.div
+              initial={{ x: '100%', opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: '100%', opacity: 0 }}
+              transition={{ type: "spring", damping: 28, stiffness: 280 }}
+              className="relative z-10 h-[calc(100vh-2rem)] md:h-[calc(100vh-3rem)] w-full max-w-lg md:max-w-xl rounded-3xl bg-card/95 dark:bg-[#0F0F11]/95 backdrop-blur-2xl border border-border dark:border-white/[0.08] shadow-2xl flex flex-col overflow-hidden"
+            >
+              {/* Header */}
+              <div className="p-6 pb-4 border-b border-border flex items-center justify-between shrink-0">
+                <div>
+                  <div className="flex items-center gap-3 mb-1">
+                    <h2 className="text-lg font-bold tracking-tight text-foreground">Toutes les opérations</h2>
+                    <span className="bg-black/5 dark:bg-white/[0.08] text-neutral-600 dark:text-neutral-300 text-xs px-2.5 py-0.5 rounded-full font-medium">
+                      {filteredTransactions.length}
+                    </span>
+                  </div>
+                  <p className="text-xs text-neutral-500">
+                    {formatMonthLabel(selectedMonth || "")}
+                  </p>
+                </div>
+                <CloseButton onClick={() => setShowTransactionsDrawer(false)} />
+              </div>
+
+              {/* Barre de recherche et filtres */}
+              <div className="px-6 py-4 shrink-0 space-y-3">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    type="text"
+                    value={drawerSearch}
+                    onChange={(e) => setDrawerSearch(e.target.value)}
+                    placeholder="Rechercher par libellé ou catégorie..."
+                    className="w-full h-10 pl-9 pr-8 rounded-full bg-black/[0.03] dark:bg-white/[0.04] border border-border text-sm focus:outline-none focus:border-foreground/30 focus-visible:ring-2 focus-visible:ring-foreground/20 text-foreground placeholder:text-neutral-500 transition-all"
+                  />
+                  {drawerSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setDrawerSearch("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-foreground p-1"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Chips de filtrage rapide */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                  {[
+                    { id: "all", label: "Tout" },
+                    { id: "debit", label: "Dépenses" },
+                    { id: "credit", label: "Revenus" },
+                    { id: "sub", label: "Abonnements" },
+                    { id: "transfer", label: "Virements" },
+                  ].map(chip => (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      onClick={() => setDrawerFilter(chip.id)}
+                      className={`h-8 px-3.5 rounded-full text-xs font-medium transition-all shrink-0 active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer ${
+                        drawerFilter === chip.id
+                          ? "bg-foreground text-background shadow-sm"
+                          : "text-neutral-400 hover:text-foreground bg-transparent hover:bg-black/5 dark:hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Liste des transactions */}
+              <div className="flex-1 overflow-y-auto no-scrollbar px-6 flex flex-col">
+                {displayedDrawerTx.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-8 text-neutral-400">
+                    <ArrowRightLeft size={32} className="stroke-1 mb-3 opacity-40" />
+                    <p className="text-sm font-medium text-foreground">Aucune opération trouvée</p>
+                    <p className="text-xs text-neutral-500 mt-1">Essaie d&apos;ajuster ta recherche ou tes filtres</p>
+                  </div>
+                ) : (
+                  displayedDrawerTx.map(tx => (
+                    <TransactionRow key={tx.id} tx={tx} isSubscription={isTxSubscription(tx)} />
+                  ))
+                )}
+              </div>
+
+              {/* Résumé en bas du tiroir */}
+              <div className="p-4 px-6 border-t border-border bg-card dark:bg-[#0F0F11] flex items-center justify-between shrink-0 mt-auto">
+                <span className="text-xs text-neutral-500">
+                  {displayedDrawerTx.length} opération{displayedDrawerTx.length > 1 ? "s" : ""} au total
+                </span>
+                <span className="text-xs font-medium text-foreground tabular-nums">
+                  {drawerFilter === "debit" || drawerFilter === "all" ? (
+                    `Dépenses nettes : ${drawerDebitsTotal.toFixed(2)} €`
+                  ) : drawerFilter === "credit" ? (
+                    `Revenus nets : ${drawerCreditsTotal.toFixed(2)} €`
+                  ) : (
+                    `Total : ${Math.abs(drawerDebitsTotal - drawerCreditsTotal).toFixed(2)} €`
+                  )}
+                </span>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -2089,3 +2836,4 @@ export function Dashboard() {
     </div>
   );
 }
+

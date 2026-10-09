@@ -24,7 +24,7 @@
   --muted: #18181b;
   --muted-foreground: #a1a1aa;
   --border: rgba(255, 255, 255, 0.08);
-  --card: #09090b;
+  --card: #0F0F11;
   --card-foreground: #ffffff;
   --pie-1: #ffffff;
   --pie-2: #d4d4d8;
@@ -51,13 +51,30 @@ body {
   font-family: var(--font-space-grotesk), sans-serif;
   overflow: hidden;
   transition: background-color 0.3s ease, color 0.3s ease;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
 }
 
 /* Hide scrollbars for internal scrolling elements if needed */
-.no-scrollbar::-webkit-scrollbar {
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
   display: none;
 }
-.no-scrollbar {
+.no-scrollbar,
+.scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Masquer les flèches d'incrémentation sur les inputs de type number */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }

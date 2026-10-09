@@ -1,0 +1,75 @@
+# Règles de développement, Guidelines & Design System — Krona
+
+Ce document régit de façon absolue et permanente le développement de l'application Krona. Tout agent ou développeur doit s'y conformer strictement avant chaque modification de code.
+
+---
+
+## 1. RÈGLE OPÉRATIONNELLE STRICTE : ZÉRO TEST LOCALHOST / HEADLESS
+- **INTERDICTION FORMELLE** d'exécuter des tests automatisés de navigateur, des scripts de manipulation DOM, ou d'ouvrir un navigateur headless sur `http://localhost:3000` (Playwright, Puppeteer, Selenium, Chromium, etc.).
+- Ne lance aucun script pour cliquer, inspecter des éléments visuels ou capturer des screenshots.
+- Travaille **exclusivement** par édition directe et chirurgicale des fichiers source (`.tsx`, `.ts`, `.css`).
+- Valide uniquement les modifications via la compilation TypeScript et le build Next.js : `npm run build`.
+
+---
+
+## 2. STANDARDS DE DESIGN : APPLE DESIGN SKILLS & LINEAR UI
+L'identité de Krona repose sur un minimalisme radical, le zéro jargon et une lisibilité instantanée (compréhension en moins de 3 secondes) :
+
+- **ZÉRO EMOJI (Interdiction formelle)** :
+  - Ne JAMAIS utiliser d'emojis système (💡, ⚡️, ✨, 🚀, 💰, etc.) dans l'interface, les cartes, les boutons, les alertes ou les conseils générés.
+  - Utilise exclusivement des icônes vectorielles sobres et fines (Lucide React, `stroke-[1.5]` ou `stroke-white/70`).
+- **Surfaces & Contraste** :
+  - Fond global sombre natif (`#0F0F11`).
+  - Surfaces des cartes en élévation subtile (`bg-white/[0.02]` à `bg-white/[0.04]`).
+  - Bordures ultra-fines et satinées (`border border-white/[0.06]` à `border-white/[0.08]`).
+  - Rayons de courbure cohérents (`rounded-2xl` pour les conteneurs et cartes, `rounded-full` pour les boutons gélules et badges).
+- **Micro-interactions & Ressenti tactile (Apple standard)** :
+  - Courbes d'accélération fluides (`duration-200 ease-out`).
+  - Effets de clic tactiles discrets (`active:scale-[0.98]` ou `active:scale-[0.99]`).
+  - États de survol délicats (`hover:border-white/20`, pas de changements d'état brutaux).
+- **Modales, Tiroirs & Popovers** :
+  - Toute ouverture/fermeture doit être impérativement enveloppée dans `<AnimatePresence>`.
+  - Backdrop flouté unifié : `bg-black/60 backdrop-blur-md` avec animation de fondu fluide (`exit={{ opacity: 0 }}`).
+  - Apparition subtile de la modale (`scale: 0.96 -> 1`, `opacity: 0 -> 1`).
+  - Fermeture standardisée : clic sur l'arrière-plan, touche `Escape`, et bouton circulaire compact de fermeture `CloseButton`.
+
+---
+
+## 3. TYPOGRAPHIE : RÈGLE ABSOLUE SPACE GROTESK
+- **Police unique** : Utilise EXCLUSIVEMENT **Space Grotesk** (`font-sans`) sur l'ensemble de l'application (titres, libellés, cartes, boutons).
+- **Données financières et chiffres** : Applique systématiquement la classe `tabular-nums` pour garantir un alignement vertical parfait des montants, pourcentages et dates.
+- **Interdiction formelle du monospace** : N'utilise jamais `font-mono`. Ne crée aucune dépendance à une police monospace.
+
+---
+
+## 4. INTÉGRITÉ DE LA NAVBAR & MODE DÉMO
+- **Gel de la Navbar** : Ne modifie sous aucun prétexte le positionnement, la hauteur, les paddings ou la disposition générale de `Navbar.tsx`.
+- **Comportement du Mode Démo** :
+  - Le layout du Dashboard et de la Navbar en mode démo doit être rigoureusement identique au mode réel avec données importées.
+  - Le bouton d'action principal permute uniquement son texte et son action : `Quitter la démo` (au lieu de `+ Importer un CSV`), sans changer de taille ni de style.
+  - Les éléments non accessibles en démo (onglets secondaires, paramètres, cloche, profil, calendrier) doivent simplement être verrouillés et grisés avec `opacity-40 pointer-events-none cursor-not-allowed`.
+  - Dès l'affichage de l'écran d'accueil/Empty State, l'arrière-plan flouté doit déjà être rendu en configuration Démo pour éviter tout saut visuel au clic sur "Charger un exemple".
+
+---
+
+## 5. DESIGN SYSTEM & COMPOSANTS RÉUTILISABLES
+Pour toute création ou modification, privilégie systématiquement la réutilisation et l'enrichissement des composants partagés (dans `src/components/ui/` ou `src/components/common/`) :
+- **Boutons (`Button`)** :
+  - `primary` : gélule blanche opaque (`bg-white text-black font-medium rounded-full active:scale-95`).
+  - `secondary` : gélule sombre subtile (`bg-white/[0.04] border border-white/[0.08] text-white hover:bg-white/[0.08]`).
+  - `icon` : bouton circulaire compact (`w-8 h-8 rounded-full flex items-center justify-center`).
+- **Badges & Pilules (`Badge` / `Pill`)** :
+  - Format gélule unifié (hauteur `h-9` pour sélecteurs de mois/filtres, `h-6` pour statuts).
+- **Cartes & Conteneurs (`Card`)** :
+  - Style homogène : fond `#0F0F11`, bordure fine `border-white/[0.06]`.
+  - Le padding interne des cartes principales doit être uniformément fixé à 24px (`p-6`).
+  - L'espacement vertical entre l'en-tête d'une carte (titre/sous-titre) et son premier élément de contenu doit TOUJOURS être strictement de 16px (`mt-4`).
+- **Modales (`Modal`)** :
+  - Réutiliser systématiquement le conteneur modal avec transitions Framer Motion, backdrop flou et `CloseButton`.
+
+---
+
+## 6. INTÉGRITÉ COMPTABLE & FINANCIÈRE
+- **Détection des salaires** : Ne jamais qualifier un salaire uniquement sur un critère de montant. Toujours combiner avec un contexte sémantique (employeur, fiche de paie) et respecter la liste d'exclusion (reventes, remboursements de proches, Lydia, Wero, Leboncoin, assurances).
+- **Remboursements santé (CPAM, Mutuelle)** : Doivent toujours réduire les dépenses de santé et ne JAMAIS être comptabilisés comme des revenus.
+- **Virements internes** : Toujours neutralisés pour ne pas fausser le volume des dépenses réelles.

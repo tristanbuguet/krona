@@ -1,10 +1,15 @@
 import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
 export async function POST(req: Request) {
   try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY missing, coach is disabled.");
+      return NextResponse.json({ tips: [] });
+    }
+    const ai = new GoogleGenAI({ apiKey });
+
     const data = await req.json();
     const prompt = `Tu es un coach financier d'une vingtaine d'années très direct, bienveillant et qui ne parle pas avec le jargon des banques.
 Ton but est d'analyser les finances du mois en cours et de donner exactement 3 conseils ultra percutants.
@@ -51,6 +56,6 @@ Exemple de format attendu :
     return NextResponse.json({ tips: json });
   } catch (error) {
     console.error("AI Tips Error:", error);
-    return NextResponse.json({ tips: [] }, { status: 500 });
+    return NextResponse.json({ tips: [] });
   }
 }
