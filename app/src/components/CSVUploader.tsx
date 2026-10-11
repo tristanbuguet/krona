@@ -1,23 +1,33 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useDropzone } from "react-dropzone";
-import Papa from "papaparse";
+import { parseBankCsvFile, BankType, NormalizedTransaction } from "@/lib/bankParser";
 
-export function CSVUploader({ onUpload }: { onUpload: (data: any[]) => void }) {
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    const file = acceptedFiles[0];
-    if (file) {
-      Papa.parse(file, {
-        header: false,
-        skipEmptyLines: true,
-        delimiter: ";",
-        complete: (results) => {
-          onUpload(results.data);
-        },
-      });
-    }
-  }, [onUpload]);
+export function CSVUploader({
+  onUpload,
+}: {
+  onUpload: (data: NormalizedTransaction[]) => void;
+}) {
+  const selectedBankRef = useRef<BankType | undefined>(undefined);
+
+  const onDrop = useCallback(
+    async (acceptedFiles: File[]) => {
+      const file = acceptedFiles[0];
+      if (file) {
+        try {
+          const bank = selectedBankRef.current || (typeof window !== "undefined" ? (localStorage.getItem("krona_selected_bank") as BankType) || undefined : undefined);
+          const result = await parseBankCsvFile(file, bank);
+          selectedBankRef.current = undefined;
+          onUpload(result.transactions);
+        } catch (err) {
+          console.error("Erreur lors du traitement du fichier CSV :", err);
+          selectedBankRef.current = undefined;
+        }
+      }
+    },
+    [onUpload]
+  );
 
   const { getInputProps, open } = useDropzone({
     onDrop,
@@ -25,13 +35,16 @@ export function CSVUploader({ onUpload }: { onUpload: (data: any[]) => void }) {
     multiple: false,
     noClick: true,
     noKeyboard: true,
-    noDrag: true, // we handle drag elsewhere if needed, but for now just the button
+    noDrag: true,
   });
 
   useEffect(() => {
-    const handleTrigger = () => {
+    const handleTrigger = (e: any) => {
+      const activeBank = e.detail?.bank || (typeof window !== "undefined" ? (localStorage.getItem("krona_selected_bank") as BankType) || "bourso" : "bourso");
+      selectedBankRef.current = activeBank;
       open();
     };
+
     window.addEventListener("trigger-csv-upload", handleTrigger);
     return () => window.removeEventListener("trigger-csv-upload", handleTrigger);
   }, [open]);

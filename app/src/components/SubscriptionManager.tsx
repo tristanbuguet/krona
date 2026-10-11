@@ -128,7 +128,7 @@ export function SubscriptionManager({ transactions, onIgnore }: { transactions: 
       </div>
       
       <div className="flex-1 overflow-y-auto no-scrollbar pb-6 pr-1">
-        <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Abonnements actifs ({activeSubs.length})</h3>
+        <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Abonnements actifs · {activeSubs.length}</h3>
         <div className="space-y-3">
           <AnimatePresence>
             {activeSubs.map((sub) => (

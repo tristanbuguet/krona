@@ -36,7 +36,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${spaceGrotesk.variable} antialiased h-screen overflow-hidden bg-background text-foreground transition-colors duration-300`}>
+      <body className={`${spaceGrotesk.variable} antialiased min-h-screen bg-background text-foreground transition-colors duration-300`}>
         <ThemeProvider>
           {children}
         </ThemeProvider>

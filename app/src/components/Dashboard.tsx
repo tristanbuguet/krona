@@ -3,12 +3,22 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Area, AreaChart, LineChart, Line, Legend, ResponsiveContainer, Tooltip, XAxis, PieChart, Pie, Cell, BarChart, Bar, ReferenceLine, CartesianGrid } from "recharts";
 import { CSVUploader } from "./CSVUploader";
+import { CsvAnalysisModal, ImportStep } from "./CsvAnalysisModal";
+import { NormalizedTransaction, parseBoursoBankRows } from "@/lib/bankParser";
+import { BoursoBankLogo, CreditAgricoleLogo } from "./BankSelectorPopover";
 import { CloseButton } from "./ui/CloseButton";
 import { SubscriptionManager, detectSubscriptions } from "./SubscriptionManager";
-import { AiInsightsCard } from "./AiInsightsCard";
+import { MonthlyLimitCard } from "./MonthlyLimitCard";
+import { RealDisposableIncomeCard } from "./RealDisposableIncomeCard";
+import { PaymentCardBanner } from "./PaymentCardBanner";
+import { CardData, CARD_PRESETS, DEFAULT_BANK_CARDS } from "./CardSelectorModal";
 import { useState, useMemo, useEffect, useRef } from "react";
 import clsx from "clsx";
-import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, Loader2, ChevronDown, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, CreditCard, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays, ArrowRight, Search } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, RotateCcw, ChevronDown, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, CreditCard, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays, ArrowRight, Search } from "lucide-react";
+import { initialDemoTransactions } from "@/lib/types";
+import { TrendsView } from "./views/TrendsView";
+import { TransactionsView } from "./views/TransactionsView";
+import { AccountsView } from "./views/AccountsView";
 
 type Transaction = {
   id: string;
@@ -19,6 +29,7 @@ type Transaction = {
   month: string;
   isSubscription?: boolean;
   isInternalTransfer?: boolean;
+  account?: "BoursoBank" | "Crédit Agricole" | string;
 };
 
 type FixedIncomeSettings = {
@@ -27,6 +38,9 @@ type FixedIncomeSettings = {
   aids: number;
   autoApply: boolean;
   savingsGoal?: number;
+  rent?: number;
+  loans?: number;
+  utilities?: number;
 };
 
 function parseAndFormatDate(dateStr: string) {
@@ -68,7 +82,7 @@ const OFFICIAL_CATEGORIES = [
 
 function cleanMerchantName(rawLabel: string) {
   let name = rawLabel.toUpperCase();
-  name = name.replace(/^(CARTE\sX\d{4}\s\d{2}\/\d{2}|CARTE\s|CB\*\s|VIR\sRECU\s|VIR\sSEPA\s|PRLV\sSEPA\s|PAIEMENT\sCB\s)/, "");
+  name = name.replace(/^(PAIEMENT\sPAR\sCARTE|CARTE\sX\d{4}\s\d{2}\/\d{2}|CARTE\s|CB\*\s|PAIEMENT\sCB\s|PRLV\sSEPA\s|PRLV\sDE\s|PRELEVEMENT\sDE\s|PRELEVEMENT\s|VIR\sSEPA\sRECU\sDE\s|VIR\sSEPA\sRECU\s|VIR\sRECU\s|VIR\sSEPA\s|VIR\sEMIS\s|VIREMENT\sEN\sVOTRE\sFAVEUR\sDE\s|VIREMENT\sEN\sVOTRE\sFAVEUR\s|VIREMENT\sEMIS\sPOUR\s|VIREMENT\sEMIS\s|VIREMENT\sDE\s|VIREMENT\sVERS\s|RETRAIT\sDAB\s|RETRAIT\sAU\sDISTRIBUTEUR\s|COTISATION\sMENSUELLE\s|COTISATION\s)/, "");
   name = name.replace(/\s\d{2}\/\d{2}(\/\d{2,4})?(\s|$)/g, " ");
   name = name.replace(/\s[A-Z0-9]{8,}\s*$/, "");
   name = name.replace(/\s+/g, " ").trim();
@@ -138,43 +152,19 @@ function getLocalFallback(categoryBourso: string, name: string, cache: Record<st
 }
 
 const formatMonthLabel = (yyyyMM: string) => {
-  if (yyyyMM === "Tout" || yyyyMM === "all") return "Toutes les périodes";
-  if (yyyyMM === "demo-month") return "Mois d'exemple";
+  if (!yyyyMM || yyyyMM === "Tout" || yyyyMM === "all") return "Mois sélectionné";
+  if (yyyyMM === "demo-month") return "Octobre 2026";
   const [yyyy, mm] = yyyyMM.split("-");
+  if (!yyyy || !mm) return yyyyMM;
   const date = new Date(parseInt(yyyy), parseInt(mm) - 1);
   return date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }).replace(/^\w/, c => c.toUpperCase());
 };
 
-const initialTransactions: Transaction[] = [
-  { id: "demo-1", name: "Employeur (Salaire)", type: "Revenus & Aides", amount: 3200.00, date: "2026-10-01", month: "demo-month" },
-  { id: "demo-2", name: "Netflix", type: "Abonnements & Forfaits", amount: -15.99, date: "2026-10-02", month: "demo-month", isSubscription: true },
-  { id: "demo-3", name: "Loyer", type: "Logement & Maison", amount: -950.00, date: "2026-10-02", month: "demo-month" },
-  { id: "demo-4", name: "Carrefour", type: "Alimentation & Courses", amount: -84.20, date: "2026-10-03", month: "demo-month" },
-  { id: "demo-5", name: "Uber", type: "Transports", amount: -12.50, date: "2026-10-04", month: "demo-month" },
-  { id: "demo-6", name: "Spotify", type: "Abonnements & Forfaits", amount: -10.99, date: "2026-10-05", month: "demo-month", isSubscription: true },
-  { id: "demo-7", name: "Boulangerie", type: "Alimentation & Courses", amount: -4.50, date: "2026-10-05", month: "demo-month" },
-  { id: "demo-8", name: "Orange (Internet)", type: "Abonnements & Forfaits", amount: -39.99, date: "2026-10-06", month: "demo-month", isSubscription: true },
-  { id: "demo-9", name: "Pharmacie", type: "Santé & Soins", amount: -14.20, date: "2026-10-08", month: "demo-month" },
-  { id: "demo-10", name: "Restaurant Le Sud", type: "Restos & Fast-Food", amount: -45.00, date: "2026-10-09", month: "demo-month" },
-  { id: "demo-11", name: "Monoprix", type: "Alimentation & Courses", amount: -32.10, date: "2026-10-10", month: "demo-month" },
-  { id: "demo-12", name: "Amazon", type: "Shopping & Mode", amount: -29.90, date: "2026-10-12", month: "demo-month" },
-  { id: "demo-13", name: "Basic Fit", type: "Abonnements & Forfaits", amount: -29.99, date: "2026-10-14", month: "demo-month", isSubscription: true },
-  { id: "demo-14", name: "RATP", type: "Transports", amount: -84.10, date: "2026-10-15", month: "demo-month", isSubscription: true },
-  { id: "demo-15", name: "Franprix", type: "Alimentation & Courses", amount: -18.40, date: "2026-10-17", month: "demo-month" },
-  { id: "demo-16", name: "Uber Eats", type: "Restos & Fast-Food", amount: -22.50, date: "2026-10-18", month: "demo-month" },
-  { id: "demo-17", name: "Cinéma Gaumont", type: "Sorties & Soirées", amount: -28.00, date: "2026-10-20", month: "demo-month" },
-  { id: "demo-18", name: "Virement Livret A", type: "Épargne & Trésorerie", amount: -300.00, date: "2026-10-22", month: "demo-month", isInternalTransfer: true },
-  { id: "demo-19", name: "Leclerc", type: "Alimentation & Courses", amount: -115.30, date: "2026-10-24", month: "demo-month" },
-  { id: "demo-20", name: "Remboursement Sécu", type: "Santé & Soins", amount: 18.50, date: "2026-10-26", month: "demo-month" },
-  { id: "demo-21", name: "Asos", type: "Shopping & Mode", amount: -65.00, date: "2026-10-27", month: "demo-month" },
-  { id: "demo-22", name: "Starbucks", type: "Restos & Fast-Food", amount: -6.50, date: "2026-10-28", month: "demo-month" },
-  { id: "demo-23", name: "Boulangerie", type: "Alimentation & Courses", amount: -3.20, date: "2026-10-29", month: "demo-month" },
-  { id: "demo-24", name: "Uber", type: "Transports", amount: -18.00, date: "2026-10-30", month: "demo-month" }
-];
+const initialTransactions: Transaction[] = initialDemoTransactions;
 
 function Card({ children, className = "", noPadding = false, onClick }: { children: React.ReactNode; className?: string; noPadding?: boolean; onClick?: () => void }) {
   return (
-    <div onClick={onClick} className={`bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col ${noPadding ? "" : "p-5 md:p-6"} ${className}`}>
+    <div onClick={onClick} className={`bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col ${noPadding ? "" : "p-4 sm:p-5"} ${className}`}>
       {children}
     </div>
   );
@@ -385,9 +375,9 @@ const CalendarModal = ({
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
         transition={{ type: "spring", duration: 0.35, bounce: 0 }}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-4xl bg-card border border-border dark:border-white/[0.08] rounded-3xl p-6 md:p-8 shadow-2xl relative z-10 flex flex-col max-h-[90vh] mx-4"
+        className="w-full max-w-4xl bg-card border border-border dark:border-white/[0.08] rounded-3xl p-4 sm:p-6 md:p-8 shadow-2xl relative z-10 flex flex-col max-h-[90vh] mx-2 sm:mx-4"
       >
-        <CloseButton onClick={onClose} className="absolute top-6 right-6 z-10" iconSize={18} />
+        <CloseButton onClick={onClose} className="absolute top-4 right-4 sm:top-6 sm:right-6 z-10" iconSize={18} />
 
         <h2 className="text-2xl font-bold tracking-tight text-foreground mb-6">Vue annuelle</h2>
         
@@ -462,6 +452,8 @@ const CalendarModal = ({
 };
 
 interface DashboardProps {
+  activeTab?: string;
+  onTabChange?: (tab: string) => void;
   isDemoMode?: boolean;
   showWelcomeModal?: boolean;
   onDismissWelcome?: () => void;
@@ -469,13 +461,15 @@ interface DashboardProps {
 }
 
 export function Dashboard({
+  activeTab: propActiveTab,
+  onTabChange,
   isDemoMode: propIsDemoMode,
   showWelcomeModal: propShowWelcomeModal,
   onDismissWelcome,
   onExitDemo,
 }: DashboardProps = {}) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [processState, setProcessState] = useState<null | "reading" | "analyzing" | "calculating">(null);
+  const [importStep, setImportStep] = useState<ImportStep | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string, visible: boolean } | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [showResetModal, setShowResetModal] = useState(false);
@@ -484,28 +478,6 @@ export function Dashboard({
   
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
-  const [isSubsHovered, setIsSubsHovered] = useState(false);
-  const subsHoverTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const handleSubsMouseEnter = () => {
-    if (subsHoverTimerRef.current) clearTimeout(subsHoverTimerRef.current);
-    subsHoverTimerRef.current = setTimeout(() => {
-      setIsSubsHovered(true);
-    }, 120);
-  };
-
-  const handleSubsMouseLeave = () => {
-    if (subsHoverTimerRef.current) clearTimeout(subsHoverTimerRef.current);
-    subsHoverTimerRef.current = setTimeout(() => {
-      setIsSubsHovered(false);
-    }, 150);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (subsHoverTimerRef.current) clearTimeout(subsHoverTimerRef.current);
-    };
-  }, []);
 
   const [showInbox, setShowInbox] = useState(false);
   const inboxRef = useRef<HTMLDivElement>(null);
@@ -528,9 +500,16 @@ export function Dashboard({
   const [showTransactionsDrawer, setShowTransactionsDrawer] = useState(false);
   const [drawerSearch, setDrawerSearch] = useState("");
   const [drawerFilter, setDrawerFilter] = useState("all");
-  const [settingsTab, setSettingsTab] = useState<"income" | "subs" | "budgets">("income");
+  const [settingsTab, setSettingsTab] = useState<"income" | "fixed" | "subs" | "budgets" | "card">("income");
+  const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
+  const [activeBank, setActiveBank] = useState<string>("bourso");
   const [isSaved, setIsSaved] = useState(false);
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [internalActiveTab, setInternalActiveTab] = useState("dashboard");
+  const activeTab = propActiveTab !== undefined ? propActiveTab : internalActiveTab;
+  const setActiveTab = (tab: string) => {
+    setInternalActiveTab(tab);
+    if (onTabChange) onTabChange(tab);
+  };
   const [categoryBudgets, setCategoryBudgets] = useState<Record<string, number>>({});
   const [ignoredSubscriptions, setIgnoredSubscriptions] = useState<string[]>([]);
   
@@ -542,7 +521,10 @@ export function Dashboard({
     salaryDay: 28,
     aids: 195,
     autoApply: false,
-    savingsGoal: 0
+    savingsGoal: 0,
+    rent: 0,
+    loans: 0,
+    utilities: 0
   });
 
   // Settings, Inbox & Navigation Listeners
@@ -566,6 +548,86 @@ export function Dashboard({
       window.removeEventListener("exit-demo-mode", handleExitDemo);
     };
   }, []);
+
+  // Synchronisation du visuel de carte bancaire et de l'établissement actif
+  useEffect(() => {
+    const syncCard = () => {
+      try {
+        const savedBank = localStorage.getItem("krona_selected_bank") || "bourso";
+        setActiveBank(savedBank);
+        const saved = localStorage.getItem("krona_selected_card");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.isCustom) {
+            setSelectedCard(parsed);
+          } else {
+            const matched = CARD_PRESETS.find(
+              (p) => p.id === parsed.id || p.imageUrl === parsed.imageUrl || p.bank?.toLowerCase() === parsed.bank?.toLowerCase()
+            );
+            if (matched) {
+              setSelectedCard(matched);
+            } else {
+              const defaultCard = DEFAULT_BANK_CARDS[savedBank] || CARD_PRESETS[0];
+              setSelectedCard(defaultCard);
+              localStorage.setItem("krona_selected_card", JSON.stringify(defaultCard));
+            }
+          }
+        } else {
+          const defaultCard = DEFAULT_BANK_CARDS[savedBank] || CARD_PRESETS[0];
+          setSelectedCard(defaultCard);
+        }
+      } catch (e) {
+        setSelectedCard(CARD_PRESETS[0]);
+      }
+    };
+    syncCard();
+    window.addEventListener("krona-card-updated", syncCard);
+    window.addEventListener("krona-bank-changed", syncCard);
+    return () => {
+      window.removeEventListener("krona-card-updated", syncCard);
+      window.removeEventListener("krona-bank-changed", syncCard);
+    };
+  }, []);
+
+  const handleSettingsCardSelect = (card: CardData) => {
+    try {
+      localStorage.setItem("krona_selected_card", JSON.stringify(card));
+      window.dispatchEvent(new CustomEvent("krona-card-updated"));
+    } catch (err) {}
+    setSelectedCard(card);
+  };
+
+  const handleSettingsCardUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        if (result) {
+          const customCard: CardData = {
+            id: "custom",
+            name: "Carte personnalisée",
+            bank: "BoursoBank",
+            accountType: "Compte courant",
+            last4: "4821",
+            imageUrl: result,
+            isCustom: true,
+          };
+          handleSettingsCardSelect(customCard);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+    if (e.target) e.target.value = "";
+  };
+
+  const handleSettingsCardRemove = () => {
+    try {
+      localStorage.removeItem("krona_selected_card");
+      window.dispatchEvent(new CustomEvent("krona-card-updated"));
+    } catch (err) {}
+    setSelectedCard(null);
+  };
 
   // Sync demo mode state with Navbar
   useEffect(() => {
@@ -656,7 +718,6 @@ export function Dashboard({
         setShowResetModal(false);
         setShowInbox(false);
         setShowCalendarModal(false);
-        setIsSubsHovered(false);
         setShowTransactionsDrawer(false);
       }
     };
@@ -677,10 +738,8 @@ export function Dashboard({
       }
       return updated;
     });
-    if (remainingMonths.length === 1) {
+    if (remainingMonths.length >= 1) {
       setSelectedMonth(remainingMonths[0]);
-    } else if (remainingMonths.length > 1) {
-      setSelectedMonth("Tout");
     } else {
       setSelectedMonth(null);
     }
@@ -723,86 +782,62 @@ export function Dashboard({
     return Array.from(new Set(activeTransactions.map(tx => tx.month))).sort().reverse();
   }, [activeTransactions]);
 
-  const hasMultipleMonths = uniqueMonths.length > 1;
-
+  // Verrouillage mensuel strict du Dashboard : JAMAIS de "Tout" ni "Toutes les périodes"
   const availableMonths = useMemo(() => {
-    if (hasMultipleMonths) {
-      return ["Tout", ...uniqueMonths];
-    }
     return uniqueMonths;
-  }, [uniqueMonths, hasMultipleMonths]);
+  }, [uniqueMonths]);
 
-  // Synchronisation stricte : si 1 seul mois, bascule automatiquement dessus
+  // Synchronisation stricte : toujours un seul mois sélectionné à la fois
   useEffect(() => {
-    if (!hasMultipleMonths && uniqueMonths.length === 1) {
-      if (selectedMonth === "Tout" || selectedMonth === "all" || !selectedMonth || !uniqueMonths.includes(selectedMonth)) {
+    if (uniqueMonths.length > 0) {
+      if (!selectedMonth || selectedMonth === "Tout" || selectedMonth === "all" || !uniqueMonths.includes(selectedMonth)) {
         setSelectedMonth(uniqueMonths[0]);
       }
-    } else if (hasMultipleMonths) {
-      if (selectedMonth && selectedMonth !== "Tout" && selectedMonth !== "all" && !uniqueMonths.includes(selectedMonth)) {
-        setSelectedMonth("Tout");
-      }
     }
-  }, [hasMultipleMonths, uniqueMonths, selectedMonth]);
+  }, [uniqueMonths, selectedMonth]);
 
-  const handleUpload = async (data: any[]) => {
+  const handleUpload = async (data: NormalizedTransaction[] | any[]) => {
     try {
-      setProcessState("reading");
-      
-      // Artificial slight delay for smoothness
-      await new Promise(r => setTimeout(r, 600));
+      // Étape 1 : Lecture et validation du relevé…
+      setImportStep("reading");
+      const readStartTime = Date.now();
 
       const cache = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
 
-      const parsedRows = data
-        .filter((row: any[], i: number) => {
-          if (i === 0 && typeof row[0] === "string" && row[0].includes("Date")) return false;
-          // Accept lines with at least a date and an amount column, even if missing trailing columns
-          return row.length >= 6 && row[0] && (row[6] !== undefined || row[5] !== undefined);
-        })
-        .map((row: any[], index: number) => {
-          const dateStr = String(row[0]).trim();
-          const rawLibelle = String(row[2] || "").trim();
-          const suggLibelle = String(row[3] || "").trim();
-          const categoryBourso = String(row[4] || "").trim();
-          const rawAmount = String(row[6] !== undefined ? row[6] : row[5] || "0").trim();
-          
-          const name = cleanMerchantName(suggLibelle || rawLibelle || "Unknown");
-          const fallback = getLocalFallback(categoryBourso, name, cache);
-          
-          const cleanedAmount = rawAmount.replace(/\s/g, '').replace('€', '').replace(',', '.');
-          const amount = parseFloat(cleanedAmount);
-          const dateInfo = parseAndFormatDate(dateStr);
-          
-          if (!dateInfo) {
-            console.warn("Ligne ignorée, date invalide :", row);
-            return null;
-          }
+      // Détecter si les données sont déjà normalisées (via bankParser) ou brutes
+      const isNormalized = Array.isArray(data) && data.length > 0 && "account" in data[0] && "label" in data[0];
+      const normalizedItems: NormalizedTransaction[] = isNormalized 
+        ? (data as NormalizedTransaction[])
+        : parseBoursoBankRows(data as string[][]);
 
-          // Règle métier stricte : Galeries Lafayette
-          const lowerName = name.toLowerCase();
-          if (lowerName.includes('galeries lafayette') || lowerName.includes('societe anonyme des galeries la')) {
-            if (amount > 0) {
-              fallback.type = "Revenus & Aides";
-            } else {
-              fallback.type = "Shopping & Mode";
-            }
-          }
+      const parsedRows = normalizedItems.map((item, index) => {
+        const name = cleanMerchantName(item.label);
+        const fallback = getLocalFallback(item.categoryBourso || "", name, cache);
 
-          const rawId = `${dateInfo.date}_${amount}_${name.trim().toLowerCase()}_${categoryBourso}_${index}`;
-          
-          return {
-            id: rawId,
-            name,
-            type: fallback.type,
-            amount: isNaN(amount) ? 0 : amount,
-            date: dateInfo.date,
-            month: dateInfo.month,
-            isSubscription: fallback.isSub,
-            isInternalTransfer: fallback.isInternalTransfer,
-          } as Transaction;
-        })
-        .filter(row => row !== null && row.amount !== 0) as Transaction[];
+        // Règle métier stricte : Galeries Lafayette
+        const lowerName = name.toLowerCase();
+        if (lowerName.includes('galeries lafayette') || lowerName.includes('societe anonyme des galeries la')) {
+          if (item.amount > 0) {
+            fallback.type = "Revenus & Aides";
+          } else {
+            fallback.type = "Shopping & Mode";
+          }
+        }
+
+        const rawId = `${item.date}_${item.amount}_${name.trim().toLowerCase()}_${item.account}_${index}`;
+
+        return {
+          id: rawId,
+          name,
+          type: fallback.type,
+          amount: isNaN(item.amount) ? 0 : item.amount,
+          date: item.date,
+          month: item.month,
+          isSubscription: fallback.isSub,
+          isInternalTransfer: fallback.isInternalTransfer,
+          account: item.account,
+        } as Transaction;
+      }).filter(row => row !== null && row.amount !== 0) as Transaction[];
 
       const unknownLabels = Array.from(new Set(
         parsedRows
@@ -810,7 +845,15 @@ export function Dashboard({
           .map(r => r.name)
       ));
 
-      setProcessState("analyzing");
+      // Rythme naturel pour l'étape 1
+      const readElapsed = Date.now() - readStartTime;
+      if (readElapsed < 650) {
+        await new Promise(r => setTimeout(r, 650 - readElapsed));
+      }
+
+      // Étape 2 : Catégorisation intelligente par l'IA…
+      setImportStep("categorizing");
+      const catStartTime = Date.now();
       
       let newMapping: Record<string, { categorie: string, isSubscription: boolean }> = {};
       
@@ -848,8 +891,15 @@ export function Dashboard({
         }
       }
 
-      setProcessState("calculating");
-      await new Promise(r => setTimeout(r, 500));
+      // Rythme naturel pour l'étape 2
+      const catElapsed = Date.now() - catStartTime;
+      if (catElapsed < 850) {
+        await new Promise(r => setTimeout(r, 850 - catElapsed));
+      }
+
+      // Étape 3 : Détection des abonnements et charges fixes…
+      setImportStep("subscriptions");
+      const subStartTime = Date.now();
 
       const finalCache = { ...cache, ...newMapping };
 
@@ -871,6 +921,16 @@ export function Dashboard({
           isSubscription: cachedData ? cachedData.isSubscription : row.isSubscription,
         };
       });
+
+      // Rythme naturel pour l'étape 3
+      const subElapsed = Date.now() - subStartTime;
+      if (subElapsed < 700) {
+        await new Promise(r => setTimeout(r, 700 - subElapsed));
+      }
+
+      // Étape 4 : Finalisation de ton espace…
+      setImportStep("finalizing");
+      const finalStartTime = Date.now();
 
       let addedCount = 0;
       let duplicatesCount = 0;
@@ -960,7 +1020,37 @@ export function Dashboard({
         setSelectedMonth(allResultMonths[0]);
       }
 
-      setProcessState(null);
+      // Palier 100% avec temps de complétion Apple style
+      const finalElapsed = Date.now() - finalStartTime;
+      if (finalElapsed < 600) {
+        await new Promise(r => setTimeout(r, 600 - finalElapsed));
+      }
+      await new Promise(r => setTimeout(r, 350));
+
+      // Persistance de l'établissement actif et synchronisation automatique de "Votre carte"
+      const detectedBank = (normalizedItems[0]?.account === "Crédit Agricole" || (data as any)[0]?.account === "Crédit Agricole") ? "ca" : "bourso";
+      localStorage.setItem("krona_selected_bank", detectedBank);
+      setActiveBank(detectedBank);
+
+      const currentCardStr = localStorage.getItem("krona_selected_card");
+      let shouldUpdateCard = true;
+      if (currentCardStr) {
+        try {
+          const parsedCard = JSON.parse(currentCardStr);
+          if (parsedCard.isCustom) {
+            shouldUpdateCard = false;
+          }
+        } catch (e) {}
+      }
+      if (shouldUpdateCard) {
+        const defaultCard = DEFAULT_BANK_CARDS[detectedBank] || CARD_PRESETS[0];
+        localStorage.setItem("krona_selected_card", JSON.stringify(defaultCard));
+        setSelectedCard(defaultCard);
+      }
+      window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: detectedBank } }));
+      window.dispatchEvent(new CustomEvent("krona-card-updated"));
+
+      setImportStep(null);
       setDemoMode(false);
       setInternalWelcomeOpen(false);
       window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: false } }));
@@ -976,7 +1066,7 @@ export function Dashboard({
       
     } catch (e) {
       console.error("Upload error", e);
-      setProcessState(null);
+      setImportStep(null);
     }
   };
 
@@ -1023,12 +1113,14 @@ export function Dashboard({
   };
 
   const filteredTransactions = useMemo(() => {
-    if (hasMultipleMonths && (selectedMonth === "Tout" || selectedMonth === "all" || !selectedMonth)) return activeTransactions;
     if (selectedMonth && selectedMonth !== "Tout" && selectedMonth !== "all") {
       return activeTransactions.filter(tx => tx.month === selectedMonth);
     }
+    if (uniqueMonths.length > 0) {
+      return activeTransactions.filter(tx => tx.month === uniqueMonths[0]);
+    }
     return activeTransactions;
-  }, [activeTransactions, selectedMonth, hasMultipleMonths]);
+  }, [activeTransactions, selectedMonth, uniqueMonths]);
 
   const inboxTx = useMemo(() => {
     return filteredTransactions.filter(tx => tx.type === "Autre");
@@ -1038,11 +1130,36 @@ export function Dashboard({
     window.dispatchEvent(new CustomEvent("update-inbox-count", { detail: { count: inboxTx.length } }));
   }, [inboxTx.length]);
 
+  const handleRecategorizeTransaction = (txId: string, merchantName: string, newType: string) => {
+    try {
+      const cache = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
+      cache[merchantName] = { ...(cache[merchantName] || {}), categorie: newType };
+      localStorage.setItem('krona_merchant_knowledge', JSON.stringify(cache));
+    } catch (e) {}
 
-  const isAllTime = hasRealData && !isDemo && hasMultipleMonths && (selectedMonth === "Tout" || selectedMonth === "all" || !selectedMonth);
-  const monthsCount = useMemo(() => {
-    return Math.max(1, new Set(transactions.map(t => t.date.slice(0, 7))).size);
-  }, [transactions]);
+    setTransactions(prev => {
+      const source = prev.length > 0 ? prev : initialDemoTransactions;
+      const updated = source.map(t => {
+        if (t.id === txId || t.name === merchantName) {
+          return { ...t, type: newType };
+        }
+        return t;
+      });
+      localStorage.setItem('financeTransactions_v1', JSON.stringify(updated));
+      return updated;
+    });
+
+    setToastMessage({
+      text: `Catégorie mise à jour · ${merchantName} → ${newType}`,
+      visible: true
+    });
+    setTimeout(() => setToastMessage(null), 3000);
+    window.dispatchEvent(new CustomEvent("finance-data-state"));
+  };
+
+  // Le Dashboard est strictement verrouillé sur le mois unique sélectionné
+  const isAllTime = false;
+  const monthsCount = 1;
 
   const { expenses, income, balance, subs, categoryData, expensesTimeline, autoAppliedInfo } = useMemo(() => {
     let exp = 0;
@@ -1447,9 +1564,9 @@ export function Dashboard({
   const generateFallbackTips = () => {
     const tips: { type: string; text: string }[] = [];
     if (balance >= 0) {
-      tips.push({ type: "success", text: `Super gestion : il te reste ${balance.toFixed(0)} € pour finir le mois sereinement.` });
+      tips.push({ type: "success", text: `Excellente gestion : tu as mis ${balance.toFixed(0)} € de côté ce mois-ci.` });
     } else {
-      tips.push({ type: "warning", text: `Attention : ton solde est débiteur de ${Math.abs(balance).toFixed(0)} €.` });
+      tips.push({ type: "warning", text: `Attention : ton bilan mensuel est en déficit de ${Math.abs(balance).toFixed(0)} €.` });
     }
 
     if (categoryData && categoryData.length > 0) {
@@ -1500,7 +1617,10 @@ export function Dashboard({
   }, [selectedMonth, income, expenses, balance]);
 
   return (
-    <div className="w-full px-8 xl:px-12 pt-28 pb-10 h-full flex flex-col overflow-hidden relative">
+    <div className={clsx(
+      "w-full px-4 sm:px-[40px] pt-28 sm:pt-[128px] pb-4 sm:pb-[40px] min-h-screen flex flex-col relative",
+      activeTab === "dashboard" ? "lg:h-screen lg:max-h-screen lg:overflow-hidden overflow-y-auto" : "overflow-y-auto"
+    )}>
       <AnimatePresence>
         {toastMessage && (
           <motion.div
@@ -1518,44 +1638,18 @@ export function Dashboard({
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {processState && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 0.98 }}
-            className="absolute inset-0 z-[100] bg-black/40 dark:bg-black/60 backdrop-blur-md flex items-center justify-center flex-col text-white"
-          >
-            <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }} className="mb-6">
-              <Loader2 className="w-10 h-10 text-white" />
-            </motion.div>
-            
-            <div className="h-8 relative overflow-hidden flex items-center justify-center">
-              <AnimatePresence mode="wait">
-                <motion.div 
-                  key={processState}
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -15 }}
-                  transition={{ duration: 0.3 }}
-                  className="font-medium text-lg tracking-tight absolute text-center"
-                >
-                  Analyse des opérations...
-                </motion.div>
-              </AnimatePresence>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Modern Apple/Linear style AI Analysis Modal */}
+      <CsvAnalysisModal step={importStep} />
+      <CSVUploader onUpload={handleUpload} />
 
       {/* Onboarding Empty State */}
       {isWelcomeOpen && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center p-6 bg-transparent">
+        <div className="absolute inset-0 z-40 flex items-center justify-center p-4 sm:p-6 bg-transparent">
           <motion.div 
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="relative z-50 w-full max-w-xl mx-auto p-8 bg-neutral-900/80 dark:bg-black/80 backdrop-blur-2xl backdrop-saturate-150 border border-white/[0.1] rounded-2xl shadow-2xl text-center"
+            className="relative z-50 w-full max-w-xl mx-auto p-5 sm:p-8 max-h-[92vh] overflow-y-auto no-scrollbar bg-neutral-900/80 dark:bg-black/80 backdrop-blur-2xl backdrop-saturate-150 border border-white/[0.1] rounded-2xl shadow-2xl text-center"
           >
             {/* Logo */}
             <div className="w-12 h-12 mx-auto mb-5 rounded-2xl bg-white/[0.05] border border-white/[0.1] flex items-center justify-center text-white">
@@ -1569,41 +1663,53 @@ export function Dashboard({
               </svg>
             </div>
             
-            <h2 className="text-2xl font-bold tracking-tight text-white">Bienvenue sur krona</h2>
-            <p className="text-sm text-neutral-400 mt-1 mb-8">Gère ton argent simplement, sans jargon et en toute confidentialité.</p>
+            <h2 className="text-2xl font-bold tracking-tight text-white font-sans">Bienvenue sur krona</h2>
+            <p className="text-sm text-neutral-400 mt-1 mb-8 font-sans">Gère ton argent simplement, sans jargon et en toute confidentialité.</p>
 
             <div className="flex flex-col gap-3 mb-6">
               <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 text-left flex items-start gap-4">
                 <div className="mt-0.5 p-2 rounded-full bg-white/[0.06] text-white shrink-0"><Download size={16} /></div>
                 <div>
-                  <div className="text-sm font-semibold text-white mb-0.5">1. Télécharge ton relevé</div>
-                  <div className="text-xs text-neutral-400 leading-relaxed">Récupère ton fichier d'opérations (CSV) sur ton compte BoursoBank.</div>
+                  <div className="text-sm font-semibold text-white mb-0.5 font-sans">1. Télécharge ton relevé</div>
+                  <div className="text-xs text-neutral-400 leading-relaxed font-sans">Récupère ton fichier d'opérations CSV sur ton compte BoursoBank ou Crédit Agricole.</div>
                 </div>
               </div>
               <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 text-left flex items-start gap-4">
                 <div className="mt-0.5 p-2 rounded-full bg-white/[0.06] text-white shrink-0"><UploadCloud size={16} /></div>
                 <div>
-                  <div className="text-sm font-semibold text-white mb-0.5">2. Dépose-le ici</div>
-                  <div className="text-xs text-neutral-400 leading-relaxed">Glisse-dépose le fichier ou clique sur le bouton ci-dessous.</div>
+                  <div className="text-sm font-semibold text-white mb-0.5 font-sans">2. Dépose-le ici</div>
+                  <div className="text-xs text-neutral-400 leading-relaxed font-sans">Glisse-dépose le fichier ou choisis ta banque ci-dessous.</div>
                 </div>
               </div>
               <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 text-left flex items-start gap-4">
                 <div className="mt-0.5 p-2 rounded-full bg-white/[0.06] text-white shrink-0"><Sparkles size={16} /></div>
                 <div>
-                  <div className="text-sm font-semibold text-white mb-0.5">3. Tout se classe tout seul</div>
-                  <div className="text-xs text-neutral-400 leading-relaxed">krona isole ton salaire, tes abonnements et tes vraies dépenses.</div>
+                  <div className="text-sm font-semibold text-white mb-0.5 font-sans">3. Tout se classe tout seul</div>
+                  <div className="text-xs text-neutral-400 leading-relaxed font-sans">krona isole ton salaire, tes abonnements et tes vraies dépenses.</div>
                 </div>
               </div>
             </div>
 
-            <div 
-              onClick={() => window.dispatchEvent(new CustomEvent("trigger-csv-upload"))}
-              className="border-2 border-dashed border-white/20 hover:border-white/40 rounded-2xl p-6 transition-colors cursor-pointer mt-6 mb-4 flex flex-col items-center justify-center group"
-            >
-              <span className="text-sm text-neutral-400 group-hover:text-neutral-300 transition-colors">Glisse ton relevé CSV ici ou</span>
-              <button type="button" className="mt-3 px-5 py-2.5 rounded-full bg-white text-black font-semibold hover:bg-neutral-200 active:scale-95 transition-all cursor-pointer">
-                Choisir un fichier CSV
-              </button>
+            <div className="border-2 border-dashed border-white/20 hover:border-white/40 rounded-2xl p-6 transition-colors mt-6 mb-4 flex flex-col items-center justify-center">
+              <span className="text-sm text-neutral-400 font-sans mb-3 text-center">Glisse ton relevé CSV ici ou choisis ta banque :</span>
+              <div className="flex flex-wrap items-center justify-center gap-2.5">
+                <button 
+                  type="button" 
+                  onClick={() => window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: "bourso" } }))}
+                  className="px-4 py-2.5 rounded-full bg-white text-black font-semibold hover:bg-neutral-200 active:scale-95 transition-all cursor-pointer font-sans text-xs sm:text-sm flex items-center gap-2"
+                >
+                  <BoursoBankLogo className="w-4 h-4 text-black" />
+                  <span>BoursoBank</span>
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: "ca" } }))}
+                  className="px-4 py-2.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.12] text-white font-semibold active:scale-95 transition-all cursor-pointer font-sans text-xs sm:text-sm flex items-center gap-2"
+                >
+                  <CreditAgricoleLogo className="w-4 h-4 text-white" />
+                  <span>Crédit Agricole</span>
+                </button>
+              </div>
             </div>
 
             <button 
@@ -1614,12 +1720,12 @@ export function Dashboard({
                 if (onDismissWelcome) onDismissWelcome();
                 window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: false } }));
               }} 
-              className="text-xs text-neutral-400 hover:text-white underline underline-offset-4 transition-colors cursor-pointer"
+              className="text-xs text-neutral-400 hover:text-white underline underline-offset-4 transition-colors cursor-pointer font-sans"
             >
               Charger un exemple pour tester
             </button>
 
-            <div className="flex items-center justify-center gap-2 text-xs text-neutral-400 mt-4">
+            <div className="flex items-center justify-center gap-2 text-xs text-neutral-400 mt-4 font-sans">
               <ShieldCheck className="text-neutral-300 w-4 h-4" />
               <span>Vos données restent 100 % sur votre machine. Aucun compte, aucun serveur.</span>
             </div>
@@ -1628,40 +1734,35 @@ export function Dashboard({
       )}
 
       {/* Main Content Area (Blurred when empty) */}
-      <div className={`flex flex-col flex-1 h-full min-h-0 w-full transition-all duration-700 ${isWelcomeOpen ? 'blur-[6px] opacity-25 pointer-events-none select-none' : ''}`}>
+      <div className={`flex flex-col flex-1 w-full min-h-0 transition-all duration-700 ${isWelcomeOpen ? 'blur-[6px] opacity-25 pointer-events-none select-none' : ''}`}>
         
-      {/* Header & Month Selector */}
-      <div className="flex justify-between items-center mb-6 shrink-0">
-        <h1 className="text-xl font-bold tracking-tight text-foreground">
-          {activeTab === "budgets" ? "Budgets & Plafonds" : "Vue d'ensemble"}
-        </h1>
-        
-        <div className="flex items-center gap-3 transition-opacity">
-          {hasRealData && (
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setShowResetModal(true)}
-              className="w-9 h-9 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
-              title="Supprimer des données"
-              aria-label="Supprimer des données"
-            >
-              <Trash2 size={16} />
-            </motion.button>
-          )}
+      {/* Header & Month Selector (Dashboard and Budgets only) */}
+      {(activeTab === "dashboard" || activeTab === "budgets") && (
+        <div className="flex flex-row items-center justify-between gap-2 sm:gap-3 mb-3 sm:mb-3.5 lg:mb-4 shrink-0">
+          <h1 className="text-lg sm:text-xl font-bold tracking-tight text-foreground truncate font-sans">
+            {activeTab === "budgets" ? "Budgets & Plafonds" : "Vue d'ensemble"}
+          </h1>
           
-          {!hasRealData || isDemo ? (
-            <div className="h-9 px-4 rounded-full bg-white/[0.04] border border-white/[0.08] flex items-center gap-2 text-xs md:text-sm font-medium text-white select-none">
-              <span className="w-1.5 h-1.5 rounded-full bg-neutral-400" />
-              <span>Aperçu (Exemple)</span>
-            </div>
-          ) : (
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0 transition-opacity">
+            {hasRealData && (
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowResetModal(true)}
+                className="w-9 h-9 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+                title="Supprimer des données"
+                aria-label="Supprimer des données"
+              >
+                <Trash2 size={16} />
+              </motion.button>
+            )}
+            
             <div className="relative">
               <select 
-                value={selectedMonth || (hasMultipleMonths ? "Tout" : uniqueMonths[0] || "")} 
+                value={selectedMonth || uniqueMonths[0] || ""} 
                 onChange={(e) => setSelectedMonth(e.target.value)}
                 className="h-9 appearance-none bg-card border border-border text-foreground font-medium text-sm py-1.5 pl-4 pr-10 rounded-full shadow-sm outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
-                aria-label="Sélectionner la période"
+                aria-label="Sélectionner le mois"
               >
                 {availableMonths.map(m => (
                   <option key={m} value={m}>{formatMonthLabel(m)}</option>
@@ -1671,24 +1772,44 @@ export function Dashboard({
                 <ChevronDown size={14} className="text-neutral-400" />
               </div>
             </div>
-          )}
-          
-          <button
-            type="button"
-            onClick={() => setShowCalendarModal(true)}
-            className={clsx(
-              "w-9 h-9 flex items-center justify-center rounded-full bg-card border border-border text-foreground transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
-              hasRealData && !isDemo ? "hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 cursor-pointer" : "opacity-40 pointer-events-none"
-            )}
-            title="Vue annuelle"
-            aria-label="Vue annuelle"
-          >
-            <CalendarDays size={16} />
-          </button>
+            
+            <button
+              type="button"
+              onClick={() => setShowCalendarModal(true)}
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-card border border-border text-foreground transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 cursor-pointer"
+              title="Vue annuelle"
+              aria-label="Vue annuelle"
+            >
+              <CalendarDays size={16} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {activeTab === "budgets" ? (
+      {activeTab === "transactions" ? (
+        <TransactionsView 
+          transactions={activeTransactions} 
+          onRecategorize={handleRecategorizeTransaction} 
+          onSelectMonth={setSelectedMonth} 
+        />
+      ) : activeTab === "trends" ? (
+        <TrendsView 
+          transactions={activeTransactions} 
+          incomeSettings={incomeSettings} 
+          categoryBudgets={categoryBudgets} 
+          onSelectMonth={setSelectedMonth} 
+        />
+      ) : activeTab === "accounts" ? (
+        <AccountsView 
+          transactions={activeTransactions} 
+          onTriggerUpload={(bank) => {
+            const bankKey = bank.toLowerCase().includes("agricole") ? "ca" : "bourso";
+            localStorage.setItem("krona_selected_bank", bankKey);
+            window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: bankKey } }));
+          }} 
+          onNavigateTransactions={() => setActiveTab("transactions")} 
+        />
+      ) : activeTab === "budgets" ? (
         <div className="flex-1 min-h-0 flex flex-col space-y-6 overflow-y-auto no-scrollbar pb-6">
           <Card className="flex flex-col md:flex-row items-start md:items-center justify-between p-5 md:p-6 shrink-0">
             <div>
@@ -1701,14 +1822,14 @@ export function Dashboard({
               </div>
             </div>
             <div className="mt-4 md:mt-0 text-left md:text-right">
-              <div className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Reste à allouer (Mensuel)</div>
+              <div className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Reste à allouer</div>
               <div className="text-2xl font-bold text-foreground tabular-nums">
                 {((incomeSettings.salary || 0) + (incomeSettings.aids || 0) - (incomeSettings.savingsGoal || 0) - Object.values(categoryBudgets).reduce((a, b) => a + b, 0)).toFixed(2)} €
               </div>
             </div>
           </Card>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 flex-1 min-h-0 content-start">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 flex-1 min-h-0 content-start">
             {Object.keys(categoryBudgets).map((cat) => {
                const budget = categoryBudgets[cat];
                const spent = categoryData.find(c => c.name === cat)?.value || 0;
@@ -1766,21 +1887,8 @@ export function Dashboard({
         </div>
       ) : (
         <>
-          {/* Backdrop Spotlight au survol des abonnements */}
-          <AnimatePresence>
-            {isSubsHovered && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-20 pointer-events-none transition-opacity duration-200"
-              />
-            )}
-          </AnimatePresence>
-
           {/* Top Stats Row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6 shrink-0">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4 lg:gap-4 xl:gap-5 mb-3.5 sm:mb-4 lg:mb-4 xl:mb-5 shrink-0">
         {[
           { 
             label: isAllTime ? "Moyenne gagnée" : "Revenus & Entrées", 
@@ -1797,23 +1905,16 @@ export function Dashboard({
             actionIcon: <ArrowUpRight size={16} /> 
           },
           { 
-            label: isAllTime ? "Total épargné" : (Object.keys(categoryBudgets).length > 0 ? "Reste sur budget" : "Reste à vivre (Solde)"), 
-            value: (() => {
-              const totalBudget = Object.values(categoryBudgets).reduce((a, b) => a + b, 0);
-              const hasBudgets = totalBudget > 0;
-              const refValue = hasBudgets && !isAllTime ? (totalBudget - expenses) : balance;
-              return (
-                <span className={refValue < 0 ? "text-rose-500 dark:text-rose-400" : ""}>
-                  {isAllTime ? `${balance > 0 ? "+" : ""}${balance.toFixed(2)} €` : `${refValue.toFixed(2)} €`}
-                </span>
-              );
-            })(), 
-            change: isAllTime ? "Économisé sur l'ensemble de la période" : (
-              Object.keys(categoryBudgets).length > 0 
-                ? ( (Object.values(categoryBudgets).reduce((a,b)=>a+b,0) - expenses) >= 0 ? "Sous budget" : "Dépassement de budget" )
-                : ( balance >= 0 ? "Épargne potentielle" : "Déficit mensuel" )
+            label: isAllTime ? "Total épargné" : "Épargne nette", 
+            value: (
+              <span className={balance < 0 ? "text-rose-500 dark:text-rose-400" : ""}>
+                {balance > 0 ? "+" : ""}{balance.toFixed(2)} €
+              </span>
             ), 
-            pos: (Object.keys(categoryBudgets).length > 0 && !isAllTime ? (Object.values(categoryBudgets).reduce((a, b) => a + b, 0) - expenses) : balance) >= 0,
+            change: isAllTime 
+              ? "Épargne nette cumulée sur la période" 
+              : (balance >= 0 ? "Mis de côté" : "Déficit net sur le mois"), 
+            pos: balance >= 0,
             actionIcon: <Wallet size={16} />,
             gauge: (() => {
               const savingsRate = income > 0 ? Math.max(0, Math.min(100, Math.round((balance / income) * 100))) : 0;
@@ -1831,26 +1932,26 @@ export function Dashboard({
         ].map((stat, i) => {
           const isSubsCard = i === 3;
 
-          // 1. Cartes simples de présentation (dont Reste à vivre / Solde) : aucun clic, aucune flèche
+          // 1. Cartes simples de présentation (dont Épargne nette) : aucun clic, aucune flèche
           if (!isSubsCard) {
             return (
               <div key={i} className="h-full">
                 <Card className="h-full flex flex-col justify-between transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
-                  <div className="flex justify-between items-start mb-4">
-                    <span className="text-sm font-medium text-neutral-400 transition-colors font-sans">
+                  <div className="flex justify-between items-start mb-2 sm:mb-4">
+                    <span className="text-xs sm:text-sm font-medium text-neutral-400 transition-colors font-sans">
                       {stat.label}
                     </span>
                     <div className="flex items-center gap-1.5">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 transition-all">
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 transition-all">
                         {stat.actionIcon}
                       </div>
                     </div>
                   </div>
                   <div className="flex flex-col">
-                    <div className="text-3xl xl:text-4xl font-semibold mb-2 tracking-tight text-foreground tabular-nums font-sans">
+                    <div className="text-2xl sm:text-3xl xl:text-4xl font-semibold mb-1 sm:mb-2 tracking-tight text-foreground tabular-nums font-sans">
                       {stat.value}
                     </div>
-                    <div className="flex items-center justify-between text-xs font-medium w-full">
+                    <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium w-full">
                       <div className="flex items-center">
                         {stat.icon}
                         <span className={stat.pos ? "text-neutral-400" : "text-neutral-500"}>{stat.change}</span>
@@ -1875,144 +1976,73 @@ export function Dashboard({
             );
           }
 
-          // 2. Carte "Abonnements récurrents" : micro-flèche, élévation Spotlight & Popover d'inspection au survol
+          // 2. Carte "Abonnements récurrents" : Clic ouvrant la modale des transactions pré-filtrée
           return (
-            <div 
-              key={i}
-              className={clsx(
-                "h-full relative",
-                isSubsHovered && "z-30"
-              )}
-              onMouseEnter={handleSubsMouseEnter}
-              onMouseLeave={handleSubsMouseLeave}
-            >
+            <div key={i} className="h-full" title="Cliquer pour afficher les abonnements récurrents">
               <Card 
-                className={clsx(
-                  "h-full flex flex-col justify-between transition-all duration-200 group cursor-pointer",
-                  isSubsHovered 
-                    ? "relative z-30 ring-1 ring-white/10 !bg-[#0F0F11] !border-white/10 shadow-2xl text-white" 
-                    : "hover:bg-black/[0.01] dark:hover:bg-white/[0.02]"
-                )}
+                className="h-full flex flex-col justify-between transition-all duration-200 group cursor-pointer hover:bg-black/[0.02] dark:hover:bg-white/[0.03] hover:border-black/20 dark:hover:border-white/20 active:scale-[0.99]"
                 onClick={() => {
-                  setIsSubsHovered(false);
-                  setSettingsTab("subs");
-                  setShowSettingsModal(true);
+                  setDrawerSearch("");
+                  setDrawerFilter("sub");
+                  setShowTransactionsDrawer(true);
                 }}
               >
-                <div className="flex justify-between items-start mb-4">
-                  <span className={clsx(
-                    "text-sm font-medium transition-colors font-sans",
-                    isSubsHovered ? "text-neutral-300" : "text-neutral-400 group-hover:text-neutral-300"
-                  )}>
+                <div className="flex justify-between items-start mb-2 sm:mb-4">
+                  <span className="text-xs sm:text-sm font-medium text-neutral-400 group-hover:text-foreground transition-colors font-sans">
                     {stat.label}
                   </span>
-                  <div className={clsx(
-                    "w-8 h-8 rounded-full flex items-center justify-center transition-all",
-                    isSubsHovered 
-                      ? "border border-white/20 text-white bg-white/[0.08]" 
-                      : "bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 group-hover:border-white/20 group-hover:text-foreground"
-                  )}>
+                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 group-hover:border-black/20 dark:group-hover:border-white/20 group-hover:text-foreground transition-all">
                     {stat.actionIcon}
                   </div>
                 </div>
                 <div className="flex flex-col">
-                  <div className={clsx(
-                    "text-3xl xl:text-4xl font-semibold mb-2 tracking-tight tabular-nums font-sans",
-                    isSubsHovered ? "text-white" : "text-foreground"
-                  )}>
+                  <div className="text-2xl sm:text-3xl xl:text-4xl font-semibold mb-1 sm:mb-2 tracking-tight text-foreground tabular-nums font-sans">
                     {stat.value}
                   </div>
-                  <div className="flex items-center justify-between text-xs font-normal w-full">
-                    <span className="text-neutral-400">
+                  <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium w-full">
+                    <span className="text-neutral-400 font-sans">
                       {stat.change}
                     </span>
                   </div>
                 </div>
               </Card>
-
-              {/* Popover sous la carte (Hover Spotlight) */}
-              <AnimatePresence>
-                {isSubsHovered && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
-                    transition={{ duration: 0.18, ease: "easeOut" }}
-                    onMouseEnter={handleSubsMouseEnter}
-                    onMouseLeave={handleSubsMouseLeave}
-                    onClick={(e) => e.stopPropagation()}
-                    className="absolute top-full left-0 right-0 mt-2 z-30 bg-[#0F0F11]/95 border border-white/[0.08] rounded-2xl p-3 shadow-2xl backdrop-blur-xl before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']"
-                  >
-                    {activeSubscriptions.length === 0 ? (
-                      <div className="py-2 text-center text-xs text-neutral-400 font-sans">
-                        Aucun abonnement détecté ce mois-ci
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-1 max-h-56 overflow-y-auto no-scrollbar">
-                        {activeSubscriptions.map((sub, idx) => (
-                          <div
-                            key={sub.id || `sub-${idx}`}
-                            className="flex items-center justify-between px-2.5 py-2 hover:bg-white/[0.03] rounded-xl transition-colors"
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="w-9 h-9 rounded-full bg-white/[0.05] border border-white/[0.06] flex items-center justify-center shrink-0">
-                                <Repeat size={14} className="text-neutral-300" />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="text-sm font-medium text-white truncate font-sans">
-                                  {sub.name}
-                                </div>
-                                <div className="text-xs text-neutral-400 mt-0.5 font-sans truncate">
-                                  {sub.date ? `Dernier prélèvement : ${sub.date}` : "Prélèvement récurrent"}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-sm font-semibold tabular-nums text-white shrink-0 ml-3">
-                              {Math.abs(sub.amount).toFixed(2)} €
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </div>
           );
         })}
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5 sm:gap-4 lg:gap-4 xl:gap-5 flex-1 min-h-0">
         
         {/* Col 1: Main Chart */}
-        <Card className="flex flex-col min-h-0 h-full">
-          <div className="flex justify-between items-center mb-6 shrink-0">
+        <Card className="flex flex-col h-full min-h-[300px] lg:min-h-0">
+          <div className="flex justify-between items-start mb-3 sm:mb-4 shrink-0">
             <div>
-              <h2 className="text-sm font-medium text-neutral-400 mb-1">Évolution des dépenses</h2>
-              <div className="flex items-baseline gap-2">
-                <div className="text-3xl font-semibold text-foreground tabular-nums">{expenses.toFixed(2)} €</div>
-                <div className="text-xs font-medium text-neutral-500">{isAllTime ? "Total cumulé toutes périodes" : "Dépensés sur le mois"}</div>
+              <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Évolution des dépenses</h3>
+              <div className="text-xs text-neutral-400 mt-0.5 font-sans">
+                {isAllTime ? "Total cumulé toutes périodes" : "Dépensés sur le mois"}
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400">
-                <Activity size={16} />
-              </div>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+              <Activity size={16} />
             </div>
           </div>
           
-          <div className="flex-1 w-full min-h-[200px] bg-transparent flex flex-col">
+          <div className="flex items-baseline gap-2 mb-2 shrink-0">
+            <div className="text-2xl sm:text-3xl font-bold text-foreground tabular-nums font-sans">{expenses.toFixed(2)} €</div>
+          </div>
+          
+          <div className="flex-1 w-full min-h-0 bg-transparent flex flex-col">
             {expensesTimeline.length === 0 || expenses === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-neutral-400">
                 <Activity size={32} className="stroke-1 text-neutral-400/40 mb-3" />
-                <p className="text-sm font-medium text-foreground">Aucune dépense sur cette période</p>
-                <p className="text-xs text-neutral-500 mt-0.5">Les débits apparaîtront au fil de tes opérations</p>
+                <p className="text-sm font-medium text-foreground font-sans">Aucune dépense sur cette période</p>
+                <p className="text-xs text-neutral-500 mt-0.5 font-sans">Les débits apparaîtront au fil de tes opérations</p>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%" className="bg-transparent">
                 {isAllTime ? (
-                  <BarChart data={expensesTimeline} margin={{ top: 10, right: 0, left: 0, bottom: 20 }}>
+                  <BarChart data={expensesTimeline} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
                     <XAxis 
                       dataKey="day" 
                       axisLine={false} 
@@ -2035,6 +2065,7 @@ export function Dashboard({
                       fill="#ffffff" 
                       fillOpacity={0.8} 
                       radius={[4, 4, 0, 0]}
+                      maxBarSize={48}
                       className="cursor-pointer transition-opacity hover:opacity-100"
                       onClick={(data: any) => {
                         if (data && data.rawMonth) {
@@ -2044,7 +2075,7 @@ export function Dashboard({
                     />
                   </BarChart>
                 ) : (
-                  <AreaChart data={expensesTimeline} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                  <AreaChart data={expensesTimeline} margin={{ top: 10, right: 10, left: 10, bottom: 6 }}>
                     <defs>
                       <linearGradient id="teaserGradient" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#ffffff" stopOpacity={0.15}/>
@@ -2081,13 +2112,13 @@ export function Dashboard({
           </div>
         </Card>
 
-        {/* Col 2: Categories & Subscriptions */}
-        <div className="flex flex-col gap-6 min-h-0 h-full">
-          <Card className="flex-1 min-h-0 flex flex-col p-6">
+        {/* Col 2: Répartition, 2 Bannières & Votre carte */}
+        <div className="flex flex-col gap-3.5 sm:gap-4 lg:gap-4 xl:gap-5 lg:col-span-1 h-full min-h-0">
+          <Card className="flex flex-col flex-1 min-h-0 justify-between">
             <div className="flex justify-between items-start shrink-0">
               <div>
-                <h3 className="text-base font-semibold tracking-tight text-foreground">Répartition</h3>
-                <div className="text-xs text-neutral-400 mt-0.5">Top 5 de tes dépenses</div>
+                <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Répartition</h3>
+                <div className="text-xs text-neutral-400 mt-0.5 font-sans">Top 5 de tes dépenses</div>
               </div>
               <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
                 <PieChartIcon size={16} />
@@ -2095,23 +2126,24 @@ export function Dashboard({
             </div>
             
             {categoryData.length === 0 ? (
-              <div className="flex-1 py-12 flex flex-col items-center justify-center text-center text-neutral-400 mt-4">
+              <div className="py-12 flex flex-col items-center justify-center text-center text-neutral-400 mt-4">
                 <div className="w-10 h-10 rounded-full bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-3 text-neutral-400">
                   <PieChartIcon size={18} />
                 </div>
-                <p className="text-sm font-medium text-foreground">Aucune dépense catégorisée</p>
-                <p className="text-xs text-neutral-500 mt-0.5">Les débits classés s'afficheront ici</p>
+                <p className="text-sm font-medium text-foreground font-sans">Aucune dépense catégorisée</p>
+                <p className="text-xs text-neutral-500 mt-0.5 font-sans">Les débits classés s'afficheront ici</p>
               </div>
             ) : (
-              <div className="flex-1 grid grid-cols-1 2xl:grid-cols-2 gap-8 items-center mt-4">
-                <div className="relative w-full h-[260px] flex items-center justify-center">
+              <div className="flex-1 min-h-0 flex flex-col sm:flex-row items-center gap-4 sm:gap-5 xl:gap-6 mt-3 sm:mt-4 my-auto">
+                {/* Donut nettement agrandi en diamètre, anneau fin, précis et élégant */}
+                <div className="relative w-44 h-44 sm:w-48 sm:h-48 lg:w-48 lg:h-48 xl:w-52 xl:h-52 shrink-0 flex items-center justify-center mx-auto sm:mx-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
                         data={[{ value: 1 }]}
                         cx="50%" cy="50%"
-                        innerRadius={94}
-                        outerRadius={112}
+                        innerRadius="88%"
+                        outerRadius="97%"
                         stroke="none"
                         fill="var(--pie-track)"
                         isAnimationActive={false}
@@ -2120,12 +2152,12 @@ export function Dashboard({
                         data={categoryData}
                         cx="50%"
                         cy="50%"
-                        innerRadius={94}
-                        outerRadius={112}
-                        paddingAngle={5}
+                        innerRadius="88%"
+                        outerRadius="97%"
+                        paddingAngle={2.5}
                         dataKey="value"
                         stroke="none"
-                        cornerRadius={10}
+                        cornerRadius={2}
                       >
                         {categoryData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[entry.name]?.ring || CATEGORY_COLORS["Autre"].ring} />
@@ -2138,13 +2170,14 @@ export function Dashboard({
                       />
                     </PieChart>
                   </ResponsiveContainer>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-1">
-                    <span className="text-[10px] font-medium text-neutral-400 tracking-wider mb-0.5">{isAllTime ? "MOYENNE MENS." : "DÉPENSÉ"}</span>
-                    <span className="font-bold text-3xl tracking-tight text-foreground tabular-nums">{isAllTime ? (expenses / monthsCount).toFixed(0) : expenses.toFixed(0)} €</span>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none text-center">
+                    <span className="text-[10px] sm:text-[11px] font-semibold text-neutral-400 uppercase tracking-widest mb-0.5 font-sans">{isAllTime ? "MOYENNE" : "DÉPENSÉ"}</span>
+                    <span className="font-bold text-xl sm:text-2xl xl:text-3xl tracking-tight text-foreground tabular-nums font-sans">{isAllTime ? (expenses / monthsCount).toFixed(0) : expenses.toFixed(0)} €</span>
                   </div>
                 </div>
 
-                <div className="flex flex-col justify-center space-y-4">
+                {/* Ventilation des catégories à droite */}
+                <div className="flex-1 w-full flex flex-col justify-center gap-2.5 sm:gap-3 xl:gap-3.5 min-w-0">
                   {categoryData.map((cat, i) => {
                     const budget = categoryBudgets[cat.name];
                     const hasBudget = budget && budget > 0;
@@ -2152,24 +2185,24 @@ export function Dashboard({
                     const progress = hasBudget ? Math.min(100, (cat.value / budget) * 100) : (cat.value / cat.max) * 100;
                     
                     return (
-                      <div key={i} className="flex flex-col gap-2">
-                        <div className="flex justify-between items-center text-sm">
-                          <div className="flex items-center min-w-0">
-                            <div className={`w-2 h-2 rounded-full mr-2.5 shrink-0 ${CATEGORY_COLORS[cat.name]?.dot || CATEGORY_COLORS["Autre"].dot}`} />
-                            <span className="font-medium text-foreground truncate" title={cat.name}>{cat.name}</span>
+                      <div key={i} className="flex flex-col gap-1">
+                        <div className="flex justify-between items-center text-xs">
+                          <div className="flex items-center min-w-0 mr-2">
+                            <div className={`w-2 h-2 rounded-full mr-2 shrink-0 ${CATEGORY_COLORS[cat.name]?.dot || CATEGORY_COLORS["Autre"].dot}`} />
+                            <span className="font-medium text-foreground truncate font-sans text-xs" title={cat.name}>{cat.name}</span>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0 ml-3">
+                          <div className="flex items-center gap-1.5 shrink-0">
                             {isExceeded && (
-                              <span className="text-[10px] uppercase font-bold text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded-sm tabular-nums">
+                              <span className="text-[9px] uppercase font-bold text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded-sm tabular-nums font-sans">
                                 +{(cat.value - budget).toFixed(0)} €
                               </span>
                             )}
-                            <span className="font-semibold text-foreground tabular-nums" title={hasBudget && !isExceeded ? `Reste ${(budget - cat.value).toFixed(2)} €` : undefined}>
+                            <span className="font-semibold text-foreground tabular-nums text-xs font-sans" title={hasBudget && !isExceeded ? `Reste ${(budget - cat.value).toFixed(2)} €` : undefined}>
                               {hasBudget ? `${cat.value.toFixed(0)} € / ${budget} €` : (isAllTime ? `~${cat.value.toFixed(0)} € / mois` : `${cat.value.toFixed(0)} €`)}
                             </span>
                           </div>
                         </div>
-                        <div className="h-1 w-full bg-neutral-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
+                        <div className="h-1.5 w-full bg-neutral-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
                           <motion.div 
                             initial={{ width: 0 }}
                             animate={{ width: `${progress}%` }}
@@ -2185,20 +2218,44 @@ export function Dashboard({
             )}
           </Card>
 
-          <AiInsightsCard 
-            income={income}
+          {/* Les 2 bannières compactes */}
+          <MonthlyLimitCard 
             expenses={expenses}
-            balance={balance}
+            categoryBudgets={categoryBudgets}
+            incomeSettings={incomeSettings}
+            onOpenBudgetSettings={() => {
+              setSettingsTab("budgets");
+              setShowSettingsModal(true);
+            }}
+            className="shrink-0"
+          />
+          <RealDisposableIncomeCard 
+            income={income}
+            incomeSettings={incomeSettings}
+            transactions={filteredTransactions}
+            activeSubscriptions={activeSubscriptions}
             subs={subs}
-            projectedSavings={spendingCadence.projectedEndOfMonthBalance}
-            className="flex-1 min-h-0"
+            onOpenSettings={() => {
+              setSettingsTab("fixed");
+              setShowSettingsModal(true);
+            }}
+            className="shrink-0"
+          />
+
+          {/* Nouvelle carte compacte Votre carte (Design system unifié & support visuel PNG) */}
+          <PaymentCardBanner 
+            onOpenSettings={() => {
+              setSettingsTab("card");
+              setShowSettingsModal(true);
+            }}
+            className="shrink-0" 
           />
         </div>
 
-        {/* Col 3: Insight Cards */}
-        <div className="flex flex-col gap-6 min-h-0 h-full">
-          {/* Carte 1: Top Commerçants */}
-          <Card className="flex-1 min-h-0 h-full flex flex-col p-6 relative overflow-hidden">
+        {/* Col 3: Top Merchants & Spending Cadence */}
+        <div className="flex flex-col gap-3.5 sm:gap-4 lg:gap-4 xl:gap-5 lg:col-span-1 h-full min-h-0">
+          {/* Carte 1: Top Commerçants (compacte) */}
+          <Card className="flex flex-col relative overflow-hidden shrink-0">
             <div className="flex justify-between items-start shrink-0">
               <div>
                 <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Top Commerçants</h3>
@@ -2220,7 +2277,7 @@ export function Dashboard({
             </div>
 
             {topMerchants.length === 0 ? (
-              <div className="flex-1 py-12 flex flex-col items-center justify-center text-center text-neutral-400 mt-4">
+              <div className="py-12 flex flex-col items-center justify-center text-center text-neutral-400 mt-4">
                 <div className="w-10 h-10 rounded-full bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-3 text-neutral-400">
                   <ShoppingBag size={18} />
                 </div>
@@ -2228,7 +2285,7 @@ export function Dashboard({
                 <p className="text-xs text-neutral-500 mt-0.5 font-sans">Tes dépenses par enseigne apparaîtront ici</p>
               </div>
             ) : (
-              <div className="flex-1 flex flex-col gap-3 mt-4">
+              <div className="flex flex-col gap-2 sm:gap-2.5 mt-4">
                 {topMerchants.slice(0, 4).map((merchant) => {
                   const maxSpent = topMerchants[0]?.total || 1;
                   const progressRatio = Math.max(6, Math.min(100, (merchant.total / maxSpent) * 100));
@@ -2236,30 +2293,36 @@ export function Dashboard({
                   return (
                     <div
                       key={merchant.name}
-                      className="relative overflow-hidden flex-1 flex items-center justify-between rounded-xl px-3.5 py-3.5 bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] border border-black/[0.05] dark:border-white/[0.04] transition-colors"
+                      onClick={() => {
+                        setDrawerFilter("all");
+                        setDrawerSearch(merchant.name);
+                        setShowTransactionsDrawer(true);
+                      }}
+                      className="relative overflow-hidden flex items-center justify-between rounded-xl px-3 sm:px-3.5 py-2 sm:py-2.5 bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/[0.05] dark:hover:bg-white/[0.05] border border-black/[0.05] dark:border-white/[0.04] hover:border-black/20 dark:hover:border-white/15 transition-all cursor-pointer group active:scale-[0.99] select-none"
+                      title={`Voir toutes les opérations de ${merchant.name}`}
                     >
                       {/* Ligne de progression discrète en arrière-plan proportionnelle au 1er marchand */}
                       <div
-                        className="absolute inset-y-0 left-0 bg-black/[0.03] dark:bg-white/[0.04] pointer-events-none transition-all duration-500 ease-out"
+                        className="absolute inset-y-0 left-0 bg-black/[0.03] dark:bg-white/[0.04] group-hover:bg-black/[0.05] dark:group-hover:bg-white/[0.06] pointer-events-none transition-all duration-500 ease-out"
                         style={{ width: `${progressRatio}%` }}
                       />
 
                       <div className="relative z-10 flex items-center justify-between gap-3 w-full">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-8 h-8 xl:w-9 xl:h-9 rounded-full bg-white dark:bg-neutral-800/80 border border-black/5 dark:border-white/[0.08] shadow-sm flex items-center justify-center shrink-0">
+                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                          <div className="w-8 h-8 xl:w-9 xl:h-9 rounded-full bg-white dark:bg-neutral-800/80 border border-black/5 dark:border-white/[0.08] shadow-sm flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                             <CategoryIcon type={merchant.category} />
                           </div>
                           <div className="min-w-0">
-                            <div className="font-semibold text-sm text-foreground truncate" title={merchant.name}>
+                            <div className="font-semibold text-xs sm:text-sm text-foreground truncate font-sans group-hover:text-foreground" title={merchant.name}>
                               {merchant.name}
                             </div>
-                            <div className="text-[11px] xl:text-xs text-neutral-500 truncate">
+                            <div className="text-[11px] xl:text-xs text-neutral-500 truncate font-sans">
                               {merchant.count} passage{merchant.count > 1 ? "s" : ""} {isAllTime ? "au total" : "ce mois-ci"}
                             </div>
                           </div>
                         </div>
                         <div className="text-right shrink-0">
-                          <div className="font-bold text-sm xl:text-base text-foreground tabular-nums">
+                          <div className="font-bold text-xs sm:text-sm xl:text-base text-foreground tabular-nums font-sans">
                             {merchant.total.toFixed(2)} €
                           </div>
                         </div>
@@ -2271,89 +2334,70 @@ export function Dashboard({
             )}
           </Card>
 
-          {/* Carte 2: Rythme de dépense */}
-          <Card className="flex-1 min-h-0 flex flex-col h-full justify-between p-6">
-            <div className="shrink-0">
-              <div className="flex justify-between items-start shrink-0">
-                <div>
-                  <h3 className="text-base font-semibold tracking-tight text-foreground">Rythme de dépense</h3>
-                  <p className="text-xs text-neutral-500 mt-1">Décomposition hebdomadaire du mois</p>
-                </div>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
-                  <Activity size={16} />
-                </div>
+          {/* Carte 2: Rythme de dépense (Style Apple Health / Linear) */}
+          <Card className="flex flex-col flex-1 min-h-[170px] xl:min-h-[200px] relative overflow-hidden justify-between">
+            <div className="flex justify-between items-start shrink-0">
+              <div>
+                <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Rythme de dépense</h3>
+                <div className="text-xs text-neutral-400 mt-0.5 font-sans">Décomposition hebdomadaire du mois</div>
               </div>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+                <Activity size={16} />
+              </div>
+            </div>
 
-              {/* Moyenne quotidienne réelle */}
-              <div className="flex items-baseline mt-4">
-                <span className="text-3xl font-semibold tracking-tight tabular-nums text-white">
-                  {spendingCadence.pastDailyAverage.toFixed(2)}
+            {/* Moyenne quotidienne réelle & pic éventuel */}
+            <div className="flex items-baseline justify-between mt-3 mb-2 shrink-0">
+              <div className="flex items-baseline">
+                <span className="text-xl sm:text-2xl font-bold tabular-nums text-foreground font-sans">
+                  {spendingCadence.pastDailyAverage.toFixed(2)} €
                 </span>
-                <span className="text-xs text-neutral-400 font-normal ml-2">
-                  / moy. par jour
+                <span className="text-xs text-neutral-400 font-normal ml-2 font-sans">
+                  / jour en moy.
                 </span>
               </div>
-
               {spendingCadence.weeks.some(w => w.isPeak) && (
-                <div className="mt-4 text-xs text-amber-400/90 font-medium tabular-nums font-sans">
-                  Semaine {spendingCadence.weeks.find(w => w.isPeak)?.label.replace('S', '')} · Pic du mois ({spendingCadence.weeks.find(w => w.isPeak)?.amount.toFixed(0)} €)
+                <div className="inline-flex items-center text-[11px] text-neutral-300 font-medium tabular-nums font-sans bg-black/5 dark:bg-white/[0.04] px-2.5 py-0.5 rounded-full border border-black/10 dark:border-white/[0.06]">
+                  Pic S{spendingCadence.weeks.find(w => w.isPeak)?.label.replace('S', '')} · {spendingCadence.weeks.find(w => w.isPeak)?.amount.toFixed(0)} €
                 </div>
               )}
             </div>
 
-            {/* Visualiseur vertical pleine largeur (S1 à S4/S5) */}
-            <div className={`grid ${spendingCadence.weeks.length === 5 ? 'grid-cols-5' : 'grid-cols-4'} gap-4 w-full my-6 flex-1 items-end`}>
+            {/* Visualiseur vertical 4 colonnes Apple Health / Linear */}
+            <div className="flex-1 min-h-[120px] grid grid-cols-4 gap-2 sm:gap-3 pt-2 pb-0.5 items-stretch w-full">
               {spendingCadence.weeks.map((week) => (
-                <div key={week.id} className="flex flex-col items-center justify-end h-full">
-                  <div className="text-xs tabular-nums text-neutral-400 text-center mb-2">
-                    {week.amount > 0 ? `${week.amount.toFixed(0)} €` : "—"}
+                <div key={week.id} className="flex flex-col items-center justify-between h-full group select-none">
+                  {/* Montant lisible en en-tête de colonne */}
+                  <div className="text-[11px] sm:text-xs font-semibold tabular-nums text-neutral-400 group-hover:text-foreground transition-colors font-sans mb-1.5 shrink-0">
+                    {week.amount > 0 ? `${week.amount.toFixed(0)} €` : "0 €"}
                   </div>
-                  <div className="w-6 md:w-8 h-20 md:h-24 bg-black/5 dark:bg-white/[0.06] rounded-full flex flex-col justify-end overflow-hidden mx-auto relative">
+
+                  {/* Rail vertical large style Apple Health */}
+                  <div className="w-full flex-1 min-h-[70px] bg-black/5 dark:bg-white/[0.04] rounded-xl sm:rounded-2xl p-1 relative flex flex-col justify-end overflow-hidden border border-black/[0.04] dark:border-white/[0.05] group-hover:border-black/15 dark:group-hover:border-white/15 transition-all">
+                    {/* Colonne de remplissage de bas en haut */}
                     <motion.div
                       initial={{ height: 0 }}
-                      animate={{ height: `${Math.max(week.amount > 0 ? 5 : 0, week.pct)}%` }}
-                      transition={{ type: "spring", stiffness: 120, damping: 20 }}
-                      className={`w-full rounded-full transition-colors ${
+                      animate={{ height: `${Math.max(week.amount > 0 ? 8 : 0, Math.min(100, week.pct))}%` }}
+                      transition={{ type: "spring", stiffness: 85, damping: 18 }}
+                      className={clsx(
+                        "w-full rounded-lg sm:rounded-xl transition-all duration-300",
                         week.isPeak
-                          ? "bg-foreground"
-                          : "bg-neutral-300 dark:bg-white/30"
-                      }`}
+                          ? "bg-foreground shadow-[0_0_14px_rgba(255,255,255,0.25)]"
+                          : week.amount > 0
+                            ? "bg-neutral-300 dark:bg-white/70 group-hover:bg-neutral-400 dark:group-hover:bg-white/90"
+                            : "bg-transparent"
+                      )}
                     />
                   </div>
-                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 text-center mt-2.5">
+
+                  {/* Label discret en bas */}
+                  <div className="text-xs font-semibold text-neutral-400 group-hover:text-foreground transition-colors font-sans mt-2 shrink-0">
                     {week.label}
                   </div>
                 </div>
               ))}
             </div>
-
-            {/* Objectif d'épargne */}
-            <div className="mt-6 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-neutral-500 dark:text-neutral-400 min-w-0 pr-2">
-                <Wallet size={14} className="shrink-0" />
-                {spendingCadence.savingsGoal > 0 ? (
-                  <span className="truncate text-xs">
-                    Objectif : <strong className="text-foreground font-semibold tabular-nums">{spendingCadence.savingsGoal.toFixed(0)} €</strong>
-                    {spendingCadence.savingsPercentage ? ` (${spendingCadence.savingsPercentage} %)` : ""} d&apos;épargne
-                  </span>
-                ) : (
-                  <span className="truncate text-xs">Objectif d&apos;épargne non configuré</span>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setSettingsTab("budgets");
-                  setShowSettingsModal(true);
-                }}
-                className="h-9 px-4 rounded-full text-xs font-medium bg-black/[0.04] hover:bg-black/[0.08] dark:bg-white/[0.08] dark:hover:bg-white/[0.14] text-neutral-700 dark:text-white border border-border transition-all flex items-center justify-center shrink-0 active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer"
-              >
-                {spendingCadence.savingsGoal > 0 ? "Modifier" : "Définir un objectif"}
-              </button>
-            </div>
           </Card>
-
-          <CSVUploader onUpload={handleUpload} />
         </div>
       </div>
       </>
@@ -2374,26 +2418,34 @@ export function Dashboard({
               initial={{ opacity: 0, scale: 0.95, y: 10 }} 
               animate={{ opacity: 1, scale: 1, y: 0 }} 
               exit={{ opacity: 0, scale: 0.95, y: 10 }} 
-              className="bg-card border border-border dark:border-white/[0.08] rounded-3xl shadow-2xl w-full max-w-5xl h-[85vh] md:h-[80vh] relative z-10 mx-4 flex overflow-hidden"
+              className="bg-card border border-border dark:border-white/[0.08] rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] sm:h-[85vh] md:h-[80vh] relative z-10 mx-2 sm:mx-4 flex flex-col md:flex-row overflow-hidden"
             >
               {/* Sidebar */}
-              <div className="w-[240px] shrink-0 border-r border-border bg-neutral-50/50 dark:bg-white/[0.02] flex flex-col">
-                <div className="p-6 pb-6">
-                  <h2 className="text-xl font-bold tracking-tight text-foreground">Paramètres</h2>
+              <div className="w-full md:w-[240px] shrink-0 border-b md:border-b-0 md:border-r border-border bg-neutral-50/50 dark:bg-white/[0.02] flex flex-row md:flex-col">
+                <div className="p-4 md:p-6 md:pb-6 flex items-center md:block">
+                  <h2 className="text-lg md:text-xl font-bold tracking-tight text-foreground">Paramètres</h2>
                 </div>
-                <div className="flex-1 px-4 space-y-1.5">
+                <div className="flex-1 px-2 md:px-4 flex flex-row md:flex-col gap-1 md:gap-1.5 overflow-x-auto md:overflow-x-visible no-scrollbar pb-2 md:pb-0">
                   <button 
                     type="button"
                     onClick={() => setSettingsTab("income")} 
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-full text-sm font-medium transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer ${settingsTab === "income" ? "bg-foreground text-background shadow-sm" : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.04]"}`}
+                    className={`flex items-center gap-2 md:gap-3 px-3 md:px-3.5 py-2 md:py-2.5 rounded-full text-xs md:text-sm font-medium transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer whitespace-nowrap ${settingsTab === "income" ? "bg-foreground text-background shadow-sm" : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.04]"}`}
                   >
                     <Wallet size={16} />
                     Revenus de référence
                   </button>
                   <button 
                     type="button"
+                    onClick={() => setSettingsTab("fixed")} 
+                    className={`flex items-center gap-2 md:gap-3 px-3 md:px-3.5 py-2 md:py-2.5 rounded-full text-xs md:text-sm font-medium transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer whitespace-nowrap ${settingsTab === "fixed" ? "bg-foreground text-background shadow-sm" : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.04]"}`}
+                  >
+                    <ShieldCheck size={16} />
+                    Charges incompressibles
+                  </button>
+                  <button 
+                    type="button"
                     onClick={() => setSettingsTab("subs")} 
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-full text-sm font-medium transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer ${settingsTab === "subs" ? "bg-foreground text-background shadow-sm" : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.04]"}`}
+                    className={`flex items-center gap-2 md:gap-3 px-3 md:px-3.5 py-2 md:py-2.5 rounded-full text-xs md:text-sm font-medium transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer whitespace-nowrap ${settingsTab === "subs" ? "bg-foreground text-background shadow-sm" : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.04]"}`}
                   >
                     <Repeat size={16} />
                     Abonnements
@@ -2401,10 +2453,18 @@ export function Dashboard({
                   <button 
                     type="button"
                     onClick={() => setSettingsTab("budgets")} 
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-full text-sm font-medium transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer ${settingsTab === "budgets" ? "bg-foreground text-background shadow-sm" : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.04]"}`}
+                    className={`flex items-center gap-2 md:gap-3 px-3 md:px-3.5 py-2 md:py-2.5 rounded-full text-xs md:text-sm font-medium transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer whitespace-nowrap ${settingsTab === "budgets" ? "bg-foreground text-background shadow-sm" : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.04]"}`}
                   >
                     <Flag size={16} />
                     Plafonds & Budgets
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setSettingsTab("card")} 
+                    className={`flex items-center gap-2 md:gap-3 px-3 md:px-3.5 py-2 md:py-2.5 rounded-full text-xs md:text-sm font-medium transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer whitespace-nowrap ${settingsTab === "card" ? "bg-foreground text-background shadow-sm" : "text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.04]"}`}
+                  >
+                    <CreditCard size={16} />
+                    Carte bancaire
                   </button>
                 </div>
               </div>
@@ -2414,9 +2474,9 @@ export function Dashboard({
                 onSubmit={(e) => { e.preventDefault(); handleSaveSettingsClick(); }} 
                 className="flex-1 flex flex-col min-w-0 bg-card relative"
               >
-                <CloseButton onClick={() => setShowSettingsModal(false)} className="absolute top-6 right-6 z-10" iconSize={18} />
+                <CloseButton onClick={() => setShowSettingsModal(false)} className="absolute top-4 right-4 sm:top-6 sm:right-6 z-10" iconSize={18} />
                 
-                <div className="flex-1 overflow-y-auto no-scrollbar p-8 xl:p-10 pt-16 flex flex-col min-h-0">
+                <div className="flex-1 overflow-y-auto no-scrollbar p-4 sm:p-6 md:p-8 xl:p-10 pt-12 sm:pt-16 flex flex-col min-h-0">
                   {settingsTab === "income" ? (
                     <div className="max-w-xl space-y-8 w-full">
                       <div className="mb-8">
@@ -2449,7 +2509,7 @@ export function Dashboard({
                         </div>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-foreground mb-3">Aides & Allocations (CAF, etc.)</label>
+                        <label className="block text-sm font-medium text-foreground mb-3">Aides & Allocations</label>
                         <div className="relative">
                           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400">€</span>
                           <input 
@@ -2472,6 +2532,81 @@ export function Dashboard({
                           Appliquer automatiquement si aucun revenu n'est détecté dans le relevé du mois affiché.<br/>
                           <span className="text-neutral-500">Pratique pour les mois en cours si la paie n'est pas encore tombée.</span>
                         </label>
+                      </div>
+                    </div>
+                  ) : settingsTab === "fixed" ? (
+                    <div className="max-w-xl space-y-6 w-full">
+                      <div className="mb-6">
+                        <h3 className="text-lg font-semibold text-foreground mb-1 font-sans">Charges incompressibles</h3>
+                        <p className="text-sm text-neutral-400 font-sans">
+                          Renseignez vos charges fixes obligatoires pour calculer votre Budget de départ.
+                        </p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-2 font-sans">Loyer ou mensualité logement</label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400">€</span>
+                            <input 
+                              type="number" 
+                              value={incomeSettings.rent || ""} 
+                              onChange={e => handleSaveIncomeSettings({ ...incomeSettings, rent: parseFloat(e.target.value) || 0 })}
+                              placeholder="Détection automatique depuis les opérations si vide"
+                              className="w-full pl-8 pr-4 py-3 rounded-2xl bg-neutral-50 dark:bg-white/[0.03] border border-border focus:outline-none focus:border-foreground/30 text-foreground tabular-nums font-sans" 
+                            />
+                          </div>
+                          <p className="text-xs text-neutral-500 mt-1 font-sans">Loyer, charges de copropriété ou syndic.</p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-2 font-sans">Remboursement de prêt & emprunts</label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400">€</span>
+                            <input 
+                              type="number" 
+                              value={incomeSettings.loans || ""} 
+                              onChange={e => handleSaveIncomeSettings({ ...incomeSettings, loans: parseFloat(e.target.value) || 0 })}
+                              placeholder="Détection automatique depuis les opérations si vide"
+                              className="w-full pl-8 pr-4 py-3 rounded-2xl bg-neutral-50 dark:bg-white/[0.03] border border-border focus:outline-none focus:border-foreground/30 text-foreground tabular-nums font-sans" 
+                            />
+                          </div>
+                          <p className="text-xs text-neutral-500 mt-1 font-sans">Prêt étudiant, crédit bancaire ou mensualités d'emprunt.</p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-2 font-sans">Autres prélèvements obligatoires fixes</label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400">€</span>
+                            <input 
+                              type="number" 
+                              value={incomeSettings.utilities || ""} 
+                              onChange={e => handleSaveIncomeSettings({ ...incomeSettings, utilities: parseFloat(e.target.value) || 0 })}
+                              placeholder="Détection automatique depuis les opérations si vide"
+                              className="w-full pl-8 pr-4 py-3 rounded-2xl bg-neutral-50 dark:bg-white/[0.03] border border-border focus:outline-none focus:border-foreground/30 text-foreground tabular-nums font-sans" 
+                            />
+                          </div>
+                          <p className="text-xs text-neutral-500 mt-1 font-sans">Énergie, eau, mutuelle de santé, assurances obligatoires.</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-black/[0.02] dark:bg-white/[0.02] border border-border rounded-2xl p-4 space-y-2.5 mt-6 font-sans text-xs">
+                        <div className="flex justify-between items-center text-neutral-400">
+                          <span>Abonnements récurrents identifiés</span>
+                          <span className="font-medium text-foreground tabular-nums">{subs.toFixed(2)} €</span>
+                        </div>
+                        <div className="flex justify-between items-center text-neutral-400">
+                          <span>Total des charges incompressibles</span>
+                          <span className="font-semibold text-foreground tabular-nums">
+                            {((incomeSettings.rent || 0) + (incomeSettings.loans || 0) + (incomeSettings.utilities || 0) + subs).toFixed(2)} €
+                          </span>
+                        </div>
+                        <div className="pt-2 border-t border-border flex justify-between items-center font-medium">
+                          <span className="text-neutral-300">Budget de départ calculé</span>
+                          <span className="text-emerald-500 dark:text-emerald-400 font-bold tabular-nums">
+                            {Math.max(0, ((income > 0 ? income : ((incomeSettings.salary || 0) + (incomeSettings.aids || 0))) - ((incomeSettings.rent || 0) + (incomeSettings.loans || 0) + (incomeSettings.utilities || 0) + subs))).toFixed(2)} €
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ) : settingsTab === "subs" ? (
@@ -2505,7 +2640,7 @@ export function Dashboard({
                         </div>
 
                         <div className="space-y-3">
-                          <h4 className="text-sm font-semibold px-1 text-foreground">Plafonds mensuels (Catégories)</h4>
+                          <h4 className="text-sm font-semibold px-1 text-foreground">Plafonds par catégorie</h4>
                           {Object.keys(CATEGORY_COLORS).filter(c => c !== "Autre" && c !== "Épargne & Trésorerie").map(cat => (
                             <div key={cat} className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
                               <div className="flex items-center gap-3 min-w-0 pr-3">
@@ -2533,8 +2668,157 @@ export function Dashboard({
                           <span className="font-semibold text-foreground tabular-nums">{Object.values(categoryBudgets).reduce((a, b) => a + b, 0).toFixed(2)} €</span>
                         </div>
                         <div className="flex justify-between items-center">
-                          <span className="text-sm text-neutral-400">Budget dépensable (Revenus - Épargne)</span>
+                          <span className="text-sm text-neutral-400">Budget disponible net</span>
                           <span className="font-semibold text-foreground tabular-nums">{((incomeSettings.salary || 0) + (incomeSettings.aids || 0) - (incomeSettings.savingsGoal || 0)).toFixed(2)} €</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : settingsTab === "card" ? (
+                    <div className="max-w-xl space-y-6 w-full">
+                      <div className="mb-6">
+                        <h3 className="text-lg font-semibold text-foreground mb-1 font-sans">Carte & Banque</h3>
+                        <p className="text-sm text-neutral-400 font-sans">
+                          Personnalisez votre établissement bancaire et le visuel de votre carte de paiement.
+                        </p>
+                      </div>
+
+                      {/* Établissement bancaire par défaut */}
+                      <div className="bg-black/[0.02] dark:bg-white/[0.02] border border-border rounded-2xl p-4">
+                        <label className="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2.5 font-sans">
+                          Établissement bancaire actif
+                        </label>
+                        <div className="flex gap-2.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              localStorage.setItem("krona_selected_bank", "bourso");
+                              setActiveBank("bourso");
+                              const def = DEFAULT_BANK_CARDS["bourso"];
+                              if (def) {
+                                localStorage.setItem("krona_selected_card", JSON.stringify(def));
+                                setSelectedCard(def);
+                              }
+                              window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: "bourso" } }));
+                              window.dispatchEvent(new CustomEvent("krona-card-updated"));
+                            }}
+                            className={clsx(
+                              "flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-xs font-medium font-sans transition-all active:scale-95 cursor-pointer",
+                              activeBank === "bourso"
+                                ? "bg-foreground text-background border-foreground font-semibold shadow-sm"
+                                : "bg-card border-border text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
+                            )}
+                          >
+                            <BoursoBankLogo className="w-4 h-4" />
+                            <span>BoursoBank</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              localStorage.setItem("krona_selected_bank", "ca");
+                              setActiveBank("ca");
+                              const def = DEFAULT_BANK_CARDS["ca"];
+                              if (def) {
+                                localStorage.setItem("krona_selected_card", JSON.stringify(def));
+                                setSelectedCard(def);
+                              }
+                              window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: "ca" } }));
+                              window.dispatchEvent(new CustomEvent("krona-card-updated"));
+                            }}
+                            className={clsx(
+                              "flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-xs font-medium font-sans transition-all active:scale-95 cursor-pointer",
+                              activeBank === "ca"
+                                ? "bg-foreground text-background border-foreground font-semibold shadow-sm"
+                                : "bg-card border-border text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
+                            )}
+                          >
+                            <CreditAgricoleLogo className="w-4 h-4" />
+                            <span>Crédit Agricole</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <label className="block text-sm font-medium text-foreground font-sans">Modèle actuel</label>
+                        {selectedCard ? (
+                          <div className="relative w-full max-w-sm aspect-[1.586/1] rounded-2xl overflow-hidden border border-black/10 dark:border-white/10 shadow-lg bg-neutral-900">
+                            <img 
+                              src={selectedCard.imageUrl} 
+                              alt={selectedCard.name} 
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-full max-w-sm aspect-[1.586/1] rounded-2xl border-2 border-dashed border-border/80 bg-black/[0.02] dark:bg-white/[0.02] flex flex-col items-center justify-center gap-2 text-center p-4">
+                            <CreditCard className="text-neutral-400" size={24} />
+                            <span className="text-xs font-medium text-neutral-400 font-sans">
+                              Aucune carte configurée
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="pt-2">
+                          <label className="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3 font-sans">
+                            Modèles disponibles
+                          </label>
+                          <div className="grid grid-cols-2 gap-3 max-w-md">
+                            {CARD_PRESETS.map((preset) => {
+                              const isCurrent = selectedCard?.id === preset.id ||
+                                (selectedCard?.id === "bourso" && preset.id === "bourso-ultim") ||
+                                (selectedCard?.id === "ca" && preset.id === "ca-premium") ||
+                                (selectedCard?.bank === preset.bank);
+                              return (
+                                <button
+                                  type="button"
+                                  key={preset.id}
+                                  onClick={() => handleSettingsCardSelect(preset)}
+                                  className={`rounded-2xl p-2.5 border text-left transition-all cursor-pointer ${
+                                    isCurrent
+                                      ? "bg-black/[0.04] dark:bg-white/[0.06] border-foreground/40 ring-1 ring-foreground/20"
+                                      : "bg-black/[0.02] dark:bg-white/[0.02] border-border hover:border-foreground/30 hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
+                                  }`}
+                                >
+                                  <div className="w-full aspect-[1.586/1] rounded-xl overflow-hidden border border-black/10 dark:border-white/10 mb-2 relative bg-neutral-900">
+                                    <img src={preset.imageUrl} alt={preset.name} className="w-full h-full object-cover" />
+                                    {isCurrent && (
+                                      <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-foreground text-background flex items-center justify-center">
+                                        <Check size={10} strokeWidth={3} />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="text-xs font-semibold text-foreground font-sans truncate">{preset.name}</div>
+                                  <div className="text-[11px] text-neutral-400 font-sans truncate">{preset.bank} · •••• {preset.last4}</div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="pt-2 flex flex-wrap items-center gap-3">
+                          <input 
+                            type="file"
+                            onChange={handleSettingsCardUpload}
+                            accept="image/png,image/jpeg,image/webp"
+                            className="hidden"
+                            id="card-upload-input-settings"
+                          />
+                          <label
+                            htmlFor="card-upload-input-settings"
+                            className="h-10 px-4 rounded-full bg-foreground text-background font-medium text-sm flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all cursor-pointer select-none font-sans"
+                          >
+                            <UploadCloud size={16} />
+                            Importer une image PNG
+                          </label>
+
+                          {selectedCard && (
+                            <button
+                              type="button"
+                              onClick={handleSettingsCardRemove}
+                              className="h-10 px-4 rounded-full bg-black/5 dark:bg-white/[0.06] border border-border text-rose-500 hover:bg-rose-500/10 active:scale-95 transition-all text-sm font-medium flex items-center gap-2 cursor-pointer font-sans"
+                            >
+                              <Trash2 size={14} />
+                              Retirer la carte
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -2627,7 +2911,7 @@ export function Dashboard({
               animate={{ opacity: 1, y: 0, scale: 1 }} 
               exit={{ opacity: 0, y: -10, scale: 0.95 }} 
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="fixed top-[88px] right-6 sm:right-12 w-80 sm:w-96 bg-card dark:bg-[#0F0F11] border border-border dark:border-white/[0.08] shadow-2xl rounded-2xl z-[101] overflow-hidden flex flex-col"
+              className="fixed top-[112px] right-4 sm:right-[40px] w-80 sm:w-96 bg-card dark:bg-[#0F0F11] border border-border dark:border-white/[0.08] shadow-2xl rounded-2xl z-[101] overflow-hidden flex flex-col"
             >
               <div className="p-4 px-5 border-b border-border flex justify-between items-center">
                 <h3 className="font-semibold text-foreground flex items-center gap-2 text-sm">
@@ -2706,7 +2990,7 @@ export function Dashboard({
             isOpen={showCalendarModal}
             onClose={() => setShowCalendarModal(false)}
             transactions={transactions}
-            selectedMonth={selectedMonth || "Tout"}
+            selectedMonth={selectedMonth || uniqueMonths[0] || ""}
             onSelectMonth={setSelectedMonth}
           />
         )}
@@ -2715,7 +2999,7 @@ export function Dashboard({
       {/* Modale des transactions détaillées (ex-Drawer) */}
       <AnimatePresence>
         {showTransactionsDrawer && (
-          <div className="fixed inset-0 z-[70] flex justify-end p-4 md:p-6">
+          <div className="fixed inset-0 z-[70] flex justify-end p-2 sm:p-4 md:p-6">
             {/* Scrim avec blur translucide Apple */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -2732,18 +3016,20 @@ export function Dashboard({
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: '100%', opacity: 0 }}
               transition={{ type: "spring", damping: 28, stiffness: 280 }}
-              className="relative z-10 h-[calc(100vh-2rem)] md:h-[calc(100vh-3rem)] w-full max-w-lg md:max-w-xl rounded-3xl bg-card/95 dark:bg-[#0F0F11]/95 backdrop-blur-2xl border border-border dark:border-white/[0.08] shadow-2xl flex flex-col overflow-hidden"
+              className="relative z-10 h-[calc(100vh-1rem)] sm:h-[calc(100vh-2rem)] md:h-[calc(100vh-3rem)] w-full max-w-lg md:max-w-xl rounded-2xl sm:rounded-3xl bg-card/95 dark:bg-[#0F0F11]/95 backdrop-blur-2xl border border-border dark:border-white/[0.08] shadow-2xl flex flex-col overflow-hidden"
             >
               {/* Header */}
-              <div className="p-6 pb-4 border-b border-border flex items-center justify-between shrink-0">
+              <div className="p-4 sm:p-6 pb-3 sm:pb-4 border-b border-border flex items-center justify-between shrink-0">
                 <div>
                   <div className="flex items-center gap-3 mb-1">
-                    <h2 className="text-lg font-bold tracking-tight text-foreground">Toutes les opérations</h2>
-                    <span className="bg-black/5 dark:bg-white/[0.08] text-neutral-600 dark:text-neutral-300 text-xs px-2.5 py-0.5 rounded-full font-medium">
-                      {filteredTransactions.length}
+                    <h2 className="text-lg font-bold tracking-tight text-foreground font-sans">Toutes les opérations</h2>
+                    <span className="bg-black/5 dark:bg-white/[0.08] text-neutral-600 dark:text-neutral-300 text-xs px-2.5 py-0.5 rounded-full font-medium tabular-nums font-sans">
+                      {displayedDrawerTx.length !== filteredTransactions.length
+                        ? `${displayedDrawerTx.length} sur ${filteredTransactions.length}`
+                        : filteredTransactions.length}
                     </span>
                   </div>
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-xs text-neutral-500 font-sans">
                     {formatMonthLabel(selectedMonth || "")}
                   </p>
                 </div>
@@ -2751,7 +3037,7 @@ export function Dashboard({
               </div>
 
               {/* Barre de recherche et filtres */}
-              <div className="px-6 py-4 shrink-0 space-y-3">
+              <div className="px-4 sm:px-6 py-3 sm:py-4 shrink-0 space-y-3">
                 <div className="relative">
                   <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
                   <input
@@ -2759,13 +3045,13 @@ export function Dashboard({
                     value={drawerSearch}
                     onChange={(e) => setDrawerSearch(e.target.value)}
                     placeholder="Rechercher par libellé ou catégorie..."
-                    className="w-full h-10 pl-9 pr-8 rounded-full bg-black/[0.03] dark:bg-white/[0.04] border border-border text-sm focus:outline-none focus:border-foreground/30 focus-visible:ring-2 focus-visible:ring-foreground/20 text-foreground placeholder:text-neutral-500 transition-all"
+                    className="w-full h-10 pl-9 pr-8 rounded-full bg-black/[0.03] dark:bg-white/[0.04] border border-border text-sm focus:outline-none focus:border-foreground/30 focus-visible:ring-2 focus-visible:ring-foreground/20 text-foreground placeholder:text-neutral-500 transition-all font-sans"
                   />
                   {drawerSearch && (
                     <button
                       type="button"
                       onClick={() => setDrawerSearch("")}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-foreground p-1"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-foreground p-1 cursor-pointer"
                     >
                       <X size={13} />
                     </button>
@@ -2785,7 +3071,7 @@ export function Dashboard({
                       key={chip.id}
                       type="button"
                       onClick={() => setDrawerFilter(chip.id)}
-                      className={`h-8 px-3.5 rounded-full text-xs font-medium transition-all shrink-0 active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer ${
+                      className={`h-8 px-3.5 rounded-full text-xs font-medium transition-all shrink-0 active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer font-sans ${
                         drawerFilter === chip.id
                           ? "bg-foreground text-background shadow-sm"
                           : "text-neutral-400 hover:text-foreground bg-transparent hover:bg-black/5 dark:hover:bg-white/[0.04]"
@@ -2795,6 +3081,55 @@ export function Dashboard({
                     </button>
                   ))}
                 </div>
+
+                {/* Badge(s) de filtre / recherche actif avec bouton de réinitialisation */}
+                {(drawerFilter !== "all" || drawerSearch.trim() !== "") && (
+                  <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                    {drawerFilter !== "all" && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-black/5 dark:bg-white/[0.08] text-foreground border border-black/10 dark:border-white/10 font-sans">
+                        <span>Filtre : {
+                          drawerFilter === "sub" ? "Abonnements" :
+                          drawerFilter === "debit" ? "Dépenses" :
+                          drawerFilter === "credit" ? "Revenus" :
+                          drawerFilter === "transfer" ? "Virements" : drawerFilter
+                        }</span>
+                        <button
+                          type="button"
+                          onClick={() => setDrawerFilter("all")}
+                          className="text-neutral-400 hover:text-foreground transition-colors p-0.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer"
+                          title="Réinitialiser le filtre"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    )}
+                    {drawerSearch.trim() !== "" && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-black/5 dark:bg-white/[0.08] text-foreground border border-black/10 dark:border-white/10 font-sans max-w-[280px]">
+                        <span className="truncate">Recherche : {drawerSearch.trim()}</span>
+                        <button
+                          type="button"
+                          onClick={() => setDrawerSearch("")}
+                          className="text-neutral-400 hover:text-foreground transition-colors p-0.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer shrink-0"
+                          title="Effacer la recherche"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    )}
+                    {(drawerFilter !== "all" && drawerSearch.trim() !== "") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDrawerFilter("all");
+                          setDrawerSearch("");
+                        }}
+                        className="text-[11px] text-neutral-400 hover:text-foreground transition-colors cursor-pointer font-sans underline underline-offset-2 ml-1"
+                      >
+                        Tout effacer
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Liste des transactions */}
@@ -2802,8 +3137,20 @@ export function Dashboard({
                 {displayedDrawerTx.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-8 text-neutral-400">
                     <ArrowRightLeft size={32} className="stroke-1 mb-3 opacity-40" />
-                    <p className="text-sm font-medium text-foreground">Aucune opération trouvée</p>
-                    <p className="text-xs text-neutral-500 mt-1">Essaie d&apos;ajuster ta recherche ou tes filtres</p>
+                    <p className="text-sm font-medium text-foreground font-sans">Aucune opération trouvée</p>
+                    <p className="text-xs text-neutral-500 mt-1 font-sans">Essaie d&apos;ajuster ta recherche ou tes filtres</p>
+                    {(drawerFilter !== "all" || drawerSearch.trim() !== "") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDrawerFilter("all");
+                          setDrawerSearch("");
+                        }}
+                        className="mt-3.5 px-3.5 py-1.5 rounded-full text-xs font-medium bg-foreground text-background hover:opacity-90 active:scale-95 transition-all font-sans cursor-pointer"
+                      >
+                        Effacer les filtres
+                      </button>
+                    )}
                   </div>
                 ) : (
                   displayedDrawerTx.map(tx => (

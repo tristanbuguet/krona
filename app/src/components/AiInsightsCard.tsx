@@ -40,7 +40,7 @@ export function AiInsightsCard({
     : 2;
 
   return (
-    <div className={`bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col p-6 overflow-hidden ${className}`}>
+    <div className={`bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col p-5 sm:p-6 overflow-hidden ${className}`}>
       {/* En-tête standardisée */}
       <div className="flex justify-between items-start shrink-0">
         <div>
@@ -74,66 +74,66 @@ export function AiInsightsCard({
       </div>
 
       {/* Corps stat-driven avec chiffres mis en valeur en grille 2x2 */}
-      <div className="flex-1 overflow-y-auto no-scrollbar mt-4 flex flex-col justify-center">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 h-full">
+      <div className="flex-1 mt-4 flex flex-col justify-between">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
           {/* Tuile 1 — Trajectoire & Épargne */}
-          <div className="bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] rounded-xl p-3.5 flex flex-col justify-between transition-all duration-200">
+          <div className="bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 sm:p-3.5 flex flex-col justify-between transition-all duration-200 min-h-[90px]">
             <div>
-              <span className="text-xs text-neutral-400 font-medium font-sans block mb-2">
+              <span className="text-xs text-neutral-400 font-medium font-sans block mb-1.5 sm:mb-2">
                 Trajectoire du mois
               </span>
-              <div className={`text-2xl font-semibold tracking-tight tabular-nums font-sans ${
+              <div className={`text-xl sm:text-2xl font-semibold tracking-tight tabular-nums font-sans ${
                 isPositiveSavings ? "text-white" : "text-rose-500"
               }`}>
                 {formattedSavings}
               </div>
             </div>
-            <p className="text-xs text-neutral-400 mt-1 leading-snug font-sans">
+            <p className="text-[11px] sm:text-xs text-neutral-400 mt-1 leading-snug font-sans">
               À ce rythme quotidien, ton épargne nette restera positive en fin de mois.
             </p>
           </div>
 
           {/* Tuile 2 — Charges fixes */}
-          <div className="bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] rounded-xl p-3.5 flex flex-col justify-between transition-all duration-200">
+          <div className="bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 sm:p-3.5 flex flex-col justify-between transition-all duration-200 min-h-[90px]">
             <div>
-              <span className="text-xs text-neutral-400 font-medium font-sans block mb-2">
+              <span className="text-xs text-neutral-400 font-medium font-sans block mb-1.5 sm:mb-2">
                 Charges fixes & Abonnements
               </span>
-              <div className="text-2xl font-semibold tracking-tight tabular-nums font-sans text-white">
+              <div className="text-xl sm:text-2xl font-semibold tracking-tight tabular-nums font-sans text-white">
                 {fixedCostRatio}%
               </div>
             </div>
-            <p className="text-xs text-neutral-400 mt-1 leading-snug font-sans">
+            <p className="text-[11px] sm:text-xs text-neutral-400 mt-1 leading-snug font-sans">
               Tes abonnements pèsent très peu sur tes revenus, un niveau optimal.
             </p>
           </div>
 
           {/* Tuile 3 — Poste dominant (Top catégorie) */}
-          <div className="bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] rounded-xl p-3.5 flex flex-col justify-between transition-all duration-200">
+          <div className="bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 sm:p-3.5 flex flex-col justify-between transition-all duration-200 min-h-[90px]">
             <div>
-              <span className="text-xs text-neutral-400 font-medium font-sans block mb-2">
+              <span className="text-xs text-neutral-400 font-medium font-sans block mb-1.5 sm:mb-2">
                 Poste principal
               </span>
-              <div className="text-xl font-semibold tracking-tight tabular-nums font-sans text-white flex items-baseline gap-2">
-                Transports <span className="text-lg text-neutral-400 font-medium">428 €</span>
+              <div className="text-base sm:text-xl font-semibold tracking-tight tabular-nums font-sans text-white flex items-baseline gap-1.5 sm:gap-2 flex-wrap">
+                Transports <span className="text-sm sm:text-base text-neutral-400 font-medium tabular-nums">428 €</span>
               </div>
             </div>
-            <p className="text-xs text-neutral-400 mt-1 leading-snug font-sans">
+            <p className="text-[11px] sm:text-xs text-neutral-400 mt-1 leading-snug font-sans">
               Représente 59% de l'ensemble de tes dépenses sur la période.
             </p>
           </div>
 
           {/* Tuile 4 — Opportunité d'optimisation */}
-          <div className="bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] rounded-xl p-3.5 flex flex-col justify-between transition-all duration-200">
+          <div className="bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 sm:p-3.5 flex flex-col justify-between transition-all duration-200 min-h-[90px]">
             <div>
-              <span className="text-xs text-neutral-400 font-medium font-sans block mb-2">
+              <span className="text-xs text-neutral-400 font-medium font-sans block mb-1.5 sm:mb-2">
                 Marge d'optimisation
               </span>
-              <div className="text-2xl font-semibold tracking-tight tabular-nums font-sans text-emerald-400">
+              <div className="text-xl sm:text-2xl font-semibold tracking-tight tabular-nums font-sans text-emerald-400">
                 ~85 €
               </div>
             </div>
-            <p className="text-xs text-neutral-400 mt-1 leading-snug font-sans">
+            <p className="text-[11px] sm:text-xs text-neutral-400 mt-1 leading-snug font-sans">
               Potentiel d'économie identifié sur les sorties et petits débits récurrents.
             </p>
           </div>

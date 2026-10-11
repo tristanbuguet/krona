@@ -7,6 +7,7 @@ import { Dashboard } from "@/components/Dashboard";
 export default function Home() {
   const [hasRealData, setHasRealData] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(true);
+  const [activeTab, setActiveTab] = useState("dashboard");
 
   useEffect(() => {
     const checkData = () => {
@@ -38,6 +39,7 @@ export default function Home() {
 
   const handleExitDemo = useCallback(() => {
     setShowWelcomeModal(true);
+    setActiveTab("dashboard");
     window.dispatchEvent(new CustomEvent("exit-demo-mode"));
   }, []);
 
@@ -49,12 +51,16 @@ export default function Home() {
   return (
     <main className="h-full w-full relative">
       <Navbar 
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
         isDemoMode={isDemoMode} 
         isBlurred={isBlurred} 
         onExitDemo={handleExitDemo} 
       />
       <Suspense fallback={null}>
         <Dashboard 
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
           isDemoMode={isDemoMode}
           showWelcomeModal={isBlurred}
           onDismissWelcome={handleDismissWelcome}

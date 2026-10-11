@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { LayoutGrid, PieChart, Briefcase, ArrowRightLeft, Search, Bell, User, Flag, Sun, Moon, Plus, Settings } from "lucide-react";
+import { LayoutGrid, ArrowRightLeft, TrendingUp, Landmark, Search, Bell, User, Flag, Sun, Moon, Plus, Settings } from "lucide-react";
 import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { useTheme } from "@/components/ThemeProvider";
@@ -10,9 +10,9 @@ import Link from "next/link";
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutGrid },
-  { id: "expenses", label: "Dépenses", icon: PieChart },
-  { id: "budgets", label: "Budgets", icon: Flag },
-  { id: "accounts", label: "Comptes", icon: Briefcase },
+  { id: "transactions", label: "Transactions", icon: ArrowRightLeft },
+  { id: "trends", label: "Tendances", icon: TrendingUp },
+  { id: "accounts", label: "Comptes", icon: Landmark },
 ];
 
 const KronaLogo = ({ className = "w-6 h-6" }: { className?: string }) => (
@@ -32,12 +32,16 @@ const KronaLogo = ({ className = "w-6 h-6" }: { className?: string }) => (
 );
 
 interface NavbarProps {
+  activeTab?: string;
+  onTabChange?: (tab: string) => void;
   isDemoMode?: boolean;
   isBlurred?: boolean;
   onExitDemo?: () => void;
 }
 
 export function Navbar({ 
+  activeTab: propActiveTab,
+  onTabChange,
   isDemoMode: propIsDemoMode, 
   isBlurred: propIsBlurred, 
   onExitDemo 
@@ -46,7 +50,8 @@ export function Navbar({
   const [internalBlurred, setInternalBlurred] = useState(true);
   const isDemoMode = propIsDemoMode !== undefined ? propIsDemoMode : internalDemoMode;
   const isBlurred = propIsBlurred !== undefined ? propIsBlurred : internalBlurred;
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [internalActiveTab, setInternalActiveTab] = useState("dashboard");
+  const activeTab = propActiveTab !== undefined ? propActiveTab : internalActiveTab;
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [inboxCount, setInboxCount] = useState(0);
@@ -63,7 +68,10 @@ export function Navbar({
       setInternalBlurred(!!e.detail?.isOpen);
     };
     const handleNav = (e: any) => {
-      if (e.detail?.tab) setActiveTab(e.detail.tab);
+      if (e.detail?.tab) {
+        setInternalActiveTab(e.detail.tab);
+        if (onTabChange) onTabChange(e.detail.tab);
+      }
     };
     window.addEventListener("demo-mode-state", handleDemoState);
     window.addEventListener("welcome-modal-state", handleWelcomeModal);
@@ -117,7 +125,8 @@ export function Navbar({
   }, []);
 
   const triggerCSVUpload = () => {
-    window.dispatchEvent(new CustomEvent("trigger-csv-upload"));
+    const savedBank = typeof window !== "undefined" ? localStorage.getItem("krona_selected_bank") || "bourso" : "bourso";
+    window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: savedBank } }));
   };
 
   const handleExitDemo = () => {
@@ -125,53 +134,53 @@ export function Navbar({
       onExitDemo();
     }
     setInternalBlurred(true);
-    setActiveTab("dashboard");
+    setInternalActiveTab("dashboard");
+    if (onTabChange) onTabChange("dashboard");
     window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: true } }));
     window.dispatchEvent(new CustomEvent("exit-demo-mode"));
   };
 
   return (
     <header className={clsx(
-      "fixed top-6 left-0 right-0 z-40 flex items-center justify-between h-16 w-full px-12 transition-all duration-700",
+      "fixed top-4 sm:top-[40px] left-0 right-0 z-40 flex items-center justify-between h-14 sm:h-16 w-full px-4 sm:px-[40px] transition-all duration-700",
       isBlurred && "blur-[6px] opacity-25 pointer-events-none select-none"
     )}>
       {/* Logo */}
       <Link 
         href="/"
         onClick={(e) => {
-          setActiveTab("dashboard");
+          setInternalActiveTab("dashboard");
+          if (onTabChange) onTabChange("dashboard");
         }}
-        className="flex items-center gap-2 cursor-pointer group outline-none rounded-xl p-1 -m-1 transition-opacity hover:opacity-80 active:scale-95"
+        className="flex items-center gap-2 cursor-pointer group outline-none rounded-xl p-1 -m-1 transition-opacity hover:opacity-80 active:scale-95 shrink-0"
         aria-label="Accueil krona"
       >
-        <KronaLogo className="w-8 h-8 text-neutral-900 dark:text-white shrink-0 transition-transform duration-200 group-hover:scale-105" />
-        <span className="text-xl font-bold lowercase tracking-tight text-neutral-900 dark:text-white hidden sm:block transition-colors">krona</span>
+        <KronaLogo className="w-7 h-7 sm:w-8 sm:h-8 text-neutral-900 dark:text-white shrink-0 transition-transform duration-200 group-hover:scale-105" />
+        <span className="text-lg sm:text-xl font-bold lowercase tracking-tight text-neutral-900 dark:text-white hidden sm:block transition-colors">krona</span>
       </Link>
 
       {/* Pill Navbar */}
       <nav className={clsx(
-        "flex items-center bg-card/60 backdrop-blur-2xl backdrop-saturate-150 shadow-sm border border-border rounded-full p-1 relative transition-colors"
+        "flex items-center bg-card/60 backdrop-blur-2xl backdrop-saturate-150 shadow-sm border border-border rounded-full p-1 relative transition-colors shrink-0"
       )}>
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
-          const isItemDisabled = isDemoMode && item.id !== "dashboard";
           return (
             <motion.button
               type="button"
               key={item.id}
-              whileTap={isItemDisabled ? undefined : { scale: 0.96 }}
+              whileTap={{ scale: 0.96 }}
               onClick={() => {
-                if (isItemDisabled) return;
-                setActiveTab(item.id);
+                setInternalActiveTab(item.id);
+                if (onTabChange) onTabChange(item.id);
                 window.dispatchEvent(new CustomEvent("navigate-tab", { detail: { tab: item.id } }));
               }}
               className={clsx(
-                "relative px-5 py-2.5 rounded-full text-sm font-medium transition-colors flex items-center gap-2 outline-none cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
+                "relative px-2.5 sm:px-3 lg:px-4 xl:px-5 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm font-medium transition-colors flex items-center gap-1.5 sm:gap-2 outline-none cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
                 isActive 
                   ? "text-background" 
-                  : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08]",
-                isItemDisabled && "opacity-40 pointer-events-none"
+                  : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08]"
               )}
             >
               {isActive && (
@@ -181,9 +190,9 @@ export function Navbar({
                   transition={{ type: "spring", stiffness: 500, damping: 35 }}
                 />
               )}
-              <span className="relative z-10 flex items-center gap-2">
+              <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
                 <Icon size={16} />
-                <span className="hidden md:inline">{item.label}</span>
+                <span className="hidden lg:inline">{item.label}</span>
               </span>
             </motion.button>
           );
@@ -191,16 +200,19 @@ export function Navbar({
       </nav>
 
       {/* Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 shrink-0">
         {/* CSV Import CTA */}
         <motion.button 
           type="button"
           whileTap={{ scale: 0.96 }} 
           onClick={isDemoMode ? handleExitDemo : triggerCSVUpload}
-          className="h-10 px-4 rounded-full bg-black text-white dark:bg-white dark:text-black text-sm font-medium flex items-center gap-2 shadow-[0_1px_2px_rgba(0,0,0,0.1)] transition-all hover:opacity-90 hover:shadow-md cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+          className="h-9 sm:h-10 px-3 sm:px-4 rounded-full bg-black text-white dark:bg-white dark:text-black text-xs sm:text-sm font-medium flex items-center gap-1.5 sm:gap-2 shadow-[0_1px_2px_rgba(0,0,0,0.1)] transition-all hover:opacity-90 hover:shadow-md cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none shrink-0"
         >
           {isDemoMode ? (
-            <span>Quitter la démo</span>
+            <span>
+              <span className="inline sm:hidden">Quitter</span>
+              <span className="hidden sm:inline">Quitter la démo</span>
+            </span>
           ) : (
             <>
               <Plus size={16} />
@@ -209,7 +221,7 @@ export function Navbar({
           )}
         </motion.button>
 
-        <div className="w-px h-6 bg-border mx-1"></div>
+        <div className="w-px h-6 bg-border mx-1 hidden sm:block"></div>
 
         {/* Theme Switcher */}
         {mounted && (
@@ -217,7 +229,7 @@ export function Navbar({
             type="button"
             whileTap={{ scale: 0.95 }} 
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hidden sm:flex"
             aria-label="Basculer le thème"
             title={theme === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}
           >
@@ -231,7 +243,7 @@ export function Navbar({
           whileTap={isDemoMode ? undefined : { scale: 0.95 }} 
           onClick={isDemoMode ? undefined : () => window.dispatchEvent(new CustomEvent("open-settings"))}
           className={clsx(
-            "w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
+            "w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hidden md:flex",
             isDemoMode && "opacity-40 pointer-events-none cursor-not-allowed"
           )}
           aria-label="Paramètres"
@@ -246,7 +258,7 @@ export function Navbar({
           whileTap={isDemoMode ? undefined : { scale: 0.95 }} 
           onClick={isDemoMode ? undefined : () => window.dispatchEvent(new CustomEvent("open-inbox"))}
           className={clsx(
-            "relative w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
+            "relative w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hidden md:flex",
             isDemoMode && "opacity-40 pointer-events-none cursor-not-allowed"
           )}
           aria-label="Notifications"
@@ -262,7 +274,7 @@ export function Navbar({
           whileTap={isDemoMode ? undefined : { scale: 0.95 }} 
           onClick={isDemoMode ? undefined : () => window.dispatchEvent(new CustomEvent("open-profile"))}
           className={clsx(
-            "w-10 h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border flex items-center justify-center overflow-hidden text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer group focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
+            "w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-card/60 backdrop-blur-xl backdrop-saturate-150 border border-border items-center justify-center overflow-hidden text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer group focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hidden md:flex",
             isDemoMode && "opacity-40 pointer-events-none cursor-not-allowed"
           )}
           aria-label="Profil utilisateur"
