@@ -8,10 +8,10 @@ const ThemeContext = createContext({
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState("system");
+  const [theme, setThemeState] = useState("dark");
 
   useEffect(() => {
-    const saved = localStorage.getItem("theme") || "system";
+    const saved = localStorage.getItem("theme") || "dark";
     setThemeState(saved);
   }, []);
 

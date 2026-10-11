@@ -49,7 +49,7 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="h-full w-full relative">
+    <main className="h-screen w-screen overflow-hidden flex flex-col p-6 lg:p-10 box-border bg-[#0a0a0a] text-white">
       <Navbar 
         activeTab={activeTab}
         onTabChange={setActiveTab}

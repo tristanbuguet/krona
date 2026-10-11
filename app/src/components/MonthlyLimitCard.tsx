@@ -72,27 +72,24 @@ export function MonthlyLimitCard({
 
   return (
     <div className={clsx(
-      "bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col justify-between p-4 sm:p-5 transition-all duration-200",
+      "bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col justify-between p-3.5 sm:p-4 transition-all duration-200 overflow-hidden",
       className
     )}>
-      {/* En-tête : Titre et action crayon strictement harmonisés */}
-      <div className="flex justify-between items-start shrink-0">
+      {/* En-tête : Titre et action crayon strictement harmonisés avec les standards du site */}
+      <div className="flex justify-between items-center shrink-0">
         <div className="min-w-0 pr-2">
           <h3 className="text-base font-semibold tracking-tight text-foreground font-sans truncate">
             Plafond mensuel
           </h3>
-          <div className="text-xs text-neutral-400 mt-0.5 font-sans truncate">
-            Limite globale de dépenses
-          </div>
         </div>
 
-        {/* Action discrète format w-8 h-8 identique aux autres cartes */}
+        {/* Action discrète aux dimensions standard (w-7 h-7 sm:w-8 sm:h-8) */}
         <div className="shrink-0">
           {isEditing ? (
             <button
               type="button"
               onClick={handleSaveEdit}
-              className="w-8 h-8 rounded-full flex items-center justify-center bg-black text-white dark:bg-white dark:text-black transition-transform active:scale-95 cursor-pointer shadow-sm"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black text-white dark:bg-white dark:text-black transition-transform active:scale-95 cursor-pointer shadow-sm"
               title="Valider"
               aria-label="Valider le montant"
             >
@@ -102,42 +99,42 @@ export function MonthlyLimitCard({
             <button
               type="button"
               onClick={handleStartEdit}
-              className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 hover:text-foreground dark:hover:text-white hover:border-black/20 dark:hover:border-white/[0.15] transition-all active:scale-95 cursor-pointer"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 hover:text-foreground dark:hover:text-white hover:border-black/20 dark:hover:border-white/[0.15] transition-all active:scale-95 cursor-pointer"
               title="Ajuster le plafond"
               aria-label="Ajuster le plafond"
             >
-              <Pencil size={15} strokeWidth={2} />
+              <Pencil size={14} strokeWidth={2} />
             </button>
           )}
         </div>
       </div>
 
       {/* Contenu compact : Métrique & Jauge fine */}
-      <div className="mt-4">
+      <div className="mt-auto pt-1 sm:pt-2">
         {isEditing ? (
-          <form onSubmit={handleSaveEdit} className="flex items-center gap-2 mb-2">
-            <span className="text-xs text-neutral-400 font-sans">Nouveau plafond :</span>
-            <div className="relative w-28">
+          <form onSubmit={handleSaveEdit} className="flex items-center gap-2 mb-1">
+            <span className="text-xs text-neutral-400 font-sans">Nouveau :</span>
+            <div className="relative w-24">
               <input
                 type="number"
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 autoFocus
-                className="w-full pl-2 pr-6 py-0.5 text-sm font-semibold rounded-lg bg-neutral-100 dark:bg-white/[0.06] border border-border text-foreground tabular-nums outline-none focus:ring-1 focus:ring-foreground/20 font-sans"
+                className="w-full pl-2 pr-5 py-0.5 text-xs font-semibold rounded-lg bg-neutral-100 dark:bg-white/[0.06] border border-border text-foreground tabular-nums outline-none focus:ring-1 focus:ring-foreground/20 font-sans"
               />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-neutral-400 font-sans">€</span>
+              <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-neutral-400 font-sans">€</span>
             </div>
           </form>
         ) : (
-          <div className="flex items-baseline justify-between mb-2">
+          <div className="flex items-baseline justify-between mb-1">
             <div className="flex items-baseline gap-1.5">
-              <span className="text-xl sm:text-2xl font-bold tracking-tight tabular-nums text-foreground font-sans">
+              <span className="text-base sm:text-lg font-bold tracking-tight tabular-nums text-foreground font-sans">
                 {spent.toFixed(0)} €
               </span>
-              <span className="text-xs text-neutral-400 font-sans">dépensés</span>
+              <span className="text-[11px] text-neutral-400 font-sans">dépensés</span>
             </div>
             <div className="text-right">
-              <span className="text-xs sm:text-sm font-medium text-neutral-400 tabular-nums font-sans">
+              <span className="text-[11px] sm:text-xs font-medium text-neutral-400 tabular-nums font-sans">
                 sur {effectiveLimit.toFixed(0)} €
               </span>
             </div>
@@ -145,7 +142,7 @@ export function MonthlyLimitCard({
         )}
 
         {/* Jauge horizontale fine style Apple */}
-        <div className="h-1.5 w-full bg-black/5 dark:bg-white/[0.06] rounded-full overflow-hidden relative">
+        <div className="h-1 w-full bg-black/5 dark:bg-white/[0.06] rounded-full overflow-hidden relative">
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${Math.min(100, percentage)}%` }}

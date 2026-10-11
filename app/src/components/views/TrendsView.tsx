@@ -37,6 +37,7 @@ import {
   formatMonthLabel, 
   formatAmount 
 } from "@/lib/types";
+import { PageHeader } from "../ui/PageHeader";
 
 interface TrendsViewProps {
   transactions: Transaction[];
@@ -285,20 +286,10 @@ export function TrendsView({
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col space-y-6 overflow-y-auto no-scrollbar pb-10">
+    <div className="flex-1 min-h-0 flex flex-col w-full h-full overflow-hidden">
       {/* Top Header with Time Horizon Selector */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shrink-0">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground font-sans">
-            Cockpit Tendances
-          </h2>
-          <p className="text-xs sm:text-sm text-neutral-400 font-sans mt-0.5">
-            Analyse plurimensuelle et dynamique d'épargne sur vos relevés
-          </p>
-        </div>
-
-        {/* Time Horizon Segmented Control */}
-        <div className="flex items-center bg-black/5 dark:bg-white/[0.04] p-1 rounded-full border border-border shrink-0">
+      <PageHeader title="Tendances">
+        <div className="h-9 flex items-center bg-card border border-border rounded-full p-1 shadow-sm shrink-0">
           {[
             { id: "3m", label: "3 derniers mois" },
             { id: "6m", label: "6 derniers mois" },
@@ -311,274 +302,248 @@ export function TrendsView({
                 key={tab.id}
                 type="button"
                 onClick={() => setHorizon(tab.id as TimeHorizon)}
-                className={`relative px-3 sm:px-4 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer font-sans select-none focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none ${
+                className={`relative h-full flex items-center px-3 sm:px-3.5 rounded-full text-xs font-medium transition-all cursor-pointer font-sans select-none leading-none focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none ${
                   isActive
-                    ? "text-background"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "text-background font-semibold"
+                    : "text-neutral-400 hover:text-foreground"
                 }`}
               >
                 {isActive && (
                   <motion.div
                     layoutId="trends-horizon-pill"
-                    className="absolute inset-0 bg-foreground rounded-full"
+                    className="absolute inset-0 bg-foreground rounded-full shadow-sm"
                     transition={{ type: "spring", stiffness: 500, damping: 35 }}
                   />
                 )}
-                <span className="relative z-10">{tab.label}</span>
+                <span className="relative z-10 leading-none">{tab.label}</span>
               </button>
             );
           })}
         </div>
-      </div>
+      </PageHeader>
 
-      {/* 1. Macro KPIs Header (Uniform p-6 padding, Space Grotesk, Tabular-nums) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 xl:gap-5 shrink-0">
-        {/* KPI 1: Épargne cumulée */}
-        <div className="bg-card border border-border rounded-2xl p-6 flex flex-col justify-between shadow-sm transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans">
-              Épargne totale cumulée
-            </span>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-border text-neutral-400">
-              <Wallet size={16} />
-            </div>
-          </div>
-          <div>
-            <div className={`text-2xl sm:text-3xl font-bold tracking-tight tabular-nums font-sans mb-1.5 ${
-              totalSavings >= 0 ? "text-foreground" : "text-rose-500 dark:text-rose-400"
-            }`}>
-              {formatAmount(totalSavings)}
-            </div>
-            <div className="flex items-center justify-between text-xs text-neutral-400 font-sans">
-              <span>Sur {selectedMonths.length} mois analysés</span>
-              <span className={`font-medium tabular-nums ${totalSavings >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                {totalSavings >= 0 ? "+" : ""}{(totalSavings / Math.max(1, selectedMonths.length)).toFixed(0)} € / mois
+      {/* Main Viewport Container - Zero scroll, occupies 100% of viewport */}
+      <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-hidden viewport-fit-scroll no-scrollbar">
+        {/* 1. Macro KPIs Header */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
+          {/* KPI 1: Épargne cumulée */}
+          <div className="bg-card border border-border rounded-2xl p-3 sm:p-3.5 xl:p-4 flex flex-col justify-between shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
+            <div className="flex justify-between items-start mb-1 sm:mb-2">
+              <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
+                Épargne totale cumulée
               </span>
-            </div>
-          </div>
-        </div>
-
-        {/* KPI 2: Taux d'épargne moyen */}
-        <div className="bg-card border border-border rounded-2xl p-6 flex flex-col justify-between shadow-sm transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans">
-              Taux d'épargne moyen
-            </span>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-border text-neutral-400">
-              <TrendingUp size={16} />
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground tabular-nums font-sans mb-2">
-              {avgSavingsRate}%
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-1.5 bg-black/5 dark:bg-white/[0.08] rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-emerald-500 dark:bg-emerald-400 rounded-full transition-all duration-500"
-                  style={{ width: `${Math.max(0, Math.min(100, avgSavingsRate))}%` }}
-                />
+              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+                <Wallet size={14} />
               </div>
-              <span className="text-xs font-medium text-neutral-400 font-sans tabular-nums">
-                {avgSavingsRate >= 20 ? "Idéal (>20%)" : avgSavingsRate > 0 ? "Positif" : "Déficit"}
+            </div>
+            <div className="flex flex-col">
+              <div className={`text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight tabular-nums font-sans ${
+                totalSavings >= 0 ? "text-foreground" : "text-rose-500 dark:text-rose-400"
+              }`}>
+                {formatAmount(totalSavings)}
+              </div>
+              <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans truncate">
+                <span>Sur {selectedMonths.length} mois analysés</span>
+                <span className={`tabular-nums ${totalSavings >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                  {totalSavings >= 0 ? "+" : ""}{(totalSavings / Math.max(1, selectedMonths.length)).toFixed(0)} € / mois
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI 2: Taux d'épargne moyen (Minimaliste, barre verte supprimée) */}
+          <div className="bg-card border border-border rounded-2xl p-3 sm:p-3.5 xl:p-4 flex flex-col justify-between shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
+            <div className="flex justify-between items-start mb-1 sm:mb-2">
+              <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
+                Taux d'épargne moyen
+              </span>
+              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+                <TrendingUp size={14} />
+              </div>
+            </div>
+            <div className="flex flex-col">
+              <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-foreground tabular-nums font-sans">
+                {avgSavingsRate}%
+              </div>
+              <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans truncate">
+                <span className="truncate">{avgSavingsRate >= 20 ? "Idéal (>20%)" : avgSavingsRate > 0 ? "Positif" : "Déficit"} · Train de vie maîtrisé</span>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI 3: Moyenne dépenses discrétionnaires */}
+          <div className="bg-card border border-border rounded-2xl p-3 sm:p-3.5 xl:p-4 flex flex-col justify-between shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
+            <div className="flex justify-between items-start mb-1 sm:mb-2">
+              <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
+                Train de vie discrétionnaire
+              </span>
+              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+                <Activity size={14} />
+              </div>
+            </div>
+            <div className="flex flex-col">
+              <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-foreground tabular-nums font-sans">
+                {avgDiscretionaryExpenses.toFixed(2)} €
+              </div>
+              <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans truncate">
+                <span className="truncate">Hors charges fixes & abonnements</span>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI 4: Moyenne revenus mensuels */}
+          <div className="bg-card border border-border rounded-2xl p-3 sm:p-3.5 xl:p-4 flex flex-col justify-between shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
+            <div className="flex justify-between items-start mb-1 sm:mb-2">
+              <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
+                Revenus mensuels moyens
+              </span>
+              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+                <ArrowDownLeft size={14} />
+              </div>
+            </div>
+            <div className="flex flex-col">
+              <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-foreground tabular-nums font-sans">
+                {avgMonthlyIncome.toFixed(2)} €
+              </div>
+              <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans truncate">
+                <span className="truncate">Salaires et encaissements lissés</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Main Evolution Graph: Revenus vs Dépenses & Épargne (Remplit harmonieusement la hauteur disponible) */}
+        <div className="bg-card border border-border rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col flex-[1.2] min-h-[190px] overflow-hidden">
+          <div className="flex items-center justify-between mb-2 shrink-0">
+            <div>
+              <h3 className="text-sm sm:text-base font-semibold tracking-tight text-foreground font-sans">
+                Évolution des Flux & Épargne Nette
+              </h3>
+            </div>
+            <div className="flex items-center gap-3 sm:gap-4 text-xs font-medium font-sans">
+              <span className="flex items-center gap-1.5 text-neutral-400">
+                <span className="w-2 h-2 rounded-sm bg-emerald-500" />
+                Revenus
+              </span>
+              <span className="flex items-center gap-1.5 text-neutral-400">
+                <span className="w-2 h-2 rounded-sm bg-zinc-600 dark:bg-zinc-400" />
+                Dépenses
+              </span>
+              <span className="flex items-center gap-1.5 text-neutral-400">
+                <span className="w-2.5 h-0.5 bg-blue-500 rounded-full" />
+                Épargne nette
               </span>
             </div>
           </div>
-        </div>
 
-        {/* KPI 3: Moyenne dépenses discrétionnaires */}
-        <div className="bg-card border border-border rounded-2xl p-6 flex flex-col justify-between shadow-sm transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans">
-              Train de vie discrétionnaire
-            </span>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-border text-neutral-400">
-              <Activity size={16} />
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground tabular-nums font-sans mb-1.5">
-              {avgDiscretionaryExpenses.toFixed(2)} €
-            </div>
-            <div className="text-xs text-neutral-400 font-sans">
-              Hors loyer, emprunt & abonnements
-            </div>
-          </div>
-        </div>
-
-        {/* KPI 4: Moyenne revenus mensuels */}
-        <div className="bg-card border border-border rounded-2xl p-6 flex flex-col justify-between shadow-sm transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans">
-              Revenus mensuels moyens
-            </span>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-border text-neutral-400">
-              <ArrowDownLeft size={16} />
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground tabular-nums font-sans mb-1.5">
-              {avgMonthlyIncome.toFixed(2)} €
-            </div>
-            <div className="text-xs text-neutral-400 font-sans">
-              Salaires et encaissements lissés
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Main Evolution Graph: Revenus vs Dépenses & Épargne */}
-      <div className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-6">
-          <div>
-            <h3 className="text-base sm:text-lg font-bold tracking-tight text-foreground font-sans">
-              Évolution des Flux & Épargne Nette
-            </h3>
-            <p className="text-xs text-neutral-400 font-sans mt-0.5">
-              Comparatif mois par mois des entrées de fonds, des sorties et du solde net mis de côté
-            </p>
-          </div>
-          <div className="flex items-center gap-4 text-xs font-medium font-sans">
-            <span className="flex items-center gap-1.5 text-neutral-400">
-              <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
-              Revenus
-            </span>
-            <span className="flex items-center gap-1.5 text-neutral-400">
-              <span className="w-2.5 h-2.5 rounded-sm bg-zinc-600 dark:bg-zinc-400" />
-              Dépenses
-            </span>
-            <span className="flex items-center gap-1.5 text-neutral-400">
-              <span className="w-2.5 h-0.5 bg-blue-500 rounded-full" />
-              Épargne nette
-            </span>
+          <div className="flex-1 w-full min-h-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={monthlyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(120, 120, 120, 0.12)" />
+                <XAxis 
+                  dataKey="label" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: "#888888", fontSize: 11, fontFamily: "var(--font-space-grotesk)" }} 
+                />
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: "#888888", fontSize: 11, fontFamily: "var(--font-space-grotesk)" }}
+                  tickFormatter={(val) => `${val} €`}
+                />
+                <Tooltip content={<CustomTrendsTooltip />} />
+                <Bar dataKey="income" name="Revenus" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                <Bar dataKey="expenses" name="Dépenses" fill="#71717A" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                <Line 
+                  type="monotone" 
+                  dataKey="savings" 
+                  name="Épargne nette" 
+                  stroke="#3B82F6" 
+                  strokeWidth={2} 
+                  dot={{ r: 3, fill: "#3B82F6", strokeWidth: 1.5, stroke: "#ffffff" }} 
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="h-[280px] sm:h-[340px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={monthlyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(120, 120, 120, 0.12)" />
-              <XAxis 
-                dataKey="label" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fill: "#888888", fontSize: 12, fontFamily: "var(--font-space-grotesk)" }} 
-              />
-              <YAxis 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fill: "#888888", fontSize: 12, fontFamily: "var(--font-space-grotesk)" }}
-                tickFormatter={(val) => `${val} €`}
-              />
-              <Tooltip content={<CustomTrendsTooltip />} />
-              <Bar dataKey="income" name="Revenus" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={36} />
-              <Bar dataKey="expenses" name="Dépenses" fill="#71717A" radius={[4, 4, 0, 0]} maxBarSize={36} />
-              <Line 
-                type="monotone" 
-                dataKey="savings" 
-                name="Épargne nette" 
-                stroke="#3B82F6" 
-                strokeWidth={2.5} 
-                dot={{ r: 4, fill: "#3B82F6", strokeWidth: 2, stroke: "#ffffff" }} 
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* 3. Bottom Grid: Dérive des Catégories & Stabilité des Charges Fixes */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Card: Dérive des Catégories */}
-        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <h3 className="text-base sm:text-lg font-bold tracking-tight text-foreground font-sans">
+        {/* 3. Bottom Grid: Dérive des Catégories & Stabilité des Charges Fixes */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-[180px]">
+          {/* Card: Dérive des Catégories */}
+          <div className="bg-card border border-border rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col justify-between overflow-hidden h-full">
+            <div className="flex items-center justify-between mb-2 shrink-0">
+              <h3 className="text-sm sm:text-base font-semibold tracking-tight text-foreground font-sans">
                 Dérive des Catégories
               </h3>
-              <span className="text-xs text-neutral-400 font-sans">Dernier mois vs Moyenne</span>
+              <span className="text-[10px] sm:text-xs text-neutral-400 font-sans">Dernier mois vs Moyenne</span>
             </div>
-            <p className="text-xs text-neutral-400 font-sans mb-6">
-              Postes de dépenses ayant le plus augmenté ou baissé par rapport à vos habitudes
-            </p>
 
-            <div className="space-y-4">
-              {categoryDrift.slice(0, 5).map((item) => {
+            <div className="flex-1 min-h-0 flex flex-col justify-around gap-1.5">
+              {categoryDrift.slice(0, 3).map((item) => {
                 const isIncrease = item.diffAmount > 0;
                 const color = CATEGORY_COLORS[item.category] || CATEGORY_COLORS["Autre"];
                 return (
-                  <div key={item.category} className="flex flex-col gap-1.5 p-3 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-border/50">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <span className={`w-2 h-2 rounded-full ${color.dot}`} />
-                        <span className="font-semibold text-sm text-foreground font-sans truncate max-w-[170px] sm:max-w-xs">
-                          {item.category}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-foreground tabular-nums font-sans">
-                          {item.latestVal.toFixed(0)} €
-                        </span>
-                        <div className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[11px] font-medium tabular-nums ${
-                          isIncrease 
-                            ? "bg-rose-500/10 text-rose-500" 
-                            : "bg-emerald-500/10 text-emerald-500"
-                        }`}>
-                          {isIncrease ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-                          <span>{isIncrease ? `+${item.diffPercent}%` : `${item.diffPercent}%`}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px] text-neutral-400 font-sans">
-                      <span>Moyenne précédente : {item.avgPrior.toFixed(0)} €</span>
-                      <span className="tabular-nums">
-                        {isIncrease ? `+${item.diffAmount.toFixed(0)} €` : `${item.diffAmount.toFixed(0)} €`}
+                  <div key={item.category} className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-border/40">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${color.dot}`} />
+                      <span className="font-semibold text-xs text-foreground font-sans truncate max-w-[120px] sm:max-w-[180px]">
+                        {item.category}
                       </span>
+                      <span className="text-[10px] text-neutral-400 font-sans hidden sm:inline tabular-nums">
+                        (moy. {item.avgPrior.toFixed(0)} €)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs font-semibold text-foreground tabular-nums font-sans">
+                        {item.latestVal.toFixed(0)} €
+                      </span>
+                      <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium tabular-nums ${
+                        isIncrease 
+                          ? "bg-rose-500/10 text-rose-500" 
+                          : "bg-emerald-500/10 text-emerald-500"
+                      }`}>
+                        {isIncrease ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
+                        <span>{isIncrease ? `+${item.diffPercent}%` : `${item.diffPercent}%`}</span>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
-        </div>
 
-        {/* Card: Stabilité des Charges Fixes */}
-        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <h3 className="text-base sm:text-lg font-bold tracking-tight text-foreground font-sans">
+          {/* Card: Stabilité des Charges Fixes */}
+          <div className="bg-card border border-border rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col justify-between overflow-hidden h-full">
+            <div className="flex items-center justify-between mb-2 shrink-0">
+              <h3 className="text-sm sm:text-base font-semibold tracking-tight text-foreground font-sans">
                 Stabilité des Charges Fixes
               </h3>
-              <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-xs font-medium font-sans">
-                <ShieldCheck size={13} />
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px] sm:text-[11px] font-medium font-sans">
+                <ShieldCheck size={12} />
                 <span>Socle régulier</span>
               </div>
             </div>
-            <p className="text-xs text-neutral-400 font-sans mb-6">
-              Régularité du socle incompressible (loyer, emprunts, forfaits et abonnements)
-            </p>
 
-            <div className="bg-black/[0.02] dark:bg-white/[0.02] border border-border/50 rounded-xl p-4 mb-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-neutral-400 font-sans">Moyenne incompressible</span>
-                <span className="text-xl font-bold text-foreground tabular-nums font-sans">
+            <div className="bg-black/[0.02] dark:bg-white/[0.02] border border-border/40 rounded-xl px-3 py-1.5 mb-1 shrink-0">
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-[11px] text-neutral-400 font-sans">Moyenne incompressible</span>
+                <span className="text-sm sm:text-base font-bold text-foreground tabular-nums font-sans">
                   {fixedChargesAnalysis.avgFixed.toFixed(2)} € / mois
                 </span>
               </div>
-              <div className="text-xs text-neutral-400 leading-relaxed font-sans">
-                Vos charges fixes varient de moins de <strong className="text-foreground tabular-nums">{fixedChargesAnalysis.variationPercent}%</strong> d'un mois sur l'autre, assurant une parfaite prévisibilité de votre budget.
+              <div className="text-[10px] text-neutral-400 font-sans truncate">
+                Variation &lt; <strong className="text-foreground tabular-nums">{fixedChargesAnalysis.variationPercent}%</strong> d'un mois sur l'autre · Budget hautement prévisible
               </div>
             </div>
 
             {/* Monthly Fixed Costs Bar Breakdown */}
-            <div className="space-y-3">
-              <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider font-sans">
-                Historique mensuel du socle
-              </span>
-              {fixedChargesAnalysis.series.map((item) => (
+            <div className="flex-1 min-h-0 flex flex-col justify-around gap-1">
+              {fixedChargesAnalysis.series.slice(-3).map((item) => (
                 <div key={item.month} className="flex items-center justify-between text-xs font-sans">
-                  <span className="text-neutral-400">{item.label}</span>
-                  <div className="flex items-center gap-3">
-                    <div className="w-24 sm:w-36 h-1.5 bg-black/5 dark:bg-white/[0.08] rounded-full overflow-hidden">
+                  <span className="text-neutral-400 text-[11px]">{item.label}</span>
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-20 sm:w-28 h-1 bg-black/5 dark:bg-white/[0.08] rounded-full overflow-hidden">
                       <div 
                         className="h-full bg-foreground rounded-full"
                         style={{ 
@@ -586,7 +551,7 @@ export function TrendsView({
                         }}
                       />
                     </div>
-                    <span className="font-semibold text-foreground tabular-nums w-16 text-right">
+                    <span className="font-semibold text-foreground tabular-nums text-xs w-14 text-right">
                       {item.fixed.toFixed(0)} €
                     </span>
                   </div>

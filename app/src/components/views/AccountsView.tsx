@@ -20,6 +20,7 @@ import {
 import { BoursoBankLogo, CreditAgricoleLogo } from "../BankSelectorPopover";
 import { CloseButton } from "../ui/CloseButton";
 import { Transaction, AccountInfo, formatAmount, formatMonthLabel } from "@/lib/types";
+import { PageHeader } from "../ui/PageHeader";
 
 interface AccountsViewProps {
   transactions: Transaction[];
@@ -196,7 +197,7 @@ export function AccountsView({
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col space-y-6 overflow-y-auto no-scrollbar pb-10">
+    <div className="flex-1 min-h-0 flex flex-col w-full overflow-hidden">
       {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (
@@ -215,27 +216,19 @@ export function AccountsView({
       </AnimatePresence>
 
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shrink-0">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground font-sans">
-            Comptes & Établissements
-          </h2>
-          <p className="text-xs sm:text-sm text-neutral-400 font-sans mt-0.5">
-            Gestion de vos comptes bancaires et association des relevés importés
-          </p>
-        </div>
+      <PageHeader title="Comptes">
+        <button
+          type="button"
+          onClick={handleOpenAdd}
+          className="h-9 px-3.5 rounded-full bg-white text-black dark:bg-white dark:text-black text-xs sm:text-sm font-medium flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all shadow-sm cursor-pointer font-sans"
+        >
+          <Plus size={15} />
+          <span>Ajouter un compte</span>
+        </button>
+      </PageHeader>
 
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={handleOpenAdd}
-            className="h-10 px-4 rounded-full bg-black text-white dark:bg-white dark:text-black text-xs sm:text-sm font-medium flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-sm cursor-pointer font-sans"
-          >
-            <Plus size={16} />
-            <span>Ajouter un compte</span>
-          </button>
-        </div>
-      </div>
+      {/* Scrollable Content Container */}
+      <div className="flex-1 overflow-y-auto pr-2 space-y-6 no-scrollbar min-h-0">
 
       {/* Total Consolidated Wealth Card (p-6, Space Grotesk tabular-nums) */}
       <div className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shrink-0 transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
@@ -362,6 +355,7 @@ export function AccountsView({
             </div>
           );
         })}
+      </div>
       </div>
 
       {/* Add / Edit Account Modal */}

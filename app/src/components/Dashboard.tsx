@@ -7,6 +7,7 @@ import { CsvAnalysisModal, ImportStep } from "./CsvAnalysisModal";
 import { NormalizedTransaction, parseBoursoBankRows } from "@/lib/bankParser";
 import { BoursoBankLogo, CreditAgricoleLogo } from "./BankSelectorPopover";
 import { CloseButton } from "./ui/CloseButton";
+import { PageHeader } from "./ui/PageHeader";
 import { SubscriptionManager, detectSubscriptions } from "./SubscriptionManager";
 import { MonthlyLimitCard } from "./MonthlyLimitCard";
 import { RealDisposableIncomeCard } from "./RealDisposableIncomeCard";
@@ -164,7 +165,7 @@ const initialTransactions: Transaction[] = initialDemoTransactions;
 
 function Card({ children, className = "", noPadding = false, onClick }: { children: React.ReactNode; className?: string; noPadding?: boolean; onClick?: () => void }) {
   return (
-    <div onClick={onClick} className={`bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col ${noPadding ? "" : "p-4 sm:p-5"} ${className}`}>
+    <div onClick={onClick} className={`bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col overflow-hidden ${noPadding ? "" : "p-3 sm:p-3.5 xl:p-4"} ${className}`}>
       {children}
     </div>
   );
@@ -259,18 +260,18 @@ const TransactionRow = ({ tx, hideDescription, isSubscription }: { tx: Transacti
       whileTap={{ scale: 0.98 }} 
       className="flex items-center justify-between py-3.5 px-2 cursor-pointer group hover:bg-neutral-50 dark:hover:bg-white/[0.02] transition-colors rounded-xl"
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0 max-w-[55%]">
         <div className="w-9 h-9 rounded-full bg-neutral-100 dark:bg-white/[0.06] border border-black/5 dark:border-white/[0.06] flex items-center justify-center shrink-0">
           <CategoryIcon type={tx.type} isSubscription={isSubscription ?? tx.isSubscription} isInternalTransfer={tx.isInternalTransfer} />
         </div>
-        <div className="min-w-0">
-          <div className="font-semibold text-sm text-foreground truncate max-w-[140px] sm:max-w-[240px] xl:max-w-[300px]">{tx.name}</div>
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-sm text-foreground truncate">{tx.name}</div>
           {!hideDescription && tx.type && (
             <div className="flex items-center gap-2 mt-0.5">
               {tx.type === "Épargne & Trésorerie" || tx.isInternalTransfer ? (
                 <span className="text-[10px] bg-black/5 dark:bg-white/[0.06] text-neutral-400 px-1.5 py-0.5 rounded tracking-wide">VIREMENT INTERNE</span>
               ) : (
-                <div className="text-xs text-neutral-500 truncate max-w-[140px] sm:max-w-[240px] xl:max-w-[300px]">
+                <div className="text-xs text-neutral-500 truncate">
                   {tx.type}
                 </div>
               )}
@@ -1617,10 +1618,7 @@ export function Dashboard({
   }, [selectedMonth, income, expenses, balance]);
 
   return (
-    <div className={clsx(
-      "w-full px-4 sm:px-[40px] pt-28 sm:pt-[128px] pb-4 sm:pb-[40px] min-h-screen flex flex-col relative",
-      activeTab === "dashboard" ? "lg:h-screen lg:max-h-screen lg:overflow-hidden overflow-y-auto" : "overflow-y-auto"
-    )}>
+    <div className="flex-1 flex flex-col min-h-0 w-full overflow-hidden relative">
       <AnimatePresence>
         {toastMessage && (
           <motion.div
@@ -1734,56 +1732,50 @@ export function Dashboard({
       )}
 
       {/* Main Content Area (Blurred when empty) */}
-      <div className={`flex flex-col flex-1 w-full min-h-0 transition-all duration-700 ${isWelcomeOpen ? 'blur-[6px] opacity-25 pointer-events-none select-none' : ''}`}>
+      <div className={`flex flex-col flex-1 w-full min-h-0 transition-all duration-700 viewport-fit-scroll no-scrollbar ${isWelcomeOpen ? 'blur-[6px] opacity-25 pointer-events-none select-none' : ''}`}>
         
       {/* Header & Month Selector (Dashboard and Budgets only) */}
       {(activeTab === "dashboard" || activeTab === "budgets") && (
-        <div className="flex flex-row items-center justify-between gap-2 sm:gap-3 mb-3 sm:mb-3.5 lg:mb-4 shrink-0">
-          <h1 className="text-lg sm:text-xl font-bold tracking-tight text-foreground truncate font-sans">
-            {activeTab === "budgets" ? "Budgets & Plafonds" : "Vue d'ensemble"}
-          </h1>
-          
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0 transition-opacity">
-            {hasRealData && (
-              <motion.button
-                type="button"
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setShowResetModal(true)}
-                className="w-9 h-9 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
-                title="Supprimer des données"
-                aria-label="Supprimer des données"
-              >
-                <Trash2 size={16} />
-              </motion.button>
-            )}
-            
-            <div className="relative">
-              <select 
-                value={selectedMonth || uniqueMonths[0] || ""} 
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="h-9 appearance-none bg-card border border-border text-foreground font-medium text-sm py-1.5 pl-4 pr-10 rounded-full shadow-sm outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
-                aria-label="Sélectionner le mois"
-              >
-                {availableMonths.map(m => (
-                  <option key={m} value={m}>{formatMonthLabel(m)}</option>
-                ))}
-              </select>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                <ChevronDown size={14} className="text-neutral-400" />
-              </div>
-            </div>
-            
-            <button
+        <PageHeader title={activeTab === "budgets" ? "Budgets & Plafonds" : "Vue d'ensemble"}>
+          {hasRealData && (
+            <motion.button
               type="button"
-              onClick={() => setShowCalendarModal(true)}
-              className="w-9 h-9 flex items-center justify-center rounded-full bg-card border border-border text-foreground transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 cursor-pointer"
-              title="Vue annuelle"
-              aria-label="Vue annuelle"
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowResetModal(true)}
+              className="w-9 h-9 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+              title="Supprimer des données"
+              aria-label="Supprimer des données"
             >
-              <CalendarDays size={16} />
-            </button>
+              <Trash2 size={16} />
+            </motion.button>
+          )}
+          
+          <div className="relative">
+            <select 
+              value={selectedMonth || uniqueMonths[0] || ""} 
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="h-9 appearance-none bg-card border border-border text-foreground font-medium text-sm py-1.5 pl-4 pr-10 rounded-full shadow-sm outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none font-sans"
+              aria-label="Sélectionner le mois"
+            >
+              {availableMonths.map(m => (
+                <option key={m} value={m}>{formatMonthLabel(m)}</option>
+              ))}
+            </select>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+              <ChevronDown size={14} className="text-neutral-400" />
+            </div>
           </div>
-        </div>
+          
+          <button
+            type="button"
+            onClick={() => setShowCalendarModal(true)}
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-card border border-border text-foreground transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 cursor-pointer"
+            title="Vue annuelle"
+            aria-label="Vue annuelle"
+          >
+            <CalendarDays size={16} />
+          </button>
+        </PageHeader>
       )}
 
       {activeTab === "transactions" ? (
@@ -1888,21 +1880,21 @@ export function Dashboard({
       ) : (
         <>
           {/* Top Stats Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4 lg:gap-4 xl:gap-5 mb-3.5 sm:mb-4 lg:mb-4 xl:mb-5 shrink-0">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 shrink-0">
         {[
           { 
             label: isAllTime ? "Moyenne gagnée" : "Revenus & Entrées", 
             value: isAllTime ? `${(income / monthsCount).toFixed(2)} € / mois` : `${income.toFixed(2)} €`, 
             change: isAllTime ? "Revenu net moyen par mois" : (autoAppliedInfo || "Total crédité"), 
             pos: true, 
-            actionIcon: <ArrowDownLeft size={16} /> 
+            actionIcon: <ArrowDownLeft size={14} /> 
           },
           { 
             label: isAllTime ? "Moyenne dépensée" : "Dépenses", 
             value: isAllTime ? `${(expenses / monthsCount).toFixed(2)} € / mois` : `${expenses.toFixed(2)} €`, 
             change: isAllTime ? "Train de vie mensuel lissé" : "Total débité net", 
             pos: false, 
-            actionIcon: <ArrowUpRight size={16} /> 
+            actionIcon: <ArrowUpRight size={14} /> 
           },
           { 
             label: isAllTime ? "Total épargné" : "Épargne nette", 
@@ -1915,7 +1907,7 @@ export function Dashboard({
               ? "Épargne nette cumulée sur la période" 
               : (balance >= 0 ? "Mis de côté" : "Déficit net sur le mois"), 
             pos: balance >= 0,
-            actionIcon: <Wallet size={16} />,
+            actionIcon: <Wallet size={14} />,
             gauge: (() => {
               const savingsRate = income > 0 ? Math.max(0, Math.min(100, Math.round((balance / income) * 100))) : 0;
               return { rate: savingsRate };
@@ -1927,7 +1919,7 @@ export function Dashboard({
             change: isAllTime ? "Coût estimé sur une année complète" : `${activeSubscriptions.length} abonnement${activeSubscriptions.length > 1 ? 's' : ''} identifié${activeSubscriptions.length > 1 ? 's' : ''}`, 
             pos: true, 
             icon: null, 
-            actionIcon: <Repeat size={16} /> 
+            actionIcon: <Repeat size={14} /> 
           },
         ].map((stat, i) => {
           const isSubsCard = i === 3;
@@ -1937,34 +1929,34 @@ export function Dashboard({
             return (
               <div key={i} className="h-full">
                 <Card className="h-full flex flex-col justify-between transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
-                  <div className="flex justify-between items-start mb-2 sm:mb-4">
-                    <span className="text-xs sm:text-sm font-medium text-neutral-400 transition-colors font-sans">
+                  <div className="flex justify-between items-start mb-1 sm:mb-2">
+                    <span className="text-xs sm:text-sm font-medium text-neutral-400 transition-colors font-sans truncate">
                       {stat.label}
                     </span>
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 transition-all">
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 transition-all">
                         {stat.actionIcon}
                       </div>
                     </div>
                   </div>
                   <div className="flex flex-col">
-                    <div className="text-2xl sm:text-3xl xl:text-4xl font-semibold mb-1 sm:mb-2 tracking-tight text-foreground tabular-nums font-sans">
+                    <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-foreground tabular-nums font-sans">
                       {stat.value}
                     </div>
                     <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium w-full">
-                      <div className="flex items-center">
+                      <div className="flex items-center truncate">
                         {stat.icon}
-                        <span className={stat.pos ? "text-neutral-400" : "text-neutral-500"}>{stat.change}</span>
+                        <span className={clsx("truncate", stat.pos ? "text-neutral-400" : "text-neutral-500")}>{stat.change}</span>
                       </div>
                       {stat.gauge && stat.gauge.rate > 0 && (
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-10 h-1 bg-black/5 dark:bg-white/[0.08] rounded-full overflow-hidden">
+                        <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
+                          <div className="w-8 sm:w-10 h-1 bg-black/5 dark:bg-white/[0.08] rounded-full overflow-hidden">
                             <div 
                               className="h-full bg-emerald-500 dark:bg-emerald-400 rounded-full transition-all duration-500 ease-out" 
                               style={{ width: `${stat.gauge.rate}%` }} 
                             />
                           </div>
-                          <span className="font-sans font-medium tabular-nums text-emerald-600 dark:text-emerald-400 text-[11px]">
+                          <span className="font-sans font-medium tabular-nums text-emerald-600 dark:text-emerald-400 text-[10px] sm:text-[11px]">
                             {stat.gauge.rate}%
                           </span>
                         </div>
@@ -1987,20 +1979,20 @@ export function Dashboard({
                   setShowTransactionsDrawer(true);
                 }}
               >
-                <div className="flex justify-between items-start mb-2 sm:mb-4">
-                  <span className="text-xs sm:text-sm font-medium text-neutral-400 group-hover:text-foreground transition-colors font-sans">
+                <div className="flex justify-between items-start mb-1 sm:mb-2">
+                  <span className="text-xs sm:text-sm font-medium text-neutral-400 group-hover:text-foreground transition-colors font-sans truncate">
                     {stat.label}
                   </span>
-                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 group-hover:border-black/20 dark:group-hover:border-white/20 group-hover:text-foreground transition-all">
+                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 group-hover:border-black/20 dark:group-hover:border-white/20 group-hover:text-foreground transition-all shrink-0 ml-2">
                     {stat.actionIcon}
                   </div>
                 </div>
                 <div className="flex flex-col">
-                  <div className="text-2xl sm:text-3xl xl:text-4xl font-semibold mb-1 sm:mb-2 tracking-tight text-foreground tabular-nums font-sans">
+                  <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-foreground tabular-nums font-sans">
                     {stat.value}
                   </div>
                   <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium w-full">
-                    <span className="text-neutral-400 font-sans">
+                    <span className="text-neutral-400 font-sans truncate">
                       {stat.change}
                     </span>
                   </div>
@@ -2012,138 +2004,136 @@ export function Dashboard({
       </div>
 
       {/* Main Content Area */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5 sm:gap-4 lg:gap-4 xl:gap-5 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0 items-stretch">
         
-        {/* Col 1: Main Chart */}
-        <Card className="flex flex-col h-full min-h-[300px] lg:min-h-0">
-          <div className="flex justify-between items-start mb-3 sm:mb-4 shrink-0">
-            <div>
-              <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Évolution des dépenses</h3>
-              <div className="text-xs text-neutral-400 mt-0.5 font-sans">
-                {isAllTime ? "Total cumulé toutes périodes" : "Dépensés sur le mois"}
+        {/* Col 1: Main Chart (col-span-4) */}
+        <div className="col-span-1 lg:col-span-4 h-full flex flex-col min-h-0 overflow-hidden">
+          <Card className="h-full flex flex-col overflow-hidden">
+            <div className="flex justify-between items-start mb-2 sm:mb-2.5 shrink-0">
+              <div>
+                <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Évolution des dépenses</h3>
+              </div>
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+                <Activity size={15} />
               </div>
             </div>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
-              <Activity size={16} />
+            
+            <div className="flex items-baseline gap-2 mb-2 shrink-0">
+              <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums font-sans">{expenses.toFixed(2)} €</div>
             </div>
-          </div>
-          
-          <div className="flex items-baseline gap-2 mb-2 shrink-0">
-            <div className="text-2xl sm:text-3xl font-bold text-foreground tabular-nums font-sans">{expenses.toFixed(2)} €</div>
-          </div>
-          
-          <div className="flex-1 w-full min-h-0 bg-transparent flex flex-col">
-            {expensesTimeline.length === 0 || expenses === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-neutral-400">
-                <Activity size={32} className="stroke-1 text-neutral-400/40 mb-3" />
-                <p className="text-sm font-medium text-foreground font-sans">Aucune dépense sur cette période</p>
-                <p className="text-xs text-neutral-500 mt-0.5 font-sans">Les débits apparaîtront au fil de tes opérations</p>
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%" className="bg-transparent">
-                {isAllTime ? (
-                  <BarChart data={expensesTimeline} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
-                    <XAxis 
-                      dataKey="day" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-space-grotesk)' }} 
-                      dy={10} 
-                    />
-                    <Tooltip 
-                      content={<CustomTooltip />}
-                      cursor={{ fill: 'var(--foreground)', opacity: 0.04 }}
-                    />
-                    <ReferenceLine 
-                      y={expenses / monthsCount} 
-                      stroke="#A1A1AA" 
-                      strokeDasharray="3 3" 
-                      strokeOpacity={0.4} 
-                    />
-                    <Bar 
-                      dataKey="amount" 
-                      fill="#ffffff" 
-                      fillOpacity={0.8} 
-                      radius={[4, 4, 0, 0]}
-                      maxBarSize={48}
-                      className="cursor-pointer transition-opacity hover:opacity-100"
-                      onClick={(data: any) => {
-                        if (data && data.rawMonth) {
-                          setSelectedMonth(data.rawMonth);
-                        }
-                      }}
-                    />
-                  </BarChart>
-                ) : (
-                  <AreaChart data={expensesTimeline} margin={{ top: 10, right: 10, left: 10, bottom: 6 }}>
-                    <defs>
-                      <linearGradient id="teaserGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#ffffff" stopOpacity={0.15}/>
-                        <stop offset="100%" stopColor="#ffffff" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} fill="none" stroke="var(--border)" strokeOpacity={0.5} />
-                    <XAxis 
-                      dataKey="day" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-space-grotesk)' }} 
-                      dy={10} 
-                      fill="none"
-                      ticks={['01', '05', '10', '15', '20', '25', '30']}
-                    />
-                    <Tooltip 
-                      content={<CustomTooltip />}
-                      cursor={{ stroke: '#ffffff', strokeWidth: 1, strokeDasharray: '3 3', strokeOpacity: 0.3, fill: 'none' }}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="cumulative" 
-                      stroke="#ffffff" 
-                      strokeWidth={2} 
-                      fillOpacity={1} 
-                      fill="url(#teaserGradient)"
-                      activeDot={{ r: 4, strokeWidth: 0, fill: "#ffffff" }}
-                    />
-                  </AreaChart>
-                )}
-              </ResponsiveContainer>
-            )}
-          </div>
-        </Card>
+            
+            <div className="flex-1 w-full min-h-0 bg-transparent flex flex-col">
+              {expensesTimeline.length === 0 || expenses === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-neutral-400">
+                  <Activity size={32} className="stroke-1 text-neutral-400/40 mb-3" />
+                  <p className="text-sm font-medium text-foreground font-sans">Aucune dépense sur cette période</p>
+                  <p className="text-xs text-neutral-500 mt-0.5 font-sans">Les débits apparaîtront au fil de tes opérations</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%" className="bg-transparent">
+                  {isAllTime ? (
+                    <BarChart data={expensesTimeline} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                      <XAxis 
+                        dataKey="day" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-space-grotesk)' }} 
+                        dy={10} 
+                      />
+                      <Tooltip 
+                        content={<CustomTooltip />}
+                        cursor={{ fill: 'var(--foreground)', opacity: 0.04 }}
+                      />
+                      <ReferenceLine 
+                        y={expenses / monthsCount} 
+                        stroke="#A1A1AA" 
+                        strokeDasharray="3 3" 
+                        strokeOpacity={0.4} 
+                      />
+                      <Bar 
+                        dataKey="amount" 
+                        fill="#ffffff" 
+                        fillOpacity={0.8} 
+                        radius={[4, 4, 0, 0]}
+                        maxBarSize={48}
+                        className="cursor-pointer transition-opacity hover:opacity-100"
+                        onClick={(data: any) => {
+                          if (data && data.rawMonth) {
+                            setSelectedMonth(data.rawMonth);
+                          }
+                        }}
+                      />
+                    </BarChart>
+                  ) : (
+                    <AreaChart data={expensesTimeline} margin={{ top: 10, right: 10, left: 10, bottom: 6 }}>
+                      <defs>
+                        <linearGradient id="teaserGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#ffffff" stopOpacity={0.15}/>
+                          <stop offset="100%" stopColor="#ffffff" stopOpacity={0.15}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} fill="none" stroke="var(--border)" strokeOpacity={0.5} />
+                      <XAxis 
+                        dataKey="day" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-space-grotesk)' }} 
+                        dy={10} 
+                        fill="none"
+                        ticks={['01', '05', '10', '15', '20', '25', '30']}
+                      />
+                      <Tooltip 
+                        content={<CustomTooltip />}
+                        cursor={{ stroke: '#ffffff', strokeWidth: 1, strokeDasharray: '3 3', strokeOpacity: 0.3, fill: 'none' }}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="cumulative" 
+                        stroke="#ffffff" 
+                        strokeWidth={2} 
+                        fillOpacity={1} 
+                        fill="url(#teaserGradient)"
+                        activeDot={{ r: 4, strokeWidth: 0, fill: "#ffffff" }}
+                      />
+                    </AreaChart>
+                  )}
+                </ResponsiveContainer>
+              )}
+            </div>
+          </Card>
+        </div>
 
-        {/* Col 2: Répartition, 2 Bannières & Votre carte */}
-        <div className="flex flex-col gap-3.5 sm:gap-4 lg:gap-4 xl:gap-5 lg:col-span-1 h-full min-h-0">
-          <Card className="flex flex-col flex-1 min-h-0 justify-between">
-            <div className="flex justify-between items-start shrink-0">
+        {/* Col 2: Répartition & 2 Bannières équilibrées (col-span-4) */}
+        <div className="col-span-1 lg:col-span-4 h-full flex flex-col justify-between gap-4 min-h-0">
+          <Card className="flex flex-col flex-1 min-h-0 overflow-hidden justify-between">
+            <div className="flex justify-between items-start shrink-0 mb-1 sm:mb-2">
               <div>
                 <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Répartition</h3>
-                <div className="text-xs text-neutral-400 mt-0.5 font-sans">Top 5 de tes dépenses</div>
               </div>
-              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
-                <PieChartIcon size={16} />
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+                <PieChartIcon size={15} />
               </div>
             </div>
             
             {categoryData.length === 0 ? (
-              <div className="py-12 flex flex-col items-center justify-center text-center text-neutral-400 mt-4">
-                <div className="w-10 h-10 rounded-full bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-3 text-neutral-400">
-                  <PieChartIcon size={18} />
+              <div className="flex-1 flex flex-col items-center justify-center text-center text-neutral-400">
+                <div className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-2 text-neutral-400">
+                  <PieChartIcon size={16} />
                 </div>
-                <p className="text-sm font-medium text-foreground font-sans">Aucune dépense catégorisée</p>
-                <p className="text-xs text-neutral-500 mt-0.5 font-sans">Les débits classés s'afficheront ici</p>
+                <p className="text-xs font-medium text-foreground font-sans">Aucune dépense catégorisée</p>
+                <p className="text-[11px] text-neutral-500 mt-0.5 font-sans">Les débits classés s'afficheront ici</p>
               </div>
             ) : (
-              <div className="flex-1 min-h-0 flex flex-col sm:flex-row items-center gap-4 sm:gap-5 xl:gap-6 mt-3 sm:mt-4 my-auto">
-                {/* Donut nettement agrandi en diamètre, anneau fin, précis et élégant */}
-                <div className="relative w-44 h-44 sm:w-48 sm:h-48 lg:w-48 lg:h-48 xl:w-52 xl:h-52 shrink-0 flex items-center justify-center mx-auto sm:mx-0">
+              <div className="flex-1 min-h-0 flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-7 lg:gap-5 xl:gap-8 2xl:gap-12 px-2 sm:px-3 py-2">
+                {/* Donut à gauche avec mise à l'échelle proportionnelle sur grand écran (27") */}
+                <div className="relative w-36 h-36 sm:w-40 sm:h-40 lg:w-36 lg:h-36 xl:w-44 xl:h-44 2xl:w-60 2xl:h-60 2xl:min-w-[240px] shrink-0 flex items-center justify-center mx-auto sm:mx-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
                         data={[{ value: 1 }]}
                         cx="50%" cy="50%"
-                        innerRadius="88%"
-                        outerRadius="97%"
+                        innerRadius="70%"
+                        outerRadius="92%"
                         stroke="none"
                         fill="var(--pie-track)"
                         isAnimationActive={false}
@@ -2152,12 +2142,12 @@ export function Dashboard({
                         data={categoryData}
                         cx="50%"
                         cy="50%"
-                        innerRadius="88%"
-                        outerRadius="97%"
-                        paddingAngle={2.5}
+                        innerRadius="70%"
+                        outerRadius="92%"
+                        paddingAngle={3}
                         dataKey="value"
                         stroke="none"
-                        cornerRadius={2}
+                        cornerRadius={3}
                       >
                         {categoryData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[entry.name]?.ring || CATEGORY_COLORS["Autre"].ring} />
@@ -2171,44 +2161,39 @@ export function Dashboard({
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none text-center">
-                    <span className="text-[10px] sm:text-[11px] font-semibold text-neutral-400 uppercase tracking-widest mb-0.5 font-sans">{isAllTime ? "MOYENNE" : "DÉPENSÉ"}</span>
-                    <span className="font-bold text-xl sm:text-2xl xl:text-3xl tracking-tight text-foreground tabular-nums font-sans">{isAllTime ? (expenses / monthsCount).toFixed(0) : expenses.toFixed(0)} €</span>
+                    <span className="text-[10px] sm:text-[11px] 2xl:text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1 leading-none font-sans">
+                      {isAllTime ? "MOYENNE" : "DÉPENSÉ"}
+                    </span>
+                    <span className="font-bold text-xl sm:text-2xl xl:text-3xl 2xl:text-4xl tracking-tight text-foreground tabular-nums font-sans leading-none">
+                      {isAllTime ? (expenses / monthsCount).toFixed(0) : expenses.toFixed(0)} €
+                    </span>
                   </div>
                 </div>
 
-                {/* Ventilation des catégories à droite */}
-                <div className="flex-1 w-full flex flex-col justify-center gap-2.5 sm:gap-3 xl:gap-3.5 min-w-0">
-                  {categoryData.map((cat, i) => {
+                {/* Légende regroupée de manière cohérente, sans étirement excessif */}
+                <div className="flex-1 w-full flex flex-col justify-center gap-2.5 sm:gap-3 xl:gap-3.5 2xl:gap-4.5 min-w-0">
+                  {categoryData.slice(0, 4).map((cat, i) => {
                     const budget = categoryBudgets[cat.name];
                     const hasBudget = budget && budget > 0;
                     const isExceeded = hasBudget && cat.value > budget;
-                    const progress = hasBudget ? Math.min(100, (cat.value / budget) * 100) : (cat.value / cat.max) * 100;
                     
                     return (
-                      <div key={i} className="flex flex-col gap-1">
-                        <div className="flex justify-between items-center text-xs">
-                          <div className="flex items-center min-w-0 mr-2">
-                            <div className={`w-2 h-2 rounded-full mr-2 shrink-0 ${CATEGORY_COLORS[cat.name]?.dot || CATEGORY_COLORS["Autre"].dot}`} />
-                            <span className="font-medium text-foreground truncate font-sans text-xs" title={cat.name}>{cat.name}</span>
+                      <div key={i} className="flex items-start gap-3 min-w-0">
+                        <div className={`w-2.5 h-2.5 2xl:w-3 2xl:h-3 rounded-full mt-1 shrink-0 ${CATEGORY_COLORS[cat.name]?.dot || CATEGORY_COLORS["Autre"].dot}`} />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-foreground truncate font-sans text-xs sm:text-sm 2xl:text-[15px] leading-tight" title={cat.name}>
+                            {cat.name}
                           </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="font-semibold text-foreground tabular-nums text-xs sm:text-sm 2xl:text-[15px] font-sans" title={hasBudget && !isExceeded ? `Reste ${(budget - cat.value).toFixed(2)} €` : undefined}>
+                              {hasBudget ? `${cat.value.toFixed(0)} € / ${budget} €` : (isAllTime ? `~${cat.value.toFixed(0)} € / mois` : `${cat.value.toFixed(0)} €`)}
+                            </span>
                             {isExceeded && (
-                              <span className="text-[9px] uppercase font-bold text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded-sm tabular-nums font-sans">
+                              <span className="text-[9px] 2xl:text-[10px] uppercase font-bold text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded-sm tabular-nums font-sans">
                                 +{(cat.value - budget).toFixed(0)} €
                               </span>
                             )}
-                            <span className="font-semibold text-foreground tabular-nums text-xs font-sans" title={hasBudget && !isExceeded ? `Reste ${(budget - cat.value).toFixed(2)} €` : undefined}>
-                              {hasBudget ? `${cat.value.toFixed(0)} € / ${budget} €` : (isAllTime ? `~${cat.value.toFixed(0)} € / mois` : `${cat.value.toFixed(0)} €`)}
-                            </span>
                           </div>
-                        </div>
-                        <div className="h-1.5 w-full bg-neutral-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${progress}%` }}
-                            transition={{ type: "spring", stiffness: 100, damping: 20, delay: i * 0.1 }}
-                            className={`h-full rounded-full ${isExceeded ? "bg-rose-500/80" : (CATEGORY_COLORS[cat.name]?.fill || CATEGORY_COLORS["Autre"].fill)}`}
-                          />
                         </div>
                       </div>
                     );
@@ -2218,7 +2203,7 @@ export function Dashboard({
             )}
           </Card>
 
-          {/* Les 2 bannières compactes */}
+          {/* Les 2 bannières compactes de taille strictement identique */}
           <MonthlyLimitCard 
             expenses={expenses}
             categoryBudgets={categoryBudgets}
@@ -2227,7 +2212,7 @@ export function Dashboard({
               setSettingsTab("budgets");
               setShowSettingsModal(true);
             }}
-            className="shrink-0"
+            className="h-[105px] sm:h-[110px] xl:h-[115px] shrink-0"
           />
           <RealDisposableIncomeCard 
             income={income}
@@ -2239,57 +2224,42 @@ export function Dashboard({
               setSettingsTab("fixed");
               setShowSettingsModal(true);
             }}
-            className="shrink-0"
-          />
-
-          {/* Nouvelle carte compacte Votre carte (Design system unifié & support visuel PNG) */}
-          <PaymentCardBanner 
-            onOpenSettings={() => {
-              setSettingsTab("card");
-              setShowSettingsModal(true);
-            }}
-            className="shrink-0" 
+            className="h-[105px] sm:h-[110px] xl:h-[115px] shrink-0"
           />
         </div>
 
-        {/* Col 3: Top Merchants & Spending Cadence */}
-        <div className="flex flex-col gap-3.5 sm:gap-4 lg:gap-4 xl:gap-5 lg:col-span-1 h-full min-h-0">
-          {/* Carte 1: Top Commerçants (compacte) */}
+        {/* Col 3: Top Merchants & Spending Cadence (col-span-4) */}
+        <div className="col-span-1 lg:col-span-4 h-full flex flex-col justify-between gap-4 min-h-0">
+          {/* Carte 1: Top Commerçants (design harmonisé sur la modale Toutes les opérations) */}
           <Card className="flex flex-col relative overflow-hidden shrink-0">
-            <div className="flex justify-between items-start shrink-0">
+            <div className="flex justify-between items-start shrink-0 mb-2">
               <div>
                 <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Top Commerçants</h3>
-                <div className="text-xs text-neutral-400 mt-0.5 font-sans">
-                  {isAllTime ? "Enseignes les plus sollicitées" : "Principaux débits du mois"}
-                </div>
               </div>
               <div 
                 className="flex items-center shrink-0 cursor-pointer group active:scale-95 transition-transform"
                 onClick={() => setShowTransactionsDrawer(true)}
               >
-                <span className="text-xs font-medium text-neutral-400 group-hover:text-white transition-colors mr-2.5 font-sans">
+                <span className="text-xs font-medium text-neutral-400 group-hover:text-white transition-colors mr-2 font-sans">
                   Voir tout
                 </span>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0 group-hover:border-black/20 dark:group-hover:border-white/[0.15] transition-colors">
-                  <ShoppingBag size={16} />
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0 group-hover:border-black/20 dark:group-hover:border-white/[0.15] transition-colors">
+                  <ShoppingBag size={14} />
                 </div>
               </div>
             </div>
 
             {topMerchants.length === 0 ? (
-              <div className="py-12 flex flex-col items-center justify-center text-center text-neutral-400 mt-4">
-                <div className="w-10 h-10 rounded-full bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-3 text-neutral-400">
-                  <ShoppingBag size={18} />
+              <div className="py-4 flex flex-col items-center justify-center text-center text-neutral-400">
+                <div className="w-7 h-7 rounded-full bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-1 text-neutral-400">
+                  <ShoppingBag size={14} />
                 </div>
-                <p className="text-sm font-medium text-foreground font-sans">Aucun débit marchand</p>
-                <p className="text-xs text-neutral-500 mt-0.5 font-sans">Tes dépenses par enseigne apparaîtront ici</p>
+                <p className="text-xs font-medium text-foreground font-sans">Aucun débit marchand</p>
+                <p className="text-[10px] text-neutral-500 mt-0.5 font-sans">Tes dépenses par enseigne apparaîtront ici</p>
               </div>
             ) : (
-              <div className="flex flex-col gap-2 sm:gap-2.5 mt-4">
+              <div className="flex flex-col divide-y divide-black/[0.04] dark:divide-white/[0.04]">
                 {topMerchants.slice(0, 4).map((merchant) => {
-                  const maxSpent = topMerchants[0]?.total || 1;
-                  const progressRatio = Math.max(6, Math.min(100, (merchant.total / maxSpent) * 100));
-
                   return (
                     <div
                       key={merchant.name}
@@ -2298,33 +2268,28 @@ export function Dashboard({
                         setDrawerSearch(merchant.name);
                         setShowTransactionsDrawer(true);
                       }}
-                      className="relative overflow-hidden flex items-center justify-between rounded-xl px-3 sm:px-3.5 py-2 sm:py-2.5 bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/[0.05] dark:hover:bg-white/[0.05] border border-black/[0.05] dark:border-white/[0.04] hover:border-black/20 dark:hover:border-white/15 transition-all cursor-pointer group active:scale-[0.99] select-none"
+                      className="flex items-center justify-between py-3 sm:py-3.5 px-2 rounded-xl hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors cursor-pointer group active:scale-[0.99] select-none"
                       title={`Voir toutes les opérations de ${merchant.name}`}
                     >
-                      {/* Ligne de progression discrète en arrière-plan proportionnelle au 1er marchand */}
-                      <div
-                        className="absolute inset-y-0 left-0 bg-black/[0.03] dark:bg-white/[0.04] group-hover:bg-black/[0.05] dark:group-hover:bg-white/[0.06] pointer-events-none transition-all duration-500 ease-out"
-                        style={{ width: `${progressRatio}%` }}
-                      />
-
-                      <div className="relative z-10 flex items-center justify-between gap-3 w-full">
-                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                          <div className="w-8 h-8 xl:w-9 xl:h-9 rounded-full bg-white dark:bg-neutral-800/80 border border-black/5 dark:border-white/[0.08] shadow-sm flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                            <CategoryIcon type={merchant.category} />
+                      <div className="flex items-center gap-3 min-w-0 max-w-[55%]">
+                        <div className="w-9 h-9 rounded-full bg-neutral-100 dark:bg-white/[0.06] border border-black/5 dark:border-white/[0.06] flex items-center justify-center shrink-0">
+                          <CategoryIcon type={merchant.category} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-sm text-foreground truncate font-sans" title={merchant.name}>
+                            {merchant.name}
                           </div>
-                          <div className="min-w-0">
-                            <div className="font-semibold text-xs sm:text-sm text-foreground truncate font-sans group-hover:text-foreground" title={merchant.name}>
-                              {merchant.name}
-                            </div>
-                            <div className="text-[11px] xl:text-xs text-neutral-500 truncate font-sans">
-                              {merchant.count} passage{merchant.count > 1 ? "s" : ""} {isAllTime ? "au total" : "ce mois-ci"}
-                            </div>
+                          <div className="text-xs text-neutral-500 truncate font-sans mt-0.5">
+                            {merchant.count} passage{merchant.count > 1 ? "s" : ""} {isAllTime ? "au total" : "ce mois-ci"}
                           </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <div className="font-bold text-xs sm:text-sm xl:text-base text-foreground tabular-nums font-sans">
-                            {merchant.total.toFixed(2)} €
-                          </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-medium tabular-nums text-sm text-foreground font-sans">
+                          {merchant.total.toFixed(2)} €
+                        </div>
+                        <div className="text-xs text-neutral-500 mt-0.5 font-sans">
+                          {isAllTime ? "total débité" : "ce mois-ci"}
                         </div>
                       </div>
                     </div>
@@ -2334,53 +2299,52 @@ export function Dashboard({
             )}
           </Card>
 
-          {/* Carte 2: Rythme de dépense (Style Apple Health / Linear) */}
-          <Card className="flex flex-col flex-1 min-h-[170px] xl:min-h-[200px] relative overflow-hidden justify-between">
-            <div className="flex justify-between items-start shrink-0">
+          {/* Carte 2: Rythme de dépense (Barres dynamiques utilisant toute la hauteur disponible) */}
+          <Card className="flex-1 min-h-0 flex flex-col relative overflow-hidden justify-between">
+            <div className="flex justify-between items-start shrink-0 mb-1">
               <div>
                 <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Rythme de dépense</h3>
-                <div className="text-xs text-neutral-400 mt-0.5 font-sans">Décomposition hebdomadaire du mois</div>
               </div>
-              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
-                <Activity size={16} />
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+                <Activity size={15} />
               </div>
             </div>
 
             {/* Moyenne quotidienne réelle & pic éventuel */}
-            <div className="flex items-baseline justify-between mt-3 mb-2 shrink-0">
+            <div className="flex items-baseline justify-between mb-2 shrink-0">
               <div className="flex items-baseline">
-                <span className="text-xl sm:text-2xl font-bold tabular-nums text-foreground font-sans">
+                <span className="text-sm sm:text-base font-bold tabular-nums text-foreground font-sans">
                   {spendingCadence.pastDailyAverage.toFixed(2)} €
                 </span>
-                <span className="text-xs text-neutral-400 font-normal ml-2 font-sans">
+                <span className="text-[11px] text-neutral-400 font-normal ml-1.5 font-sans">
                   / jour en moy.
                 </span>
               </div>
               {spendingCadence.weeks.some(w => w.isPeak) && (
-                <div className="inline-flex items-center text-[11px] text-neutral-300 font-medium tabular-nums font-sans bg-black/5 dark:bg-white/[0.04] px-2.5 py-0.5 rounded-full border border-black/10 dark:border-white/[0.06]">
+                <div className="inline-flex items-center text-[9px] text-neutral-300 font-medium tabular-nums font-sans bg-black/5 dark:bg-white/[0.04] px-2 py-0.5 rounded-full border border-black/10 dark:border-white/[0.06]">
                   Pic S{spendingCadence.weeks.find(w => w.isPeak)?.label.replace('S', '')} · {spendingCadence.weeks.find(w => w.isPeak)?.amount.toFixed(0)} €
                 </div>
               )}
             </div>
 
-            {/* Visualiseur vertical 4 colonnes Apple Health / Linear */}
-            <div className="flex-1 min-h-[120px] grid grid-cols-4 gap-2 sm:gap-3 pt-2 pb-0.5 items-stretch w-full">
+            {/* Visualiseur vertical 4 colonnes dynamique */}
+            <div className="flex-1 min-h-[90px] w-full grid grid-cols-4 gap-2 pt-1 pb-1 items-stretch">
               {spendingCadence.weeks.map((week) => (
-                <div key={week.id} className="flex flex-col items-center justify-between h-full group select-none">
+                <div key={week.id} className="flex flex-col items-center justify-between h-full min-h-0 group select-none">
                   {/* Montant lisible en en-tête de colonne */}
-                  <div className="text-[11px] sm:text-xs font-semibold tabular-nums text-neutral-400 group-hover:text-foreground transition-colors font-sans mb-1.5 shrink-0">
+                  <div className="text-[10px] sm:text-[11px] font-semibold tabular-nums text-neutral-400 group-hover:text-foreground transition-colors font-sans mb-1 shrink-0">
                     {week.amount > 0 ? `${week.amount.toFixed(0)} €` : "0 €"}
                   </div>
 
-                  {/* Rail vertical large style Apple Health */}
-                  <div className="w-full flex-1 min-h-[70px] bg-black/5 dark:bg-white/[0.04] rounded-xl sm:rounded-2xl p-1 relative flex flex-col justify-end overflow-hidden border border-black/[0.04] dark:border-white/[0.05] group-hover:border-black/15 dark:group-hover:border-white/15 transition-all">
-                    {/* Colonne de remplissage de bas en haut */}
+                  {/* Rail vertical occupant dynamiquement 100% de la hauteur disponible dans la colonne */}
+                  <div className="w-full flex-1 min-h-[44px] bg-black/5 dark:bg-white/[0.04] rounded-xl p-1 relative flex flex-col justify-end overflow-hidden border border-black/[0.04] dark:border-white/[0.05] group-hover:border-black/15 dark:group-hover:border-white/15 transition-all">
+                    {/* Colonne de remplissage de bas en haut proportionnelle */}
                     <motion.div
                       initial={{ height: 0 }}
-                      animate={{ height: `${Math.max(week.amount > 0 ? 8 : 0, Math.min(100, week.pct))}%` }}
+                      animate={{ height: `${Math.max(week.amount > 0 ? 12 : 0, Math.min(100, week.pct))}%` }}
                       transition={{ type: "spring", stiffness: 85, damping: 18 }}
                       className={clsx(
-                        "w-full rounded-lg sm:rounded-xl transition-all duration-300",
+                        "w-full rounded-lg transition-all duration-300",
                         week.isPeak
                           ? "bg-foreground shadow-[0_0_14px_rgba(255,255,255,0.25)]"
                           : week.amount > 0
@@ -2391,7 +2355,7 @@ export function Dashboard({
                   </div>
 
                   {/* Label discret en bas */}
-                  <div className="text-xs font-semibold text-neutral-400 group-hover:text-foreground transition-colors font-sans mt-2 shrink-0">
+                  <div className="text-[11px] font-semibold text-neutral-400 group-hover:text-foreground transition-colors font-sans mt-1 shrink-0">
                     {week.label}
                   </div>
                 </div>

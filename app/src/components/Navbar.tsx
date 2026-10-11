@@ -142,7 +142,7 @@ export function Navbar({
 
   return (
     <header className={clsx(
-      "fixed top-4 sm:top-[40px] left-0 right-0 z-40 flex items-center justify-between h-14 sm:h-16 w-full px-4 sm:px-[40px] transition-all duration-700",
+      "w-full shrink-0 mb-3 sm:mb-4 lg:mb-4 flex items-center justify-between h-11 lg:h-12 transition-all duration-700",
       isBlurred && "blur-[6px] opacity-25 pointer-events-none select-none"
     )}>
       {/* Logo */}
