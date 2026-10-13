@@ -63,7 +63,7 @@ export const CATEGORY_COLORS: Record<string, { ring: string; fill: string; dot: 
 };
 
 export const formatMonthLabel = (yyyyMM: string) => {
-  if (!yyyyMM || yyyyMM === "Tout" || yyyyMM === "all") return "Mois sélectionné";
+  if (!yyyyMM || yyyyMM === "Tout" || yyyyMM === "all") return "Aucun relevé";
   if (yyyyMM === "demo-month") return "Octobre 2026";
   const [yyyy, mm] = yyyyMM.split("-");
   if (!yyyy || !mm) return yyyyMM;

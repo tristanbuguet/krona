@@ -72,47 +72,44 @@ export function MonthlyLimitCard({
 
   return (
     <div className={clsx(
-      "bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col justify-between p-3.5 sm:p-4 transition-all duration-200 overflow-hidden",
+      "bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col justify-between p-3 sm:p-3.5 xl:p-4 transition-all duration-200 overflow-hidden",
       className
     )}>
-      {/* En-tête : Titre et action crayon strictement harmonisés avec les standards du site */}
-      <div className="flex justify-between items-center shrink-0">
-        <div className="min-w-0 pr-2">
-          <h3 className="text-base font-semibold tracking-tight text-foreground font-sans truncate">
-            Plafond mensuel
-          </h3>
-        </div>
+      {/* En-tête : Titre à gauche, bouton pastille d'action à droite (identique au gabarit KPI) */}
+      <div className="flex justify-between items-start shrink-0">
+        <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
+          Plafond mensuel
+        </span>
 
-        {/* Action discrète aux dimensions standard (w-7 h-7 sm:w-8 sm:h-8) */}
-        <div className="shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0 ml-2">
           {isEditing ? (
             <button
               type="button"
               onClick={handleSaveEdit}
-              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black text-white dark:bg-white dark:text-black transition-transform active:scale-95 cursor-pointer shadow-sm"
+              className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-foreground text-background transition-transform active:scale-95 cursor-pointer shadow-sm"
               title="Valider"
               aria-label="Valider le montant"
             >
-              <Check size={14} strokeWidth={2.5} />
+              <Check size={13} strokeWidth={2.5} />
             </button>
           ) : (
             <button
               type="button"
               onClick={handleStartEdit}
-              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 hover:text-foreground dark:hover:text-white hover:border-black/20 dark:hover:border-white/[0.15] transition-all active:scale-95 cursor-pointer"
+              className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 hover:text-foreground dark:hover:text-white hover:border-black/20 dark:hover:border-white/[0.15] transition-all active:scale-95 cursor-pointer"
               title="Ajuster le plafond"
               aria-label="Ajuster le plafond"
             >
-              <Pencil size={14} strokeWidth={2} />
+              <Pencil size={13} strokeWidth={2} />
             </button>
           )}
         </div>
       </div>
 
-      {/* Contenu compact : Métrique & Jauge fine */}
-      <div className="mt-auto pt-1 sm:pt-2">
+      {/* Milieu : Chiffre clé et libellé associé */}
+      <div className="flex flex-col my-auto">
         {isEditing ? (
-          <form onSubmit={handleSaveEdit} className="flex items-center gap-2 mb-1">
+          <form onSubmit={handleSaveEdit} className="flex items-center gap-2 py-0.5">
             <span className="text-xs text-neutral-400 font-sans">Nouveau :</span>
             <div className="relative w-24">
               <input
@@ -126,23 +123,28 @@ export function MonthlyLimitCard({
             </div>
           </form>
         ) : (
-          <div className="flex items-baseline justify-between mb-1">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-base sm:text-lg font-bold tracking-tight tabular-nums text-foreground font-sans">
+          <>
+            <div className="flex items-baseline justify-between gap-2">
+              <div className="text-xl sm:text-2xl xl:text-3xl font-semibold tracking-tight text-foreground tabular-nums font-sans">
                 {spent.toFixed(0)} €
+              </div>
+              <span className={clsx(
+                "text-[10px] sm:text-xs font-medium tabular-nums font-sans",
+                isOverLimit ? "text-rose-500 font-semibold" : "text-neutral-400"
+              )}>
+                {percentage}%
               </span>
-              <span className="text-[11px] text-neutral-400 font-sans">dépensés</span>
             </div>
-            <div className="text-right">
-              <span className="text-[11px] sm:text-xs font-medium text-neutral-400 tabular-nums font-sans">
-                sur {effectiveLimit.toFixed(0)} €
-              </span>
+            <div className="text-[10px] sm:text-xs font-medium text-neutral-400 font-sans truncate mt-0.5">
+              dépensés sur <span className="tabular-nums font-medium text-neutral-300 dark:text-neutral-300">{effectiveLimit.toFixed(0)} €</span>
             </div>
-          </div>
+          </>
         )}
+      </div>
 
-        {/* Jauge horizontale fine style Apple */}
-        <div className="h-1 w-full bg-black/5 dark:bg-white/[0.06] rounded-full overflow-hidden relative">
+      {/* Bas de carte : Barre de progression épaissie (h-2 / h-2.5) ancrée en bas avec marge aérée */}
+      <div className="mt-2 sm:mt-2.5 w-full shrink-0">
+        <div className="h-2 sm:h-2.5 w-full bg-black/5 dark:bg-white/[0.08] rounded-full overflow-hidden relative">
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${Math.min(100, percentage)}%` }}

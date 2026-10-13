@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
+import clsx from "clsx";
 import { 
   TrendingUp, 
   Wallet, 
@@ -38,6 +39,7 @@ import {
   formatAmount 
 } from "@/lib/types";
 import { PageHeader } from "../ui/PageHeader";
+import { Card } from "../ui/Card";
 
 interface TrendsViewProps {
   transactions: Transaction[];
@@ -46,7 +48,7 @@ interface TrendsViewProps {
   onSelectMonth?: (month: string) => void;
 }
 
-type TimeHorizon = "3m" | "6m" | "ytd" | "all";
+type TimeHorizon = "3m" | "6m" | "all";
 
 export function TrendsView({
   transactions,
@@ -70,10 +72,6 @@ export function TrendsView({
     }
     if (horizon === "6m") {
       return allMonthsDesc.slice(0, 6);
-    }
-    if (horizon === "ytd") {
-      const currentYear = allMonthsDesc[0]?.split("-")[0] || new Date().getFullYear().toString();
-      return allMonthsDesc.filter(m => m.startsWith(currentYear));
     }
     return allMonthsDesc;
   }, [allMonthsDesc, horizon]);
@@ -289,34 +287,37 @@ export function TrendsView({
     <div className="flex-1 min-h-0 flex flex-col w-full h-full overflow-hidden">
       {/* Top Header with Time Horizon Selector */}
       <PageHeader title="Tendances">
-        <div className="h-9 flex items-center bg-card border border-border rounded-full p-1 shadow-sm shrink-0">
+        <div className="h-9 flex items-center bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-border rounded-full p-0.5 shadow-sm shrink-0 gap-0.5">
           {[
             { id: "3m", label: "3 derniers mois" },
             { id: "6m", label: "6 derniers mois" },
-            { id: "ytd", label: "Année en cours" },
             { id: "all", label: "Tout l'historique" },
           ].map((tab) => {
             const isActive = horizon === tab.id;
             return (
-              <button
+              <motion.button
                 key={tab.id}
                 type="button"
+                whileTap={{ scale: 0.96 }}
                 onClick={() => setHorizon(tab.id as TimeHorizon)}
-                className={`relative h-full flex items-center px-3 sm:px-3.5 rounded-full text-xs font-medium transition-all cursor-pointer font-sans select-none leading-none focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none ${
+                className={clsx(
+                  "relative h-full flex items-center justify-center px-3 sm:px-3.5 rounded-full text-xs font-medium transition-colors cursor-pointer font-sans select-none leading-none outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
                   isActive
                     ? "text-background font-semibold"
-                    : "text-neutral-400 hover:text-foreground"
-                }`}
+                    : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                )}
               >
                 {isActive && (
                   <motion.div
                     layoutId="trends-horizon-pill"
                     className="absolute inset-0 bg-foreground rounded-full shadow-sm"
-                    transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 38 }}
                   />
                 )}
-                <span className="relative z-10 leading-none">{tab.label}</span>
-              </button>
+                <span className="relative z-10 flex items-center justify-center leading-none">
+                  {tab.label}
+                </span>
+              </motion.button>
             );
           })}
         </div>
@@ -326,90 +327,76 @@ export function TrendsView({
       <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-hidden viewport-fit-scroll no-scrollbar">
         {/* 1. Macro KPIs Header */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
-          {/* KPI 1: Épargne cumulée */}
-          <div className="bg-card border border-border rounded-2xl p-3 sm:p-3.5 xl:p-4 flex flex-col justify-between shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
-            <div className="flex justify-between items-start mb-1 sm:mb-2">
-              <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
-                Épargne totale cumulée
-              </span>
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
-                <Wallet size={14} />
-              </div>
-            </div>
-            <div className="flex flex-col">
-              <div className={`text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight tabular-nums font-sans ${
-                totalSavings >= 0 ? "text-foreground" : "text-rose-500 dark:text-rose-400"
-              }`}>
-                {formatAmount(totalSavings)}
-              </div>
-              <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans truncate">
-                <span>Sur {selectedMonths.length} mois analysés</span>
-                <span className={`tabular-nums ${totalSavings >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                  {totalSavings >= 0 ? "+" : ""}{(totalSavings / Math.max(1, selectedMonths.length)).toFixed(0)} € / mois
+          {[
+            {
+              label: "Épargne totale cumulée",
+              value: (
+                <span className={totalSavings >= 0 ? "text-foreground" : "text-rose-500 dark:text-rose-400"}>
+                  {formatAmount(totalSavings)}
                 </span>
-              </div>
+              ),
+              actionIcon: <Wallet size={14} />,
+              subline: (
+                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans w-full">
+                  <span className="truncate">Sur {selectedMonths.length} mois analysés</span>
+                  <span className={clsx("tabular-nums shrink-0 ml-1.5 font-medium", totalSavings >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                    {totalSavings >= 0 ? "+" : ""}{(totalSavings / Math.max(1, selectedMonths.length)).toFixed(0)} € / mois
+                  </span>
+                </div>
+              ),
+            },
+            {
+              label: "Taux d'épargne moyen",
+              value: `${avgSavingsRate}%`,
+              actionIcon: <TrendingUp size={14} />,
+              subline: (
+                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans w-full">
+                  <span className="truncate">{avgSavingsRate >= 20 ? "Idéal (>20%)" : avgSavingsRate > 0 ? "Positif" : "Déficit"} · Train de vie maîtrisé</span>
+                </div>
+              ),
+            },
+            {
+              label: "Train de vie discrétionnaire",
+              value: `${avgDiscretionaryExpenses.toFixed(2)} €`,
+              actionIcon: <Activity size={14} />,
+              subline: (
+                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans w-full">
+                  <span className="truncate">Hors charges fixes & abonnements</span>
+                </div>
+              ),
+            },
+            {
+              label: "Revenus mensuels moyens",
+              value: `${avgMonthlyIncome.toFixed(2)} €`,
+              actionIcon: <ArrowDownLeft size={14} />,
+              subline: (
+                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans w-full">
+                  <span className="truncate">Salaires et encaissements lissés</span>
+                </div>
+              ),
+            },
+          ].map((stat, i) => (
+            <div key={i} className="h-full">
+              <Card className="h-full min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] flex flex-col justify-between cursor-default">
+                <div className="flex justify-between items-start mb-1 sm:mb-2">
+                  <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
+                    {stat.label}
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400">
+                      {stat.actionIcon}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col">
+                  <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-foreground tabular-nums font-sans">
+                    {stat.value}
+                  </div>
+                  {stat.subline}
+                </div>
+              </Card>
             </div>
-          </div>
-
-          {/* KPI 2: Taux d'épargne moyen (Minimaliste, barre verte supprimée) */}
-          <div className="bg-card border border-border rounded-2xl p-3 sm:p-3.5 xl:p-4 flex flex-col justify-between shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
-            <div className="flex justify-between items-start mb-1 sm:mb-2">
-              <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
-                Taux d'épargne moyen
-              </span>
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
-                <TrendingUp size={14} />
-              </div>
-            </div>
-            <div className="flex flex-col">
-              <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-foreground tabular-nums font-sans">
-                {avgSavingsRate}%
-              </div>
-              <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans truncate">
-                <span className="truncate">{avgSavingsRate >= 20 ? "Idéal (>20%)" : avgSavingsRate > 0 ? "Positif" : "Déficit"} · Train de vie maîtrisé</span>
-              </div>
-            </div>
-          </div>
-
-          {/* KPI 3: Moyenne dépenses discrétionnaires */}
-          <div className="bg-card border border-border rounded-2xl p-3 sm:p-3.5 xl:p-4 flex flex-col justify-between shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
-            <div className="flex justify-between items-start mb-1 sm:mb-2">
-              <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
-                Train de vie discrétionnaire
-              </span>
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
-                <Activity size={14} />
-              </div>
-            </div>
-            <div className="flex flex-col">
-              <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-foreground tabular-nums font-sans">
-                {avgDiscretionaryExpenses.toFixed(2)} €
-              </div>
-              <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans truncate">
-                <span className="truncate">Hors charges fixes & abonnements</span>
-              </div>
-            </div>
-          </div>
-
-          {/* KPI 4: Moyenne revenus mensuels */}
-          <div className="bg-card border border-border rounded-2xl p-3 sm:p-3.5 xl:p-4 flex flex-col justify-between shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
-            <div className="flex justify-between items-start mb-1 sm:mb-2">
-              <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
-                Revenus mensuels moyens
-              </span>
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
-                <ArrowDownLeft size={14} />
-              </div>
-            </div>
-            <div className="flex flex-col">
-              <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-foreground tabular-nums font-sans">
-                {avgMonthlyIncome.toFixed(2)} €
-              </div>
-              <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-neutral-400 font-sans truncate">
-                <span className="truncate">Salaires et encaissements lissés</span>
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
 
         {/* 2. Main Evolution Graph: Revenus vs Dépenses & Épargne (Remplit harmonieusement la hauteur disponible) */}

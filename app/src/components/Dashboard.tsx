@@ -5,18 +5,19 @@ import { Area, AreaChart, LineChart, Line, Legend, ResponsiveContainer, Tooltip,
 import { CSVUploader } from "./CSVUploader";
 import { CsvAnalysisModal, ImportStep } from "./CsvAnalysisModal";
 import { NormalizedTransaction, parseBoursoBankRows } from "@/lib/bankParser";
+import { cleanMerchantName, categorizeLocally } from "@/lib/categorization";
 import { BoursoBankLogo, CreditAgricoleLogo } from "./BankSelectorPopover";
 import { CloseButton } from "./ui/CloseButton";
 import { PageHeader } from "./ui/PageHeader";
+import { Card } from "./ui/Card";
 import { SubscriptionManager, detectSubscriptions } from "./SubscriptionManager";
 import { MonthlyLimitCard } from "./MonthlyLimitCard";
 import { RealDisposableIncomeCard } from "./RealDisposableIncomeCard";
 import { PaymentCardBanner } from "./PaymentCardBanner";
 import { CardData, CARD_PRESETS, DEFAULT_BANK_CARDS } from "./CardSelectorModal";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import clsx from "clsx";
-import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, RotateCcw, ChevronDown, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, CreditCard, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays, ArrowRight, Search } from "lucide-react";
-import { initialDemoTransactions } from "@/lib/types";
+import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, RotateCcw, ChevronDown, ChevronRight, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, CreditCard, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays, ArrowRight, Search, Plus } from "lucide-react";
 import { TrendsView } from "./views/TrendsView";
 import { TransactionsView } from "./views/TransactionsView";
 import { AccountsView } from "./views/AccountsView";
@@ -81,79 +82,23 @@ const OFFICIAL_CATEGORIES = [
   "Épargne & Trésorerie"
 ];
 
-function cleanMerchantName(rawLabel: string) {
-  let name = rawLabel.toUpperCase();
-  name = name.replace(/^(PAIEMENT\sPAR\sCARTE|CARTE\sX\d{4}\s\d{2}\/\d{2}|CARTE\s|CB\*\s|PAIEMENT\sCB\s|PRLV\sSEPA\s|PRLV\sDE\s|PRELEVEMENT\sDE\s|PRELEVEMENT\s|VIR\sSEPA\sRECU\sDE\s|VIR\sSEPA\sRECU\s|VIR\sRECU\s|VIR\sSEPA\s|VIR\sEMIS\s|VIREMENT\sEN\sVOTRE\sFAVEUR\sDE\s|VIREMENT\sEN\sVOTRE\sFAVEUR\s|VIREMENT\sEMIS\sPOUR\s|VIREMENT\sEMIS\s|VIREMENT\sDE\s|VIREMENT\sVERS\s|RETRAIT\sDAB\s|RETRAIT\sAU\sDISTRIBUTEUR\s|COTISATION\sMENSUELLE\s|COTISATION\s)/, "");
-  name = name.replace(/\s\d{2}\/\d{2}(\/\d{2,4})?(\s|$)/g, " ");
-  name = name.replace(/\s[A-Z0-9]{8,}\s*$/, "");
-  name = name.replace(/\s+/g, " ").trim();
-  if (!name) return "Inconnu";
-  return name.split(" ").map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(" ");
-}
-
-function getLocalFallback(categoryBourso: string, name: string, cache: Record<string, any>) {
-  const cat = categoryBourso.toLowerCase();
-  const nam = name.toLowerCase();
-  
-  // Intercept savings and internal transfers immediately, bypassing cache
-  if (
-    cat.includes("mouvements internes") ||
-    cat.includes("comptes à comptes") ||
-    nam.includes("livret") ||
-    nam.includes("bourso+") ||
-    nam.includes("epargne") ||
-    nam.includes("épargne") ||
-    nam.includes("virement interne") ||
-    nam.includes("virement vers") ||
-    nam.includes("virement depuis") ||
-    nam.includes("tristan buguet") ||
-    nam.includes("virement de m tristan buguet")
-  ) {
-    return { type: "Épargne & Trésorerie", isSub: false, isInternalTransfer: true };
-  }
-
-  if (cache[name] && cache[name].categorie) {
-    return {
-      type: cache[name].categorie,
-      isSub: cache[name].isSubscription || false,
-      isInternalTransfer: false
-    };
-  }
-
-  let type = "Autre";
-  let isSub = false;
-  let isInternalTransfer = false;
-
-  // 1. Dictionnaire natif prioritaire
-  if (/ile-de-france|idfm|ratp|sncf|uber \*trip|bolt|total|esso/i.test(nam)) type = "Transports";
-  else if (/mcdonald|burger king|uber eats|deliveroo|crous|tasty|starbucks|kebab|boulangerie/i.test(nam)) type = "Restos & Fast-Food";
-  else if (/u express|monoprix|carrefour|auchan|lidl|aldi|franprix|intermarche/i.test(nam)) type = "Alimentation & Courses";
-  else if (/basic-fit|bouygues|free|orange|sfr|spotify|netflix|apple\.com\/bill|icloud/i.test(nam)) {
-    type = "Abonnements & Forfaits";
-    isSub = true;
-  }
-  else if (/uniqlo|zara|galeries lafayette|asos|amazon|ikea|normal/i.test(nam)) type = "Shopping & Mode";
-  else if (/pharmacie|doctolib|livi|laboratoire/i.test(nam)) type = "Santé & Soins";
-
-  // 2. Mots clés BoursoBank
-  if (type === "Autre") {
-    if (cat.includes("restaurant") || cat.includes("bar") || cat.includes("discothèque")) type = "Restos & Fast-Food";
-    else if (cat.includes("alimentation")) type = "Alimentation & Courses";
-    else if (cat.includes("vêtement") || cat.includes("mobilier") || cat.includes("décoration")) type = "Shopping & Mode";
-    else if (cat.includes("transport") || cat.includes("taxi")) type = "Transports";
-    else if (cat.includes("téléphonie") || cat.includes("club") || cat.includes("association")) type = "Abonnements & Forfaits";
-    else if (cat.includes("médecin") || cat.includes("frais médicaux") || cat.includes("santé")) type = "Santé & Soins";
-    else if (cat.includes("virement émis") || cat.includes("virement reçu") || cat.includes("don") || cat.includes("cadeau")) type = "Virements proches & Remboursements";
-    else if (cat.includes("allocation") || cat.includes("salaire")) type = "Revenus & Aides";
-  }
-
-  if (type === "Abonnements & Forfaits") isSub = true;
-
-  return { type, isSub, isInternalTransfer };
+function getLocalFallback(categoryBourso: string, name: string, cache: Record<string, any>, amount: number = 0, rawLabel: string = "") {
+  const result = categorizeLocally({
+    label: name,
+    rawLabel,
+    amount,
+    categoryBourso,
+    cache,
+  });
+  return {
+    type: result.category,
+    isSub: result.isSubscription,
+    isInternalTransfer: result.isInternalTransfer,
+  };
 }
 
 const formatMonthLabel = (yyyyMM: string) => {
-  if (!yyyyMM || yyyyMM === "Tout" || yyyyMM === "all") return "Mois sélectionné";
+  if (!yyyyMM || yyyyMM === "Tout" || yyyyMM === "all") return "Aucun relevé";
   if (yyyyMM === "demo-month") return "Octobre 2026";
   const [yyyy, mm] = yyyyMM.split("-");
   if (!yyyy || !mm) return yyyyMM;
@@ -161,15 +106,6 @@ const formatMonthLabel = (yyyyMM: string) => {
   return date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }).replace(/^\w/, c => c.toUpperCase());
 };
 
-const initialTransactions: Transaction[] = initialDemoTransactions;
-
-function Card({ children, className = "", noPadding = false, onClick }: { children: React.ReactNode; className?: string; noPadding?: boolean; onClick?: () => void }) {
-  return (
-    <div onClick={onClick} className={`bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col overflow-hidden ${noPadding ? "" : "p-3 sm:p-3.5 xl:p-4"} ${className}`}>
-      {children}
-    </div>
-  );
-}
 
 export const CATEGORY_COLORS: Record<string, { ring: string; fill: string; dot: string }> = {
   "Transports": { ring: "#3B82F6", fill: "bg-blue-500", dot: "bg-blue-500" },
@@ -455,47 +391,91 @@ const CalendarModal = ({
 interface DashboardProps {
   activeTab?: string;
   onTabChange?: (tab: string) => void;
-  isDemoMode?: boolean;
-  showWelcomeModal?: boolean;
-  onDismissWelcome?: () => void;
-  onExitDemo?: () => void;
 }
 
 export function Dashboard({
   activeTab: propActiveTab,
   onTabChange,
-  isDemoMode: propIsDemoMode,
-  showWelcomeModal: propShowWelcomeModal,
-  onDismissWelcome,
-  onExitDemo,
 }: DashboardProps = {}) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [importStep, setImportStep] = useState<ImportStep | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string, visible: boolean } | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [showResetModal, setShowResetModal] = useState(false);
-  const [demoMode, setDemoMode] = useState(false);
-  const [internalWelcomeOpen, setInternalWelcomeOpen] = useState(true);
   
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
 
   const [showInbox, setShowInbox] = useState(false);
   const inboxRef = useRef<HTMLDivElement>(null);
+  const [bellPosition, setBellPosition] = useState<{ left: number; bottom: number } | null>(null);
+
+  const updateBellPosition = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const bellBtn = document.getElementById("sidebar-bell-btn") || document.querySelector('[aria-label="Notifications"]');
+    if (bellBtn) {
+      const rect = bellBtn.getBoundingClientRect();
+      setBellPosition({
+        left: Math.round(rect.right + 8),
+        bottom: Math.round(window.innerHeight - rect.bottom),
+      });
+    }
+  }, []);
 
   useEffect(() => {
+    if (showInbox) {
+      updateBellPosition();
+      window.addEventListener("resize", updateBellPosition);
+      return () => window.removeEventListener("resize", updateBellPosition);
+    }
+  }, [showInbox, updateBellPosition]);
+
+  const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
+  const importMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isImportMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (importMenuRef.current && !importMenuRef.current.contains(e.target as Node)) {
+        setIsImportMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsImportMenuOpen(false);
+    };
+    const timer = setTimeout(() => {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+    }, 10);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isImportMenuOpen]);
+
+  useEffect(() => {
+    if (!showInbox) return;
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (showInbox && inboxRef.current && !inboxRef.current.contains(target)) {
-        if (!target.closest('[aria-label="Notifications"]')) {
+      if (inboxRef.current && !inboxRef.current.contains(target)) {
+        if (!target.closest('[aria-label="Notifications"]') && !target.closest('#sidebar-bell-btn')) {
           setShowInbox(false);
         }
       }
     };
-    if (showInbox) {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowInbox(false);
+    };
+    const timer = setTimeout(() => {
       document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+    }, 10);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [showInbox]);
 
   const [showTransactionsDrawer, setShowTransactionsDrawer] = useState(false);
@@ -531,24 +511,20 @@ export function Dashboard({
   // Settings, Inbox & Navigation Listeners
   useEffect(() => {
     const handleOpenSettings = () => setShowSettingsModal(true);
-    const handleOpenInbox = () => setShowInbox(true);
-    const handleNav = (e: any) => setActiveTab(e.detail.tab);
-    const handleExitDemo = () => {
-      setDemoMode(false);
-      setInternalWelcomeOpen(true);
-      setActiveTab("dashboard");
+    const handleOpenInbox = () => {
+      updateBellPosition();
+      setShowInbox(prev => !prev);
     };
+    const handleNav = (e: any) => setActiveTab(e.detail.tab);
     window.addEventListener("open-settings", handleOpenSettings);
     window.addEventListener("open-inbox", handleOpenInbox);
     window.addEventListener("navigate-tab", handleNav);
-    window.addEventListener("exit-demo-mode", handleExitDemo);
     return () => {
       window.removeEventListener("open-settings", handleOpenSettings);
       window.removeEventListener("open-inbox", handleOpenInbox);
       window.removeEventListener("navigate-tab", handleNav);
-      window.removeEventListener("exit-demo-mode", handleExitDemo);
     };
-  }, []);
+  }, [updateBellPosition]);
 
   // Synchronisation du visuel de carte bancaire et de l'établissement actif
   useEffect(() => {
@@ -629,15 +605,6 @@ export function Dashboard({
     } catch (err) {}
     setSelectedCard(null);
   };
-
-  // Sync demo mode state with Navbar
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const isCurrentlyDemo = propIsDemoMode !== undefined ? propIsDemoMode : (transactions.length === 0);
-      (window as any).__IS_DEMO_MODE__ = isCurrentlyDemo;
-      window.dispatchEvent(new CustomEvent("demo-mode-state", { detail: { isDemoMode: isCurrentlyDemo } }));
-    }
-  }, [transactions.length, propIsDemoMode]);
 
   // Load transactions and settings from localStorage on mount
   useEffect(() => {
@@ -755,14 +722,10 @@ export function Dashboard({
     localStorage.removeItem('krona_merchant_knowledge');
     setTransactions([]);
     setSelectedMonth(null);
-    setDemoMode(false);
-    setInternalWelcomeOpen(true);
     setCategoryBudgets({});
     setIgnoredSubscriptions([]);
     setActiveTab("dashboard");
     window.dispatchEvent(new CustomEvent("finance-data-state"));
-    window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: true } }));
-    window.dispatchEvent(new CustomEvent("demo-mode-state", { detail: { isDemoMode: true } }));
     setShowResetModal(false);
   };
 
@@ -775,9 +738,7 @@ export function Dashboard({
   }, [transactions]);
 
   const hasRealData = Boolean(transactions && transactions.length > 0);
-  const isDemo = propIsDemoMode !== undefined ? propIsDemoMode : !hasRealData;
-  const isWelcomeOpen = !hasRealData && (propShowWelcomeModal !== undefined ? propShowWelcomeModal : internalWelcomeOpen);
-  const activeTransactions = hasRealData ? transactions : initialTransactions;
+  const activeTransactions = transactions;
 
   const uniqueMonths = useMemo(() => {
     return Array.from(new Set(activeTransactions.map(tx => tx.month))).sort().reverse();
@@ -788,20 +749,20 @@ export function Dashboard({
     return uniqueMonths;
   }, [uniqueMonths]);
 
-  // Synchronisation stricte : toujours un seul mois sélectionné à la fois
+  // Synchronisation stricte : toujours un seul mois sélectionné à la fois (ou null si aucun relevé)
   useEffect(() => {
     if (uniqueMonths.length > 0) {
       if (!selectedMonth || selectedMonth === "Tout" || selectedMonth === "all" || !uniqueMonths.includes(selectedMonth)) {
         setSelectedMonth(uniqueMonths[0]);
       }
+    } else {
+      setSelectedMonth(null);
     }
   }, [uniqueMonths, selectedMonth]);
 
   const handleUpload = async (data: NormalizedTransaction[] | any[]) => {
     try {
-      // Étape 1 : Lecture et validation du relevé…
-      setImportStep("reading");
-      const readStartTime = Date.now();
+      setImportStep("importing");
 
       const cache = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
 
@@ -811,141 +772,51 @@ export function Dashboard({
         ? (data as NormalizedTransaction[])
         : parseBoursoBankRows(data as string[][]);
 
-      const parsedRows = normalizedItems.map((item, index) => {
-        const name = cleanMerchantName(item.label);
-        const fallback = getLocalFallback(item.categoryBourso || "", name, cache);
+      if (!normalizedItems || normalizedItems.length === 0) {
+        setImportStep(null);
+        setToastMessage({ text: "Aucune opération valide trouvée dans le fichier.", visible: true });
+        setTimeout(() => setToastMessage(null), 3000);
+        return;
+      }
 
-        // Règle métier stricte : Galeries Lafayette
-        const lowerName = name.toLowerCase();
-        if (lowerName.includes('galeries lafayette') || lowerName.includes('societe anonyme des galeries la')) {
-          if (item.amount > 0) {
-            fallback.type = "Revenus & Aides";
-          } else {
-            fallback.type = "Shopping & Mode";
-          }
-        }
+      // Application immédiate du moteur de catégorisation local riche
+      const parsedRows: Transaction[] = normalizedItems.map((item, index) => {
+        const name = item.label || cleanMerchantName(item.rawLabel);
+        const localCat = categorizeLocally({
+          label: name,
+          rawLabel: item.rawLabel,
+          amount: item.amount,
+          categoryBourso: item.categoryBourso,
+          cache,
+        });
 
-        const rawId = `${item.date}_${item.amount}_${name.trim().toLowerCase()}_${item.account}_${index}`;
+        const rawId = item.id || `bourso-${item.date}-${Math.abs(item.amount)}-${index}`;
 
         return {
           id: rawId,
           name,
-          type: fallback.type,
+          type: localCat.isInternalTransfer ? "Épargne & Trésorerie" : localCat.category,
           amount: isNaN(item.amount) ? 0 : item.amount,
           date: item.date,
           month: item.month,
-          isSubscription: fallback.isSub,
-          isInternalTransfer: fallback.isInternalTransfer,
+          isSubscription: localCat.isSubscription,
+          isInternalTransfer: localCat.isInternalTransfer,
           account: item.account,
-        } as Transaction;
-      }).filter(row => row !== null && row.amount !== 0) as Transaction[];
-
-      const unknownLabels = Array.from(new Set(
-        parsedRows
-          .filter(r => r.type === "Autre")
-          .map(r => r.name)
-      ));
-
-      // Rythme naturel pour l'étape 1
-      const readElapsed = Date.now() - readStartTime;
-      if (readElapsed < 650) {
-        await new Promise(r => setTimeout(r, 650 - readElapsed));
-      }
-
-      // Étape 2 : Catégorisation intelligente par l'IA…
-      setImportStep("categorizing");
-      const catStartTime = Date.now();
-      
-      let newMapping: Record<string, { categorie: string, isSubscription: boolean }> = {};
-      
-      if (unknownLabels.length > 0) {
-        console.log("Labels envoyés à Gemini:", unknownLabels);
-        try {
-          const res = await fetch("/api/categorize", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ transactions: unknownLabels }),
-          });
-          
-          console.log("Status de l'API Gemini:", res.status);
-          if (res.ok) {
-            const result = await res.json();
-            if (result.categorized && Array.isArray(result.categorized)) {
-              result.categorized.forEach((item: any) => {
-                // Ensure Gemini returned an official category
-                if (OFFICIAL_CATEGORIES.includes(item.category)) {
-                  newMapping[item.raw] = {
-                    categorie: item.category,
-                    isSubscription: item.isSubscription || false
-                  };
-                }
-              });
-              
-              const updatedCache = { ...cache, ...newMapping };
-              localStorage.setItem('krona_merchant_knowledge', JSON.stringify(updatedCache));
-            }
-          } else {
-            console.warn("L'API Gemini a retourné un statut:", res.status);
-          }
-        } catch (apiErr) {
-          console.error("Erreur de connexion à l'API Gemini:", apiErr);
-        }
-      }
-
-      // Rythme naturel pour l'étape 2
-      const catElapsed = Date.now() - catStartTime;
-      if (catElapsed < 850) {
-        await new Promise(r => setTimeout(r, 850 - catElapsed));
-      }
-
-      // Étape 3 : Détection des abonnements et charges fixes…
-      setImportStep("subscriptions");
-      const subStartTime = Date.now();
-
-      const finalCache = { ...cache, ...newMapping };
-
-      const newTransactions: Transaction[] = parsedRows.map(row => {
-        // Absolute rule: internal transfers must never be overridden by cache
-        if (row.isInternalTransfer) {
-          return {
-            ...row,
-            type: "Épargne & Trésorerie",
-            isSubscription: false,
-            isInternalTransfer: true,
-          };
-        }
-
-        const cachedData = finalCache[row.name];
-        return {
-          ...row,
-          type: cachedData ? cachedData.categorie : row.type, // Fallback local
-          isSubscription: cachedData ? cachedData.isSubscription : row.isSubscription,
         };
-      });
+      }).filter(row => row !== null && row.amount !== 0);
 
-      // Rythme naturel pour l'étape 3
-      const subElapsed = Date.now() - subStartTime;
-      if (subElapsed < 700) {
-        await new Promise(r => setTimeout(r, 700 - subElapsed));
-      }
-
-      // Étape 4 : Finalisation de ton espace…
-      setImportStep("finalizing");
-      const finalStartTime = Date.now();
-
+      // 1. INJECTION IMMÉDIATE DES TRANSACTIONS DANS LE STATE
+      // Permet l'affichage instantané des métriques, cartes KPI, solde et listes
+      let majorityMonth = "Tout";
       let addedCount = 0;
-      let duplicatesCount = 0;
       const uniqueMonths = new Set<string>();
 
-      let majorityMonth = "Tout";
       setTransactions(prev => {
         const prevHashes = new Set(prev.map(p => p.id));
         const actuallyNew: Transaction[] = [];
 
-        newTransactions.forEach(tx => {
-          if (prevHashes.has(tx.id)) {
-            duplicatesCount++;
-          } else {
+        parsedRows.forEach(tx => {
+          if (!prevHashes.has(tx.id)) {
             actuallyNew.push(tx);
             prevHashes.add(tx.id);
             addedCount++;
@@ -953,7 +824,6 @@ export function Dashboard({
           }
         });
 
-        // Auto redirect to majority month of newly added transactions
         if (actuallyNew.length > 0) {
           const monthCounts = actuallyNew.reduce((acc, tx) => {
             acc[tx.month] = (acc[tx.month] || 0) + 1;
@@ -970,65 +840,15 @@ export function Dashboard({
         }
 
         const combined = [...actuallyNew, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-        // Rattachement intelligent des salaires versés en début de mois
-        const salaryMonths = new Set<string>();
-        combined.forEach(tx => {
-          const nam = tx.name.toLowerCase();
-          const isSalary = tx.amount > 0 && (nam.includes("salaire") || nam.includes("employeur") || /\b(paie|paye)\b/i.test(nam) || nam.includes("remuneration") || nam.includes("rémunération"));
-          if (isSalary) {
-            salaryMonths.add(tx.month);
-          }
-        });
-
-        const adjusted = combined.map(tx => {
-          const nam = tx.name.toLowerCase();
-          const isSalary = tx.amount > 0 && (nam.includes("salaire") || nam.includes("employeur") || /\b(paie|paye)\b/i.test(nam) || nam.includes("remuneration") || nam.includes("rémunération"));
-          
-          if (isSalary) {
-            const day = parseInt(tx.date.split("-")[2], 10);
-            const isLatePayment = incomeSettings.salaryDay > 15 ? day < 15 : day <= 5;
-            
-            if (isLatePayment) {
-              const [yyyy, mm] = tx.month.split("-");
-              const prevMonthObj = new Date(parseInt(yyyy), parseInt(mm) - 2, 1);
-              const prevMonthStr = `${prevMonthObj.getFullYear()}-${(prevMonthObj.getMonth() + 1).toString().padStart(2, '0')}`;
-              
-              if (!salaryMonths.has(prevMonthStr)) {
-                // Shift this salary to the previous month
-                salaryMonths.add(prevMonthStr);
-                return { ...tx, month: prevMonthStr };
-              }
-            }
-          }
-          return tx;
-        });
-
-        return adjusted;
+        localStorage.setItem('financeTransactions_v1', JSON.stringify(combined));
+        return combined;
       });
 
-      const allNewDates = newTransactions.map(t => new Date(t.date).getTime()).filter(t => !isNaN(t)).sort();
-      const oldestDate = allNewDates.length ? new Date(allNewDates[0]).toLocaleDateString("fr-FR") : "?";
-      const newestDate = allNewDates.length ? new Date(allNewDates[allNewDates.length - 1]).toLocaleDateString("fr-FR") : "?";
-      console.log(`Importé : ${newTransactions.length} opérations sur ${uniqueMonths.size} mois (du ${oldestDate} au ${newestDate})`);
-
-      const allResultMonths = Array.from(new Set(newTransactions.map(t => t.month))).sort().reverse();
-      if (allResultMonths.length === 1) {
-        setSelectedMonth(allResultMonths[0]);
-      } else if (majorityMonth !== "Tout" && majorityMonth !== "all") {
+      if (majorityMonth !== "Tout") {
         setSelectedMonth(majorityMonth);
-      } else if (allResultMonths.length > 0) {
-        setSelectedMonth(allResultMonths[0]);
       }
 
-      // Palier 100% avec temps de complétion Apple style
-      const finalElapsed = Date.now() - finalStartTime;
-      if (finalElapsed < 600) {
-        await new Promise(r => setTimeout(r, 600 - finalElapsed));
-      }
-      await new Promise(r => setTimeout(r, 350));
-
-      // Persistance de l'établissement actif et synchronisation automatique de "Votre carte"
+      // Persistance de l'établissement actif et synchronisation de "Votre carte"
       const detectedBank = (normalizedItems[0]?.account === "Crédit Agricole" || (data as any)[0]?.account === "Crédit Agricole") ? "ca" : "bourso";
       localStorage.setItem("krona_selected_bank", detectedBank);
       setActiveBank(detectedBank);
@@ -1051,23 +871,92 @@ export function Dashboard({
       window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: detectedBank } }));
       window.dispatchEvent(new CustomEvent("krona-card-updated"));
 
+      // 2. PIPELINE DE CATÉGORISATION IA CIBLÉE SUR « AUTRE »
+      const orphanTransactions = parsedRows.filter(r => r.type === "Autre");
+
+      if (orphanTransactions.length > 0) {
+        setImportStep("categorizing");
+        console.log(`[Krona AI] Catégorisation de ${orphanTransactions.length} transactions...`);
+
+        try {
+          const res = await fetch("/api/categorize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              items: orphanTransactions.map(tx => ({
+                id: tx.id,
+                label: tx.name,
+              })),
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            console.log('[Krona AI] Réponse reçue:', data);
+
+            const resultsList: Array<{ id: string; category: string }> = Array.isArray(data.mapping) 
+              ? data.mapping 
+              : (Array.isArray(data.results) ? data.results : []);
+
+            if (Array.isArray(resultsList) && resultsList.length > 0) {
+              const idToCategory = new Map<string, string>();
+              resultsList.forEach(r => {
+                if (r.id && r.category && r.category !== "Autre") {
+                  idToCategory.set(r.id, r.category);
+                }
+              });
+
+              if (idToCategory.size > 0) {
+                const updatedKnowledge = { ...JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}') };
+
+                // Mise à jour immuable propre pour remplacer chaque catégorie « Autre »
+                setTransactions(prev => {
+                  let hasChanges = false;
+                  const updated = prev.map(tx => {
+                    const newCat = idToCategory.get(tx.id);
+                    if (newCat && newCat !== tx.type) {
+                      hasChanges = true;
+                      updatedKnowledge[tx.name] = {
+                        categorie: newCat,
+                        isSubscription: newCat === "Abonnements & Forfaits",
+                      };
+                      return {
+                        ...tx,
+                        type: newCat,
+                        isSubscription: newCat === "Abonnements & Forfaits" || tx.isSubscription,
+                      };
+                    }
+                    return tx;
+                  });
+
+                  if (hasChanges) {
+                    localStorage.setItem('krona_merchant_knowledge', JSON.stringify(updatedKnowledge));
+                    localStorage.setItem('financeTransactions_v1', JSON.stringify(updated));
+                    return [...updated];
+                  }
+                  return prev;
+                });
+              }
+            }
+          } else {
+            console.warn("[Krona AI] Réponse statut non-OK :", res.status);
+          }
+        } catch (apiErr) {
+          console.warn("[Krona AI] Erreur réseau non bloquante :", apiErr);
+        }
+      } else {
+        console.log('[Krona AI] Toutes les opérations ont été catégorisées localement.');
+      }
+
+      // 3. FEEDBACK DE SUCCÈS (coche discrète + 'Relevé importé' pendant 800 ms puis fade-out)
+      setImportStep("success");
+      await new Promise(resolve => setTimeout(resolve, 800));
       setImportStep(null);
-      setDemoMode(false);
-      setInternalWelcomeOpen(false);
-      window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: false } }));
-      window.dispatchEvent(new CustomEvent("demo-mode-state", { detail: { isDemoMode: false } }));
-      setToastMessage({
-        text: `Relevé importé · ${addedCount} opérations`,
-        visible: true
-      });
-      
-      setTimeout(() => {
-        setToastMessage(null);
-      }, 3000);
-      
     } catch (e) {
-      console.error("Upload error", e);
+      console.error("[Krona] Erreur lors de l'import :", e);
       setImportStep(null);
+      setToastMessage({ text: "Erreur lors de l'import du relevé.", visible: true });
+      setTimeout(() => setToastMessage(null), 3000);
     }
   };
 
@@ -1139,7 +1028,7 @@ export function Dashboard({
     } catch (e) {}
 
     setTransactions(prev => {
-      const source = prev.length > 0 ? prev : initialDemoTransactions;
+      const source = prev;
       const updated = source.map(t => {
         if (t.id === txId || t.name === merchantName) {
           return { ...t, type: newType };
@@ -1638,105 +1527,23 @@ export function Dashboard({
 
       {/* Modern Apple/Linear style AI Analysis Modal */}
       <CsvAnalysisModal step={importStep} />
-      <CSVUploader onUpload={handleUpload} />
+      <CSVUploader 
+        onStart={() => {
+          setIsImportMenuOpen(false);
+          setImportStep("importing");
+        }}
+        onUpload={handleUpload} 
+      />
 
-      {/* Onboarding Empty State */}
-      {isWelcomeOpen && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center p-4 sm:p-6 bg-transparent">
-          <motion.div 
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="relative z-50 w-full max-w-xl mx-auto p-5 sm:p-8 max-h-[92vh] overflow-y-auto no-scrollbar bg-neutral-900/80 dark:bg-black/80 backdrop-blur-2xl backdrop-saturate-150 border border-white/[0.1] rounded-2xl shadow-2xl text-center"
-          >
-            {/* Logo */}
-            <div className="w-12 h-12 mx-auto mb-5 rounded-2xl bg-white/[0.05] border border-white/[0.1] flex items-center justify-center text-white">
-              <svg viewBox="0 0 48 48" fill="none" className="w-6 h-6" xmlns="http://www.w3.org/2000/svg">
-                <mask id="mask0_empty" style={{ maskType: "alpha" }} maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48">
-                  <rect width="48" height="48" fill="#D9D9D9"/>
-                </mask>
-                <g mask="url(#mask0_empty)">
-                  <path d="M23.2335 4.16299L31.7073 4.15991C31.4734 5.06138 31.1832 6.09483 30.8764 6.97572C30.1612 9.01702 29.2238 10.9732 28.0811 12.809C23.2291 20.5663 15.0014 24.8882 6.19107 26.485C6.55881 26.498 7.66306 26.3771 8.06439 26.3262C12.1265 25.812 16.0894 24.5393 19.7264 22.6791C27.3158 18.7973 32.5755 12.27 35.1642 4.16286L41.8804 4.16192L41.8784 8.71949C41.8778 10.2935 42.023 10.2165 41.3689 11.6459C37.9432 19.1315 30.5631 23.7696 23.0482 26.3872C20.5489 27.2392 17.9961 27.9243 15.4064 28.4386C15.8156 28.4593 16.3174 28.4463 16.7327 28.4461L19.0955 28.444C19.3018 28.4453 19.6022 28.4513 19.8052 28.4373C20.2254 28.4084 20.7343 28.2817 21.1481 28.1845C22.0767 27.9662 22.9981 27.7181 23.9109 27.4407C30.6382 25.4471 37.1473 22.1025 41.8911 16.8256C41.8668 17.1161 41.8804 17.5995 41.8804 17.9052L41.881 19.833C41.881 22.145 41.912 24.5319 41.881 26.8364C41.4741 27.2215 40.9507 27.6181 40.5006 27.9508C38.1977 29.6266 35.64 30.9189 32.926 31.7778C32.0348 32.0631 31.0969 32.2797 30.1875 32.4927C30.3673 32.5002 30.5666 32.4996 30.7471 32.4959C31.8072 32.4746 32.8894 32.5276 33.9465 32.4877C34.1433 32.9524 34.3337 33.5115 34.5164 33.9912L35.5438 36.6707L38.022 43.1516C37.126 43.1673 36.1987 43.1559 35.3009 43.1561L30.3568 43.1568C30.0538 42.5296 29.7815 41.8759 29.503 41.2375L28.3274 38.5546C27.663 37.0299 26.9362 35.4697 26.3006 33.9391L5.89478 33.9395L5.89686 22.9505C11.2806 21.8278 16.1931 19.0601 19.3992 14.5111C21.536 11.4794 22.8502 7.84619 23.2335 4.16299Z" fill="currentColor"/>
-                </g>
-              </svg>
-            </div>
-            
-            <h2 className="text-2xl font-bold tracking-tight text-white font-sans">Bienvenue sur krona</h2>
-            <p className="text-sm text-neutral-400 mt-1 mb-8 font-sans">Gère ton argent simplement, sans jargon et en toute confidentialité.</p>
-
-            <div className="flex flex-col gap-3 mb-6">
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 text-left flex items-start gap-4">
-                <div className="mt-0.5 p-2 rounded-full bg-white/[0.06] text-white shrink-0"><Download size={16} /></div>
-                <div>
-                  <div className="text-sm font-semibold text-white mb-0.5 font-sans">1. Télécharge ton relevé</div>
-                  <div className="text-xs text-neutral-400 leading-relaxed font-sans">Récupère ton fichier d'opérations CSV sur ton compte BoursoBank ou Crédit Agricole.</div>
-                </div>
-              </div>
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 text-left flex items-start gap-4">
-                <div className="mt-0.5 p-2 rounded-full bg-white/[0.06] text-white shrink-0"><UploadCloud size={16} /></div>
-                <div>
-                  <div className="text-sm font-semibold text-white mb-0.5 font-sans">2. Dépose-le ici</div>
-                  <div className="text-xs text-neutral-400 leading-relaxed font-sans">Glisse-dépose le fichier ou choisis ta banque ci-dessous.</div>
-                </div>
-              </div>
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 text-left flex items-start gap-4">
-                <div className="mt-0.5 p-2 rounded-full bg-white/[0.06] text-white shrink-0"><Sparkles size={16} /></div>
-                <div>
-                  <div className="text-sm font-semibold text-white mb-0.5 font-sans">3. Tout se classe tout seul</div>
-                  <div className="text-xs text-neutral-400 leading-relaxed font-sans">krona isole ton salaire, tes abonnements et tes vraies dépenses.</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="border-2 border-dashed border-white/20 hover:border-white/40 rounded-2xl p-6 transition-colors mt-6 mb-4 flex flex-col items-center justify-center">
-              <span className="text-sm text-neutral-400 font-sans mb-3 text-center">Glisse ton relevé CSV ici ou choisis ta banque :</span>
-              <div className="flex flex-wrap items-center justify-center gap-2.5">
-                <button 
-                  type="button" 
-                  onClick={() => window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: "bourso" } }))}
-                  className="px-4 py-2.5 rounded-full bg-white text-black font-semibold hover:bg-neutral-200 active:scale-95 transition-all cursor-pointer font-sans text-xs sm:text-sm flex items-center gap-2"
-                >
-                  <BoursoBankLogo className="w-4 h-4 text-black" />
-                  <span>BoursoBank</span>
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: "ca" } }))}
-                  className="px-4 py-2.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.12] text-white font-semibold active:scale-95 transition-all cursor-pointer font-sans text-xs sm:text-sm flex items-center gap-2"
-                >
-                  <CreditAgricoleLogo className="w-4 h-4 text-white" />
-                  <span>Crédit Agricole</span>
-                </button>
-              </div>
-            </div>
-
-            <button 
-              type="button" 
-              onClick={() => {
-                setDemoMode(true);
-                setInternalWelcomeOpen(false);
-                if (onDismissWelcome) onDismissWelcome();
-                window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: false } }));
-              }} 
-              className="text-xs text-neutral-400 hover:text-white underline underline-offset-4 transition-colors cursor-pointer font-sans"
-            >
-              Charger un exemple pour tester
-            </button>
-
-            <div className="flex items-center justify-center gap-2 text-xs text-neutral-400 mt-4 font-sans">
-              <ShieldCheck className="text-neutral-300 w-4 h-4" />
-              <span>Vos données restent 100 % sur votre machine. Aucun compte, aucun serveur.</span>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Main Content Area (Blurred when empty) */}
-      <div className={`flex flex-col flex-1 w-full min-h-0 transition-all duration-700 viewport-fit-scroll no-scrollbar ${isWelcomeOpen ? 'blur-[6px] opacity-25 pointer-events-none select-none' : ''}`}>
+      {/* Main Content Area */}
+      <div className="flex flex-col flex-1 w-full min-h-0 viewport-fit-scroll no-scrollbar">
         
       {/* Header & Month Selector (Dashboard and Budgets only) */}
       {(activeTab === "dashboard" || activeTab === "budgets") && (
-        <PageHeader title={activeTab === "budgets" ? "Budgets & Plafonds" : "Vue d'ensemble"}>
+        <PageHeader 
+          title={activeTab === "budgets" ? "Budgets & Plafonds" : "Vue d'ensemble"}
+          showDate={activeTab === "dashboard"}
+        >
           {hasRealData && (
             <motion.button
               type="button"
@@ -1752,25 +1559,127 @@ export function Dashboard({
           
           <div className="relative">
             <select 
-              value={selectedMonth || uniqueMonths[0] || ""} 
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="h-9 appearance-none bg-card border border-border text-foreground font-medium text-sm py-1.5 pl-4 pr-10 rounded-full shadow-sm outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none font-sans"
+              disabled={uniqueMonths.length === 0}
+              value={uniqueMonths.length > 0 ? (selectedMonth || uniqueMonths[0] || "") : ""} 
+              onChange={(e) => uniqueMonths.length > 0 && setSelectedMonth(e.target.value)}
+              className={clsx(
+                "h-9 appearance-none bg-card border border-border font-medium text-sm py-1.5 pl-4 pr-10 rounded-full shadow-sm outline-none transition-all font-sans",
+                uniqueMonths.length > 0
+                  ? "text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+                  : "text-neutral-400 dark:text-neutral-500 cursor-not-allowed opacity-75 select-none"
+              )}
               aria-label="Sélectionner le mois"
             >
-              {availableMonths.map(m => (
-                <option key={m} value={m}>{formatMonthLabel(m)}</option>
-              ))}
+              {uniqueMonths.length > 0 ? (
+                availableMonths.map(m => (
+                  <option key={m} value={m}>{formatMonthLabel(m)}</option>
+                ))
+              ) : (
+                <option value="" disabled>Aucun relevé</option>
+              )}
             </select>
             <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-              <ChevronDown size={14} className="text-neutral-400" />
+              <ChevronDown size={14} className={clsx("text-neutral-400", uniqueMonths.length === 0 && "opacity-40")} />
             </div>
           </div>
           
+          <div className="relative" ref={importMenuRef}>
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setIsImportMenuOpen((prev) => !prev)}
+              className="h-9 px-3.5 sm:px-4 rounded-full bg-white text-black font-medium text-xs sm:text-sm flex items-center gap-1.5 hover:bg-neutral-100 active:scale-95 transition-all shadow-sm cursor-pointer font-sans shrink-0 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+              title="Importer un fichier CSV"
+              aria-label="Importer un fichier CSV"
+            >
+              <Plus size={16} strokeWidth={2.5} className="text-black shrink-0" />
+              <span className="font-medium text-black">Importer un CSV</span>
+            </motion.button>
+
+            {/* Menu Pop-up compact harmonisé avec le pop-up des notifications */}
+            <AnimatePresence>
+              {isImportMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                  transition={{ type: "spring", stiffness: 350, damping: 28 }}
+                  className="absolute top-full right-0 mt-2 w-72 sm:w-80 bg-card/95 dark:bg-[#0F0F11]/95 backdrop-blur-2xl border border-border dark:border-white/[0.08] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] rounded-2xl z-[101] overflow-hidden select-none flex flex-col"
+                >
+                  <div className="pt-3 px-3.5 pb-1 flex items-center justify-between shrink-0">
+                    <span className="text-sm font-semibold text-foreground tracking-tight font-sans">
+                      Sélectionner la banque
+                    </span>
+                    <CloseButton onClick={() => setIsImportMenuOpen(false)} iconSize={15} />
+                  </div>
+
+                  <div className="p-2.5 pt-1 space-y-1.5">
+                    {/* Option 1 : Crédit Agricole */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsImportMenuOpen(false);
+                        localStorage.setItem("krona_selected_bank", "ca");
+                        window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: "ca" } }));
+                        window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: "ca" } }));
+                      }}
+                      className="w-full flex items-center gap-3 p-2.5 bg-neutral-50 dark:bg-white/[0.03] rounded-2xl border border-border dark:border-white/[0.08] hover:bg-neutral-100 dark:hover:bg-white/[0.06] hover:border-foreground/20 dark:hover:border-white/[0.15] active:scale-[0.98] transition-all text-left group cursor-pointer"
+                    >
+                      <div className="w-8.5 h-8.5 rounded-xl bg-card border border-border dark:border-white/[0.08] flex items-center justify-center text-foreground dark:text-white shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                        <CreditAgricoleLogo className="w-5 h-5 text-foreground dark:text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-foreground dark:text-white tracking-tight font-sans">
+                          Crédit Agricole
+                        </div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400 font-sans truncate mt-0.5">
+                          Relevé de compte CSV
+                        </div>
+                      </div>
+                      <ChevronRight size={15} className="text-neutral-400 group-hover:text-foreground group-hover:translate-x-0.5 transition-all shrink-0 ml-auto" />
+                    </button>
+
+                    {/* Option 2 : BoursoBank */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsImportMenuOpen(false);
+                        localStorage.setItem("krona_selected_bank", "bourso");
+                        window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: "bourso" } }));
+                        window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: "bourso" } }));
+                      }}
+                      className="w-full flex items-center gap-3 p-2.5 bg-neutral-50 dark:bg-white/[0.03] rounded-2xl border border-border dark:border-white/[0.08] hover:bg-neutral-100 dark:hover:bg-white/[0.06] hover:border-foreground/20 dark:hover:border-white/[0.15] active:scale-[0.98] transition-all text-left group cursor-pointer"
+                    >
+                      <div className="w-8.5 h-8.5 rounded-xl bg-card border border-border dark:border-white/[0.08] flex items-center justify-center text-foreground dark:text-white shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                        <BoursoBankLogo className="w-4 h-4 text-foreground dark:text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-foreground dark:text-white tracking-tight font-sans">
+                          BoursoBank
+                        </div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400 font-sans truncate mt-0.5">
+                          Relevé de compte CSV
+                        </div>
+                      </div>
+                      <ChevronRight size={15} className="text-neutral-400 group-hover:text-foreground group-hover:translate-x-0.5 transition-all shrink-0 ml-auto" />
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
           <button
             type="button"
-            onClick={() => setShowCalendarModal(true)}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-card border border-border text-foreground transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 cursor-pointer"
-            title="Vue annuelle"
+            disabled={uniqueMonths.length === 0}
+            onClick={() => uniqueMonths.length > 0 && setShowCalendarModal(true)}
+            className={clsx(
+              "w-9 h-9 flex items-center justify-center rounded-full bg-card border border-border transition-all font-sans shrink-0",
+              uniqueMonths.length > 0
+                ? "text-foreground active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 cursor-pointer"
+                : "text-neutral-400 dark:text-neutral-500 cursor-not-allowed opacity-40"
+            )}
+            title={uniqueMonths.length > 0 ? "Vue annuelle" : "Aucun relevé disponible"}
             aria-label="Vue annuelle"
           >
             <CalendarDays size={16} />
@@ -1924,17 +1833,17 @@ export function Dashboard({
         ].map((stat, i) => {
           const isSubsCard = i === 3;
 
-          // 1. Cartes simples de présentation (dont Épargne nette) : aucun clic, aucune flèche
+          // 1. Cartes simples de présentation (dont Épargne nette) : aucun clic, aucun hover
           if (!isSubsCard) {
             return (
               <div key={i} className="h-full">
-                <Card className="h-full flex flex-col justify-between transition-all duration-200 hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
+                <Card className="h-full min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] flex flex-col justify-between cursor-default">
                   <div className="flex justify-between items-start mb-1 sm:mb-2">
-                    <span className="text-xs sm:text-sm font-medium text-neutral-400 transition-colors font-sans truncate">
+                    <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
                       {stat.label}
                     </span>
                     <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 transition-all">
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400">
                         {stat.actionIcon}
                       </div>
                     </div>
@@ -1968,11 +1877,11 @@ export function Dashboard({
             );
           }
 
-          // 2. Carte "Abonnements récurrents" : Clic ouvrant la modale des transactions pré-filtrée
+          // 2. Carte "Abonnements récurrents" : Hover très subtil et discret
           return (
             <div key={i} className="h-full" title="Cliquer pour afficher les abonnements récurrents">
               <Card 
-                className="h-full flex flex-col justify-between transition-all duration-200 group cursor-pointer hover:bg-black/[0.02] dark:hover:bg-white/[0.03] hover:border-black/20 dark:hover:border-white/20 active:scale-[0.99]"
+                className="h-full min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] flex flex-col justify-between transition-colors duration-300 group cursor-pointer hover:bg-black/[0.015] dark:hover:bg-white/[0.02] active:scale-[0.995]"
                 onClick={() => {
                   setDrawerSearch("");
                   setDrawerFilter("sub");
@@ -1980,10 +1889,10 @@ export function Dashboard({
                 }}
               >
                 <div className="flex justify-between items-start mb-1 sm:mb-2">
-                  <span className="text-xs sm:text-sm font-medium text-neutral-400 group-hover:text-foreground transition-colors font-sans truncate">
+                  <span className="text-xs sm:text-sm font-medium text-neutral-400 group-hover:text-foreground transition-colors duration-300 font-sans truncate">
                     {stat.label}
                   </span>
-                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 group-hover:border-black/20 dark:group-hover:border-white/20 group-hover:text-foreground transition-all shrink-0 ml-2">
+                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 group-hover:text-foreground transition-colors duration-300 shrink-0 ml-2">
                     {stat.actionIcon}
                   </div>
                 </div>
@@ -2203,7 +2112,7 @@ export function Dashboard({
             )}
           </Card>
 
-          {/* Les 2 bannières compactes de taille strictement identique */}
+          {/* Les 2 bannières compactes de taille strictement identique aux KPI */}
           <MonthlyLimitCard 
             expenses={expenses}
             categoryBudgets={categoryBudgets}
@@ -2212,7 +2121,7 @@ export function Dashboard({
               setSettingsTab("budgets");
               setShowSettingsModal(true);
             }}
-            className="h-[105px] sm:h-[110px] xl:h-[115px] shrink-0"
+            className="min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] shrink-0"
           />
           <RealDisposableIncomeCard 
             income={income}
@@ -2224,7 +2133,7 @@ export function Dashboard({
               setSettingsTab("fixed");
               setShowSettingsModal(true);
             }}
-            className="h-[105px] sm:h-[110px] xl:h-[115px] shrink-0"
+            className="min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] shrink-0"
           />
         </div>
 
@@ -2258,7 +2167,7 @@ export function Dashboard({
                 <p className="text-[10px] text-neutral-500 mt-0.5 font-sans">Tes dépenses par enseigne apparaîtront ici</p>
               </div>
             ) : (
-              <div className="flex flex-col divide-y divide-black/[0.04] dark:divide-white/[0.04]">
+              <div className="flex flex-col gap-1 sm:gap-1.5">
                 {topMerchants.slice(0, 4).map((merchant) => {
                   return (
                     <div
@@ -2268,7 +2177,7 @@ export function Dashboard({
                         setDrawerSearch(merchant.name);
                         setShowTransactionsDrawer(true);
                       }}
-                      className="flex items-center justify-between py-3 sm:py-3.5 px-2 rounded-xl hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors cursor-pointer group active:scale-[0.99] select-none"
+                      className="flex items-center justify-between py-2 sm:py-2.5 px-2 rounded-xl hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors cursor-pointer group active:scale-[0.99] select-none"
                       title={`Voir toutes les opérations de ${merchant.name}`}
                     >
                       <div className="flex items-center gap-3 min-w-0 max-w-[55%]">
@@ -2871,28 +2780,32 @@ export function Dashboard({
         {showInbox && (
             <motion.div 
               ref={inboxRef}
-              initial={{ opacity: 0, y: -10, scale: 0.95 }} 
-              animate={{ opacity: 1, y: 0, scale: 1 }} 
-              exit={{ opacity: 0, y: -10, scale: 0.95 }} 
-              transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="fixed top-[112px] right-4 sm:right-[40px] w-80 sm:w-96 bg-card dark:bg-[#0F0F11] border border-border dark:border-white/[0.08] shadow-2xl rounded-2xl z-[101] overflow-hidden flex flex-col"
+              initial={{ opacity: 0, x: -8, scale: 0.96 }} 
+              animate={{ opacity: 1, x: 0, scale: 1 }} 
+              exit={{ opacity: 0, x: -8, scale: 0.96 }} 
+              transition={{ type: "spring", stiffness: 350, damping: 28 }}
+              style={bellPosition ? {
+                left: `${bellPosition.left}px`,
+                bottom: `${bellPosition.bottom}px`,
+              } : undefined}
+              className="fixed left-14 bottom-4 w-80 sm:w-96 max-h-[min(540px,calc(100vh-160px))] bg-card/95 dark:bg-[#0F0F11]/95 backdrop-blur-2xl border border-border dark:border-white/[0.08] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] rounded-2xl z-[101] overflow-hidden flex flex-col"
             >
-              <div className="p-4 px-5 border-b border-border flex justify-between items-center">
-                <h3 className="font-semibold text-foreground flex items-center gap-2 text-sm">
+              <div className="pt-3 px-4 pb-1 flex justify-between items-center shrink-0">
+                <h3 className="font-semibold text-foreground flex items-center gap-2 text-sm font-sans">
                   Opérations à vérifier
                   {inboxTx.length > 0 && <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">{inboxTx.length}</span>}
                 </h3>
                 <CloseButton onClick={() => setShowInbox(false)} iconSize={15} />
               </div>
               
-              <div className="flex-1 overflow-y-auto max-h-[60vh] p-4 space-y-3 no-scrollbar">
+              <div className="flex-1 min-h-0 overflow-y-auto max-h-[420px] p-3 pt-1 space-y-2 no-scrollbar">
                 {inboxTx.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 text-center text-neutral-400">
-                    <div className="w-12 h-12 rounded-full bg-green-500/10 text-green-500 flex items-center justify-center mb-3">
-                      <Check size={22} strokeWidth={2.5} />
+                  <div className="flex flex-col items-center justify-center py-6 text-center text-neutral-400">
+                    <div className="w-10 h-10 rounded-full bg-green-500/10 text-green-500 flex items-center justify-center mb-2.5">
+                      <Check size={20} strokeWidth={2.5} />
                     </div>
                     <p className="font-semibold text-foreground text-sm">Toutes vos dépenses sont classées</p>
-                    <p className="text-xs text-neutral-500 mt-1">Votre Inbox est vide</p>
+                    <p className="text-xs text-neutral-500 mt-0.5">Votre Inbox est vide</p>
                   </div>
                 ) : (
                   <AnimatePresence>
@@ -2903,9 +2816,9 @@ export function Dashboard({
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, x: -50 }}
-                        className="p-3.5 bg-neutral-50 dark:bg-white/[0.03] rounded-2xl border border-border"
+                        className="p-3 bg-neutral-50 dark:bg-white/[0.03] rounded-2xl border border-border dark:border-white/[0.08]"
                       >
-                        <div className="flex items-center justify-between gap-3 mb-2.5">
+                        <div className="flex items-center justify-between gap-3 mb-2">
                           <div className="min-w-0 flex-1">
                             <div className="font-medium text-sm text-foreground truncate" title={tx.name}>{tx.name}</div>
                             <div className="text-xs text-neutral-500 mt-0.5">{tx.date}</div>
@@ -3046,52 +2959,20 @@ export function Dashboard({
                   ))}
                 </div>
 
-                {/* Badge(s) de filtre / recherche actif avec bouton de réinitialisation */}
-                {(drawerFilter !== "all" || drawerSearch.trim() !== "") && (
+                {/* Badge de recherche actif */}
+                {drawerSearch.trim() !== "" && (
                   <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                    {drawerFilter !== "all" && (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-black/5 dark:bg-white/[0.08] text-foreground border border-black/10 dark:border-white/10 font-sans">
-                        <span>Filtre : {
-                          drawerFilter === "sub" ? "Abonnements" :
-                          drawerFilter === "debit" ? "Dépenses" :
-                          drawerFilter === "credit" ? "Revenus" :
-                          drawerFilter === "transfer" ? "Virements" : drawerFilter
-                        }</span>
-                        <button
-                          type="button"
-                          onClick={() => setDrawerFilter("all")}
-                          className="text-neutral-400 hover:text-foreground transition-colors p-0.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer"
-                          title="Réinitialiser le filtre"
-                        >
-                          <X size={12} />
-                        </button>
-                      </span>
-                    )}
-                    {drawerSearch.trim() !== "" && (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-black/5 dark:bg-white/[0.08] text-foreground border border-black/10 dark:border-white/10 font-sans max-w-[280px]">
-                        <span className="truncate">Recherche : {drawerSearch.trim()}</span>
-                        <button
-                          type="button"
-                          onClick={() => setDrawerSearch("")}
-                          className="text-neutral-400 hover:text-foreground transition-colors p-0.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer shrink-0"
-                          title="Effacer la recherche"
-                        >
-                          <X size={12} />
-                        </button>
-                      </span>
-                    )}
-                    {(drawerFilter !== "all" && drawerSearch.trim() !== "") && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-black/5 dark:bg-white/[0.08] text-foreground border border-black/10 dark:border-white/10 font-sans max-w-[280px]">
+                      <span className="truncate">Recherche : {drawerSearch.trim()}</span>
                       <button
                         type="button"
-                        onClick={() => {
-                          setDrawerFilter("all");
-                          setDrawerSearch("");
-                        }}
-                        className="text-[11px] text-neutral-400 hover:text-foreground transition-colors cursor-pointer font-sans underline underline-offset-2 ml-1"
+                        onClick={() => setDrawerSearch("")}
+                        className="text-neutral-400 hover:text-foreground transition-colors p-0.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer shrink-0"
+                        title="Effacer la recherche"
                       >
-                        Tout effacer
+                        <X size={12} />
                       </button>
-                    )}
+                    </span>
                   </div>
                 )}
               </div>

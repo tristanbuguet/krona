@@ -6,8 +6,10 @@ import { parseBankCsvFile, BankType, NormalizedTransaction } from "@/lib/bankPar
 
 export function CSVUploader({
   onUpload,
+  onStart,
 }: {
   onUpload: (data: NormalizedTransaction[]) => void;
+  onStart?: () => void;
 }) {
   const selectedBankRef = useRef<BankType | undefined>(undefined);
 
@@ -15,6 +17,7 @@ export function CSVUploader({
     async (acceptedFiles: File[]) => {
       const file = acceptedFiles[0];
       if (file) {
+        if (onStart) onStart();
         try {
           const bank = selectedBankRef.current || (typeof window !== "undefined" ? (localStorage.getItem("krona_selected_bank") as BankType) || undefined : undefined);
           const result = await parseBankCsvFile(file, bank);
@@ -26,7 +29,7 @@ export function CSVUploader({
         }
       }
     },
-    [onUpload]
+    [onUpload, onStart]
   );
 
   const { getInputProps, open } = useDropzone({
@@ -51,7 +54,15 @@ export function CSVUploader({
 
   return (
     <div className="hidden">
-      <input {...getInputProps()} />
+      <input 
+        {...getInputProps({
+          onChange: (e: any) => {
+            if (e.target.files && e.target.files.length > 0) {
+              onStart?.();
+            }
+          }
+        })} 
+      />
     </div>
   );
 }

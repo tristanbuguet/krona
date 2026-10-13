@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
+import { motion } from "framer-motion";
 import { SlidersHorizontal } from "lucide-react";
 import clsx from "clsx";
 
@@ -132,79 +133,106 @@ export function RealDisposableIncomeCard({
 
   return (
     <div className={clsx(
-      "bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col justify-between p-3.5 sm:p-4 transition-all duration-200 overflow-hidden",
+      "bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col justify-between p-3 sm:p-3.5 xl:p-4 transition-all duration-200 overflow-hidden",
       className
     )}>
-      {/* En-tête : Titre strictement aligné et action réglage harmonisée avec les standards du site */}
-      <div className="flex justify-between items-center shrink-0">
-        <div className="min-w-0 pr-2">
-          <h3 className="text-base font-semibold tracking-tight text-foreground font-sans truncate">
-            Budget de départ
-          </h3>
-        </div>
+      {/* En-tête : Titre à gauche, bouton pastille d'action à droite (identique au gabarit KPI) */}
+      <div className="flex justify-between items-start shrink-0">
+        <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
+          Budget de départ
+        </span>
 
-        <div className="shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0 ml-2">
           <button
             type="button"
             onClick={onOpenSettings}
-            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 hover:text-foreground dark:hover:text-white hover:border-black/20 dark:hover:border-white/[0.15] transition-all active:scale-95 cursor-pointer"
+            className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 hover:text-foreground dark:hover:text-white hover:border-black/20 dark:hover:border-white/[0.15] transition-all active:scale-95 cursor-pointer"
             title="Ajuster les charges incompressibles"
             aria-label="Ajuster les charges incompressibles"
           >
-            <SlidersHorizontal size={14} strokeWidth={2} />
+            <SlidersHorizontal size={13} strokeWidth={2} />
           </button>
         </div>
       </div>
 
-      {/* Contenu compact : Métrique & Jauge fine */}
-      <div className="mt-auto pt-1 sm:pt-2">
-        <div className="flex items-baseline justify-between mb-1">
-          <div className="flex items-baseline gap-1.5">
-            <span className={clsx(
-              "text-base sm:text-lg font-bold tracking-tight tabular-nums font-sans",
-              isHealthy ? "text-foreground" : "text-rose-500"
-            )}>
-              {disposableIncome.toFixed(0)} €
-            </span>
-            <span className="text-[11px] text-neutral-400 font-sans">pour vivre</span>
+      {/* Milieu : Chiffre clé et libellé associé */}
+      <div className="flex flex-col my-auto">
+        <div className="flex items-baseline justify-between gap-2">
+          <div className={clsx(
+            "text-xl sm:text-2xl xl:text-3xl font-semibold tracking-tight tabular-nums font-sans",
+            isHealthy ? "text-foreground" : "text-rose-500"
+          )}>
+            {disposableIncome.toFixed(0)} €
           </div>
-
-          <div className="text-right">
-            <span className="text-[11px] sm:text-xs font-medium text-neutral-400 tabular-nums font-sans">
-              {fixedRatio} % engagés
-            </span>
-          </div>
+          <span className="text-[10px] sm:text-xs font-medium text-neutral-400 tabular-nums font-sans">
+            {fixedRatio}% engagés
+          </span>
         </div>
+        <div className="text-[10px] sm:text-xs font-medium text-neutral-400 font-sans truncate mt-0.5">
+          pour vivre · <span className="tabular-nums font-medium text-neutral-300 dark:text-neutral-300">{fixedBreakdown.total.toFixed(0)} €</span> de charges fixes
+        </div>
+      </div>
 
-        {/* Jauge fine proportionnelle style Apple */}
-        <div className="h-1 w-full bg-black/5 dark:bg-white/[0.06] rounded-full overflow-hidden flex">
+      {/* Bas de carte : Barre de progression segmentée (h-2 / h-2.5) avec découpe nette et coins arrondis */}
+      <div className="mt-2 sm:mt-2.5 w-full shrink-0">
+        <div className="w-full flex items-center gap-1.5 sm:gap-2 h-2 sm:h-2.5">
           {fixedBreakdown.rent > 0 && (
-            <div
-              style={{ width: `${Math.min(100, (fixedBreakdown.rent / baseIncome) * 100)}%` }}
-              className="h-full bg-neutral-900 dark:bg-white transition-all duration-500"
-              title={`Loyer : ${fixedBreakdown.rent.toFixed(0)} €`}
+            <motion.div
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ type: "spring", stiffness: 90, damping: 20 }}
+              style={{ flex: `${fixedBreakdown.rent} 1 0%` }}
+              className="h-full rounded-full min-w-[8px] bg-neutral-900 dark:bg-white origin-left transition-colors"
+              title={`Loyer & Logement : ${fixedBreakdown.rent.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.rent / baseIncome) * 100) : 0} %)`}
             />
           )}
           {fixedBreakdown.loans > 0 && (
-            <div
-              style={{ width: `${Math.min(100, (fixedBreakdown.loans / baseIncome) * 100)}%` }}
-              className="h-full bg-neutral-600 dark:bg-neutral-300 border-l border-card transition-all duration-500"
-              title={`Prêt : ${fixedBreakdown.loans.toFixed(0)} €`}
+            <motion.div
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ type: "spring", stiffness: 90, damping: 20 }}
+              style={{ flex: `${fixedBreakdown.loans} 1 0%` }}
+              className="h-full rounded-full min-w-[8px] bg-neutral-600 dark:bg-neutral-300 origin-left transition-colors"
+              title={`Emprunts & Crédits : ${fixedBreakdown.loans.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.loans / baseIncome) * 100) : 0} %)`}
             />
           )}
           {fixedBreakdown.subscriptions > 0 && (
-            <div
-              style={{ width: `${Math.min(100, (fixedBreakdown.subscriptions / baseIncome) * 100)}%` }}
-              className="h-full bg-neutral-400 dark:bg-neutral-400 border-l border-card transition-all duration-500"
-              title={`Abonnements : ${fixedBreakdown.subscriptions.toFixed(0)} €`}
+            <motion.div
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ type: "spring", stiffness: 90, damping: 20 }}
+              style={{ flex: `${fixedBreakdown.subscriptions} 1 0%` }}
+              className="h-full rounded-full min-w-[8px] bg-neutral-400 dark:bg-neutral-400 origin-left transition-colors"
+              title={`Abonnements récurrents : ${fixedBreakdown.subscriptions.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.subscriptions / baseIncome) * 100) : 0} %)`}
             />
           )}
           {fixedBreakdown.regularUtilities > 0 && (
-            <div
-              style={{ width: `${Math.min(100, (fixedBreakdown.regularUtilities / baseIncome) * 100)}%` }}
-              className="h-full bg-neutral-300 dark:bg-neutral-500 border-l border-card transition-all duration-500"
-              title={`Prélèvements : ${fixedBreakdown.regularUtilities.toFixed(0)} €`}
+            <motion.div
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ type: "spring", stiffness: 90, damping: 20 }}
+              style={{ flex: `${fixedBreakdown.regularUtilities} 1 0%` }}
+              className="h-full rounded-full min-w-[8px] bg-neutral-300 dark:bg-neutral-500 origin-left transition-colors"
+              title={`Charges & Factures : ${fixedBreakdown.regularUtilities.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.regularUtilities / baseIncome) * 100) : 0} %)`}
             />
+          )}
+          {disposableIncome > 0 && (
+            <div
+              style={{ flex: `${disposableIncome} 1 0%` }}
+              className="h-full rounded-full min-w-[12px] bg-black/5 dark:bg-white/[0.08] transition-colors"
+              title={`Reste disponible pour vivre : ${disposableIncome.toFixed(0)} € (${baseIncome > 0 ? Math.round((disposableIncome / baseIncome) * 100) : 0} %)`}
+            />
+          )}
+          {disposableIncome < 0 && (
+            <div
+              style={{ flex: `${Math.abs(disposableIncome)} 1 0%` }}
+              className="h-full rounded-full min-w-[8px] bg-rose-500"
+              title={`Dépassement du budget : ${Math.abs(disposableIncome).toFixed(0)} €`}
+            />
+          )}
+          {/* Si aucune charge et aucun revenu configuré, afficher le track vide neutre */}
+          {fixedBreakdown.total === 0 && disposableIncome <= 0 && (
+            <div className="h-full w-full rounded-full bg-black/5 dark:bg-white/[0.08]" />
           )}
         </div>
       </div>

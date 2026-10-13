@@ -1,72 +1,26 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback } from "react";
-import { Navbar } from "@/components/Navbar";
+import { Suspense, useState } from "react";
+import { Sidebar } from "@/components/Sidebar";
 import { Dashboard } from "@/components/Dashboard";
 
 export default function Home() {
-  const [hasRealData, setHasRealData] = useState(false);
-  const [showWelcomeModal, setShowWelcomeModal] = useState(true);
   const [activeTab, setActiveTab] = useState("dashboard");
 
-  useEffect(() => {
-    const checkData = () => {
-      const savedTx = localStorage.getItem('financeTransactions_v1');
-      if (savedTx) {
-        try {
-          const parsed = JSON.parse(savedTx);
-          const has = Boolean(parsed && parsed.length > 0);
-          setHasRealData(has);
-          if (has) {
-            setShowWelcomeModal(false);
-          }
-        } catch {
-          setHasRealData(false);
-        }
-      } else {
-        setHasRealData(false);
-      }
-    };
-
-    checkData();
-    window.addEventListener("finance-data-state", checkData);
-    return () => window.removeEventListener("finance-data-state", checkData);
-  }, []);
-
-  // When no real data has been imported, demo mode is active both under the blur and when modal is dismissed
-  const isDemoMode = !hasRealData;
-  const isBlurred = !hasRealData && showWelcomeModal;
-
-  const handleExitDemo = useCallback(() => {
-    setShowWelcomeModal(true);
-    setActiveTab("dashboard");
-    window.dispatchEvent(new CustomEvent("exit-demo-mode"));
-  }, []);
-
-  const handleDismissWelcome = useCallback(() => {
-    setShowWelcomeModal(false);
-    window.dispatchEvent(new CustomEvent("welcome-modal-state", { detail: { isOpen: false } }));
-  }, []);
-
   return (
-    <main className="h-screen w-screen overflow-hidden flex flex-col p-6 lg:p-10 box-border bg-[#0a0a0a] text-white">
-      <Navbar 
+    <main className="h-screen w-screen overflow-hidden flex flex-row p-3.5 sm:p-4 lg:p-5 gap-3.5 sm:gap-4 lg:gap-5 box-border bg-[#0a0a0a] text-white">
+      <Sidebar 
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        isDemoMode={isDemoMode} 
-        isBlurred={isBlurred} 
-        onExitDemo={handleExitDemo} 
       />
-      <Suspense fallback={null}>
-        <Dashboard 
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          isDemoMode={isDemoMode}
-          showWelcomeModal={isBlurred}
-          onDismissWelcome={handleDismissWelcome}
-          onExitDemo={handleExitDemo}
-        />
-      </Suspense>
+      <div className="flex-1 min-w-0 h-full overflow-hidden flex flex-col">
+        <Suspense fallback={null}>
+          <Dashboard 
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+          />
+        </Suspense>
+      </div>
     </main>
   );
 }
