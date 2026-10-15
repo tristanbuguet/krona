@@ -146,17 +146,17 @@ export function PaymentCardBanner({ className = "", onOpenSettings }: PaymentCar
     <>
       <div
         className={clsx(
-          "bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] p-4 sm:p-5 flex items-center justify-between gap-4 transition-all duration-200 shrink-0",
+          "bg-white dark:bg-card border border-black/[0.06] dark:border-border rounded-2xl shadow-sm p-4 sm:p-5 flex items-center justify-between gap-4 transition-all duration-200 shrink-0",
           className
         )}
       >
         {/* Partie gauche : Informations minimalistes */}
         <div className="flex flex-col justify-between h-full min-w-0 pr-2">
           <div>
-            <h3 className="text-base font-semibold tracking-tight text-foreground font-sans truncate">
+            <h3 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-white font-sans truncate">
               Votre carte
             </h3>
-            <div className="text-xs text-neutral-400 mt-0.5 font-sans truncate">
+            <div className="text-xs text-zinc-500 dark:text-neutral-400 mt-0.5 font-sans truncate">
               {selectedCard
                 ? `${selectedCard.bank} · ${selectedCard.accountType}`
                 : "Aucune carte configurée"}
@@ -169,10 +169,10 @@ export function PaymentCardBanner({ className = "", onOpenSettings }: PaymentCar
               <button
                 type="button"
                 onClick={handleCopy}
-                className="inline-flex items-center gap-1.5 text-foreground hover:text-foreground/80 transition-colors cursor-pointer select-none group/num"
+                className="inline-flex items-center gap-1.5 text-zinc-900 dark:text-white hover:opacity-80 transition-opacity cursor-pointer select-none group/num"
                 title="Cliquer pour copier les 4 chiffres"
               >
-                <span className="text-neutral-500 tracking-widest text-xs">••••</span>
+                <span className="text-zinc-400 dark:text-neutral-500 tracking-widest text-xs">••••</span>
                 <span className="font-semibold text-sm sm:text-base tracking-wider tabular-nums font-sans">
                   {selectedCard.last4}
                 </span>
@@ -181,14 +181,14 @@ export function PaymentCardBanner({ className = "", onOpenSettings }: PaymentCar
                     <Check size={12} strokeWidth={2.5} /> Copié
                   </span>
                 ) : (
-                  <Copy size={12} className="text-neutral-400 opacity-0 group-hover/num:opacity-100 transition-opacity ml-0.5" />
+                  <Copy size={12} className="text-zinc-400 dark:text-neutral-400 opacity-0 group-hover/num:opacity-100 transition-opacity ml-0.5" />
                 )}
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => setIsModalOpen(true)}
-                className="text-xs font-medium text-neutral-400 hover:text-foreground transition-colors cursor-pointer font-sans inline-flex items-center gap-1.5 select-none"
+                className="text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:text-neutral-400 dark:hover:text-foreground transition-colors cursor-pointer font-sans inline-flex items-center gap-1.5 select-none"
               >
                 <Plus size={13} strokeWidth={2.2} />
                 <span>Sélectionner un modèle</span>
@@ -202,13 +202,13 @@ export function PaymentCardBanner({ className = "", onOpenSettings }: PaymentCar
           /* 1. État initial vide (Placeholder pointillé) */
           <div
             onClick={() => setIsModalOpen(true)}
-            className="w-28 sm:w-32 lg:w-36 aspect-[1.586/1] rounded-xl border-2 border-dashed border-border/80 hover:border-foreground/40 bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-all flex flex-col items-center justify-center gap-1.5 cursor-pointer group/placeholder text-center p-2 shrink-0 select-none"
+            className="w-28 sm:w-32 lg:w-36 aspect-[1.586/1] rounded-xl border-2 border-dashed border-black/10 dark:border-border/80 hover:border-black/30 dark:hover:border-foreground/40 bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-all flex flex-col items-center justify-center gap-1.5 cursor-pointer group/placeholder text-center p-2 shrink-0 select-none"
             title="Cliquer pour ajouter ou sélectionner votre carte"
           >
-            <div className="w-6 h-6 rounded-full bg-black/5 dark:bg-white/[0.06] border border-black/5 dark:border-white/[0.08] flex items-center justify-center text-neutral-400 group-hover/placeholder:text-foreground transition-colors">
+            <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-white/[0.06] border border-black/[0.06] dark:border-white/[0.08] flex items-center justify-center text-zinc-500 group-hover/placeholder:text-zinc-900 dark:text-neutral-400 dark:group-hover/placeholder:text-foreground transition-colors">
               <Plus size={14} strokeWidth={2.2} />
             </div>
-            <span className="text-[10px] font-medium text-neutral-400 group-hover/placeholder:text-foreground transition-colors font-sans leading-tight">
+            <span className="text-[10px] font-medium text-zinc-500 group-hover/placeholder:text-zinc-900 dark:text-neutral-400 dark:group-hover/placeholder:text-foreground transition-colors font-sans leading-tight">
               Ajouter une carte
             </span>
           </div>

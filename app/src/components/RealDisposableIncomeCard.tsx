@@ -133,12 +133,12 @@ export function RealDisposableIncomeCard({
 
   return (
     <div className={clsx(
-      "bg-card border border-border rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] flex flex-col justify-between p-3 sm:p-3.5 xl:p-4 transition-all duration-200 overflow-hidden",
+      "bg-white dark:bg-zinc-900/50 border border-black/[0.06] dark:border-white/[0.08] rounded-2xl shadow-sm flex flex-col justify-between p-3 sm:p-3.5 xl:p-4 transition-all duration-200 overflow-hidden",
       className
     )}>
       {/* En-tête : Titre à gauche, bouton pastille d'action à droite (identique au gabarit KPI) */}
       <div className="flex justify-between items-start shrink-0">
-        <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
+        <span className="text-xs sm:text-sm font-medium text-zinc-500 dark:text-neutral-400 font-sans truncate">
           Budget de départ
         </span>
 
@@ -146,7 +146,7 @@ export function RealDisposableIncomeCard({
           <button
             type="button"
             onClick={onOpenSettings}
-            className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 hover:text-foreground dark:hover:text-white hover:border-black/20 dark:hover:border-white/[0.15] transition-all active:scale-95 cursor-pointer"
+            className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/[0.08] transition-all active:scale-95 cursor-pointer"
             title="Ajuster les charges incompressibles"
             aria-label="Ajuster les charges incompressibles"
           >
@@ -160,16 +160,16 @@ export function RealDisposableIncomeCard({
         <div className="flex items-baseline justify-between gap-2">
           <div className={clsx(
             "text-xl sm:text-2xl xl:text-3xl font-semibold tracking-tight tabular-nums font-sans",
-            isHealthy ? "text-foreground" : "text-rose-500"
+            isHealthy ? "text-zinc-900 dark:text-white" : "text-rose-500"
           )}>
             {disposableIncome.toFixed(0)} €
           </div>
-          <span className="text-[10px] sm:text-xs font-medium text-neutral-400 tabular-nums font-sans">
+          <span className="text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-neutral-400 tabular-nums font-sans">
             {fixedRatio}% engagés
           </span>
         </div>
-        <div className="text-[10px] sm:text-xs font-medium text-neutral-400 font-sans truncate mt-0.5">
-          pour vivre · <span className="tabular-nums font-medium text-neutral-300 dark:text-neutral-300">{fixedBreakdown.total.toFixed(0)} €</span> de charges fixes
+        <div className="text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-neutral-400 font-sans truncate mt-0.5">
+          pour vivre · <span className="tabular-nums font-medium text-zinc-700 dark:text-neutral-300">{fixedBreakdown.total.toFixed(0)} €</span> de charges fixes
         </div>
       </div>
 
@@ -182,7 +182,7 @@ export function RealDisposableIncomeCard({
               animate={{ scaleX: 1 }}
               transition={{ type: "spring", stiffness: 90, damping: 20 }}
               style={{ flex: `${fixedBreakdown.rent} 1 0%` }}
-              className="h-full rounded-full min-w-[8px] bg-neutral-900 dark:bg-white origin-left transition-colors"
+              className="h-full rounded-full min-w-[8px] bg-zinc-900 dark:bg-white origin-left transition-colors"
               title={`Loyer & Logement : ${fixedBreakdown.rent.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.rent / baseIncome) * 100) : 0} %)`}
             />
           )}
@@ -192,7 +192,7 @@ export function RealDisposableIncomeCard({
               animate={{ scaleX: 1 }}
               transition={{ type: "spring", stiffness: 90, damping: 20 }}
               style={{ flex: `${fixedBreakdown.loans} 1 0%` }}
-              className="h-full rounded-full min-w-[8px] bg-neutral-600 dark:bg-neutral-300 origin-left transition-colors"
+              className="h-full rounded-full min-w-[8px] bg-zinc-700 dark:bg-neutral-300 origin-left transition-colors"
               title={`Emprunts & Crédits : ${fixedBreakdown.loans.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.loans / baseIncome) * 100) : 0} %)`}
             />
           )}
@@ -202,7 +202,7 @@ export function RealDisposableIncomeCard({
               animate={{ scaleX: 1 }}
               transition={{ type: "spring", stiffness: 90, damping: 20 }}
               style={{ flex: `${fixedBreakdown.subscriptions} 1 0%` }}
-              className="h-full rounded-full min-w-[8px] bg-neutral-400 dark:bg-neutral-400 origin-left transition-colors"
+              className="h-full rounded-full min-w-[8px] bg-zinc-500 dark:bg-neutral-400 origin-left transition-colors"
               title={`Abonnements récurrents : ${fixedBreakdown.subscriptions.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.subscriptions / baseIncome) * 100) : 0} %)`}
             />
           )}
@@ -212,14 +212,14 @@ export function RealDisposableIncomeCard({
               animate={{ scaleX: 1 }}
               transition={{ type: "spring", stiffness: 90, damping: 20 }}
               style={{ flex: `${fixedBreakdown.regularUtilities} 1 0%` }}
-              className="h-full rounded-full min-w-[8px] bg-neutral-300 dark:bg-neutral-500 origin-left transition-colors"
+              className="h-full rounded-full min-w-[8px] bg-zinc-300 dark:bg-neutral-500 origin-left transition-colors"
               title={`Charges & Factures : ${fixedBreakdown.regularUtilities.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.regularUtilities / baseIncome) * 100) : 0} %)`}
             />
           )}
           {disposableIncome > 0 && (
             <div
               style={{ flex: `${disposableIncome} 1 0%` }}
-              className="h-full rounded-full min-w-[12px] bg-black/5 dark:bg-white/[0.08] transition-colors"
+              className="h-full rounded-full min-w-[12px] bg-zinc-200 dark:bg-zinc-800 transition-colors"
               title={`Reste disponible pour vivre : ${disposableIncome.toFixed(0)} € (${baseIncome > 0 ? Math.round((disposableIncome / baseIncome) * 100) : 0} %)`}
             />
           )}
@@ -232,7 +232,7 @@ export function RealDisposableIncomeCard({
           )}
           {/* Si aucune charge et aucun revenu configuré, afficher le track vide neutre */}
           {fixedBreakdown.total === 0 && disposableIncome <= 0 && (
-            <div className="h-full w-full rounded-full bg-black/5 dark:bg-white/[0.08]" />
+            <div className="h-full w-full rounded-full bg-zinc-200 dark:bg-zinc-800" />
           )}
         </div>
       </div>

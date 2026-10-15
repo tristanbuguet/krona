@@ -158,7 +158,7 @@ export function TransactionsView({
         <button
           type="button"
           onClick={exportFilteredCSV}
-          className="h-9 px-3.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-xs font-medium text-white flex items-center gap-2 transition-all active:scale-95 cursor-pointer font-sans"
+          className="h-9 px-3.5 rounded-full bg-white dark:bg-white/[0.06] hover:bg-black/5 dark:hover:bg-white/[0.1] border border-black/[0.08] dark:border-white/10 text-xs font-medium text-zinc-900 dark:text-white flex items-center gap-2 transition-all active:scale-95 cursor-pointer font-sans shadow-xs"
           title="Exporter en CSV"
         >
           <Download size={14} />
@@ -167,25 +167,25 @@ export function TransactionsView({
       </PageHeader>
 
       {/* Encapsulated Main Card */}
-      <div className="flex-1 flex flex-col min-h-0 rounded-2xl border border-white/10 bg-[#121212] overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-0 rounded-2xl border border-black/[0.06] dark:border-white/10 bg-white dark:bg-[#121212] shadow-sm overflow-hidden">
         {/* Controls Bar: Search & Quick Filters (Fixed inside top of card) */}
-        <div className="shrink-0 p-4 border-b border-white/5 space-y-3 bg-[#121212]">
+        <div className="shrink-0 p-4 border-b border-black/[0.06] dark:border-white/5 space-y-3 bg-white dark:bg-[#121212]">
           <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
             {/* Instant Search Bar */}
             <div className="relative flex-1">
-              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-neutral-400" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Rechercher par marchand, montant ou catégorie..."
-                className="w-full h-9 pl-9 pr-8 rounded-full bg-white/[0.04] border border-white/10 text-sm text-white placeholder:text-neutral-500 outline-none focus:border-white/30 focus-visible:ring-2 focus-visible:ring-white/20 transition-all font-sans"
+                className="w-full h-9 pl-9 pr-8 rounded-full bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.08] dark:border-white/10 text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-neutral-500 outline-none focus:border-zinc-400 dark:focus:border-white/30 focus-visible:ring-2 focus-visible:ring-black/5 dark:focus-visible:ring-white/20 transition-all font-sans"
               />
               {search && (
                 <button
                   type="button"
                   onClick={() => setSearch("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white p-1 cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-900 dark:text-neutral-400 dark:hover:text-white p-1 cursor-pointer"
                 >
                   <X size={14} />
                 </button>
@@ -199,14 +199,14 @@ export function TransactionsView({
                 <select
                   value={selectedCategory}
                   onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="h-9 appearance-none bg-white/[0.04] border border-white/10 text-white text-xs font-medium pl-3.5 pr-8 rounded-full outline-none hover:border-white/30 focus-visible:ring-2 focus-visible:ring-white/20 cursor-pointer font-sans"
+                  className="h-9 appearance-none bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.08] dark:border-white/10 text-zinc-900 dark:text-white text-xs font-medium pl-3.5 pr-8 rounded-full outline-none hover:border-zinc-400 dark:hover:border-white/30 focus-visible:ring-2 focus-visible:ring-black/5 dark:focus-visible:ring-white/20 cursor-pointer font-sans"
                 >
-                  <option value="all" className="bg-[#18181b] text-white">Toutes les catégories</option>
+                  <option value="all" className="bg-white dark:bg-[#18181b] text-zinc-900 dark:text-white">Toutes les catégories</option>
                   {OFFICIAL_CATEGORIES.map(c => (
-                    <option key={c} value={c} className="bg-[#18181b] text-white">{c}</option>
+                    <option key={c} value={c} className="bg-white dark:bg-[#18181b] text-zinc-900 dark:text-white">{c}</option>
                   ))}
                 </select>
-                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
+                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-neutral-400 pointer-events-none" />
               </div>
 
               {/* Account Select */}
@@ -215,14 +215,14 @@ export function TransactionsView({
                   <select
                     value={selectedAccount}
                     onChange={(e) => setSelectedAccount(e.target.value)}
-                    className="h-9 appearance-none bg-white/[0.04] border border-white/10 text-white text-xs font-medium pl-3.5 pr-8 rounded-full outline-none hover:border-white/30 focus-visible:ring-2 focus-visible:ring-white/20 cursor-pointer font-sans"
+                    className="h-9 appearance-none bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.08] dark:border-white/10 text-zinc-900 dark:text-white text-xs font-medium pl-3.5 pr-8 rounded-full outline-none hover:border-zinc-400 dark:hover:border-white/30 focus-visible:ring-2 focus-visible:ring-black/5 dark:focus-visible:ring-white/20 cursor-pointer font-sans"
                   >
-                    <option value="all" className="bg-[#18181b] text-white">Tous les comptes</option>
+                    <option value="all" className="bg-white dark:bg-[#18181b] text-zinc-900 dark:text-white">Tous les comptes</option>
                     {accounts.map(acc => (
-                      <option key={acc} value={acc} className="bg-[#18181b] text-white">{acc}</option>
+                      <option key={acc} value={acc} className="bg-white dark:bg-[#18181b] text-zinc-900 dark:text-white">{acc}</option>
                     ))}
                   </select>
-                  <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
+                  <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-neutral-400 pointer-events-none" />
                 </div>
               )}
 
@@ -232,21 +232,21 @@ export function TransactionsView({
                   <select
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="h-9 appearance-none bg-white/[0.04] border border-white/10 text-white text-xs font-medium pl-3.5 pr-8 rounded-full outline-none hover:border-white/30 focus-visible:ring-2 focus-visible:ring-white/20 cursor-pointer font-sans"
+                    className="h-9 appearance-none bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.08] dark:border-white/10 text-zinc-900 dark:text-white text-xs font-medium pl-3.5 pr-8 rounded-full outline-none hover:border-zinc-400 dark:hover:border-white/30 focus-visible:ring-2 focus-visible:ring-black/5 dark:focus-visible:ring-white/20 cursor-pointer font-sans"
                   >
-                    <option value="all" className="bg-[#18181b] text-white">Toutes les dates</option>
+                    <option value="all" className="bg-white dark:bg-[#18181b] text-zinc-900 dark:text-white">Toutes les dates</option>
                     {months.map(m => (
-                      <option key={m} value={m} className="bg-[#18181b] text-white">{formatMonthLabel(m)}</option>
+                      <option key={m} value={m} className="bg-white dark:bg-[#18181b] text-zinc-900 dark:text-white">{formatMonthLabel(m)}</option>
                     ))}
                   </select>
-                  <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
+                  <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-neutral-400 pointer-events-none" />
                 </div>
               )}
             </div>
           </div>
 
           {/* Filter Pills (All, Debit, Credit, Subs, Transfers) & Metrics */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-white/5">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-black/[0.06] dark:border-white/5">
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
               {[
                 { id: "all", label: "Tout" },
@@ -261,8 +261,8 @@ export function TransactionsView({
                   onClick={() => setSelectedType(pill.id as any)}
                   className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer font-sans select-none ${
                     selectedType === pill.id
-                      ? "bg-white text-black font-semibold"
-                      : "bg-white/[0.04] text-neutral-400 hover:text-white"
+                      ? "bg-zinc-900 text-white dark:bg-white dark:text-black font-semibold shadow-xs"
+                      : "bg-black/[0.04] dark:bg-white/[0.04] text-zinc-600 dark:text-neutral-400 hover:text-zinc-900 dark:hover:text-white"
                   }`}
                 >
                   {pill.label}
@@ -271,16 +271,16 @@ export function TransactionsView({
             </div>
 
             {/* Quick summary stats */}
-            <div className="flex items-center gap-4 text-xs font-sans text-neutral-400">
+            <div className="flex items-center gap-4 text-xs font-sans text-zinc-500 dark:text-neutral-400">
               <span className="tabular-nums">
-                <strong className="text-white font-medium">{stats.count}</strong> opération{stats.count > 1 ? "s" : ""}
+                <strong className="text-zinc-900 dark:text-white font-medium">{stats.count}</strong> opération{stats.count > 1 ? "s" : ""}
               </span>
-              <span className="hidden md:inline text-white/20">|</span>
+              <span className="hidden md:inline text-black/10 dark:text-white/20">|</span>
               <span className="hidden md:inline tabular-nums">
-                Débits : <span className="text-white font-semibold">-{stats.totalDebit.toFixed(2)} €</span>
+                Débits : <span className="text-zinc-900 dark:text-white font-semibold">-{stats.totalDebit.toFixed(2)} €</span>
               </span>
               <span className="hidden md:inline tabular-nums">
-                Crédits : <span className="text-emerald-400 font-semibold">+{stats.totalCredit.toFixed(2)} €</span>
+                Crédits : <span className="text-emerald-600 dark:text-emerald-400 font-semibold">+{stats.totalCredit.toFixed(2)} €</span>
               </span>
             </div>
           </div>
@@ -289,7 +289,7 @@ export function TransactionsView({
         {/* Scrollable Table Area */}
         <div className="flex-1 overflow-y-auto min-h-0">
           <table className="w-full text-left border-collapse">
-            <thead className="sticky top-0 bg-[#121212] z-10 border-b border-white/10 text-[11px] font-semibold text-neutral-400 uppercase tracking-wider font-sans">
+            <thead className="sticky top-0 bg-[#F9F9FB] dark:bg-[#121212] z-10 border-b border-black/[0.06] dark:border-white/10 text-[11px] font-semibold text-zinc-500 dark:text-neutral-400 uppercase tracking-wider font-sans">
               <tr>
                 <th className="py-3 px-6 font-semibold w-28 sm:w-32">Date</th>
                 <th className="py-3 px-6 font-semibold">Opération / Marchand</th>
@@ -298,13 +298,13 @@ export function TransactionsView({
                 <th className="py-3 px-6 font-semibold text-right w-32">Montant</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5 font-sans text-xs sm:text-sm">
+            <tbody className="divide-y divide-black/[0.04] dark:divide-white/5 font-sans text-xs sm:text-sm">
               {displayedTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-16 text-center text-neutral-400 font-sans">
-                    <SlidersHorizontal className="w-8 h-8 mx-auto mb-3 opacity-30 text-white" />
-                    <p className="text-sm font-medium text-white">Aucune opération trouvée</p>
-                    <p className="text-xs mt-1 text-neutral-500">Essayez de modifier vos filtres ou votre recherche</p>
+                  <td colSpan={5} className="py-16 text-center text-zinc-500 dark:text-neutral-400 font-sans">
+                    <SlidersHorizontal className="w-8 h-8 mx-auto mb-3 opacity-30 text-zinc-900 dark:text-white" />
+                    <p className="text-sm font-medium text-zinc-900 dark:text-white">Aucune opération trouvée</p>
+                    <p className="text-xs mt-1 text-zinc-500 dark:text-neutral-500">Essayez de modifier vos filtres ou votre recherche</p>
                   </td>
                 </tr>
               ) : (
@@ -316,23 +316,23 @@ export function TransactionsView({
                   return (
                     <tr
                       key={tx.id}
-                      className="hover:bg-white/[0.02] transition-colors group"
+                      className="hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors group"
                     >
                       {/* 1. Date */}
-                      <td className="py-3 px-6 text-neutral-400 tabular-nums text-xs whitespace-nowrap">
+                      <td className="py-3 px-6 text-zinc-500 dark:text-neutral-400 tabular-nums text-xs whitespace-nowrap">
                         {tx.date}
                       </td>
 
                       {/* 2. Merchant & Flags */}
                       <td className="py-3 px-6">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-semibold text-white truncate" title={tx.name}>
+                          <span className="font-semibold text-zinc-900 dark:text-white truncate" title={tx.name}>
                             {tx.name}
                           </span>
                           {tx.isSubscription && (
                             <span 
                               title="Abonnement récurrent" 
-                              className="px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 text-[10px] shrink-0 flex items-center gap-0.5"
+                              className="px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 text-[10px] shrink-0 flex items-center gap-0.5"
                             >
                               <Repeat size={10} />
                               <span className="hidden xl:inline">Abo</span>
@@ -341,7 +341,7 @@ export function TransactionsView({
                           {tx.isInternalTransfer && (
                             <span 
                               title="Virement interne / Épargne" 
-                              className="px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[10px] shrink-0 flex items-center gap-0.5"
+                              className="px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] shrink-0 flex items-center gap-0.5"
                             >
                               <ArrowRightLeft size={10} />
                               <span className="hidden xl:inline">Virement</span>
@@ -359,10 +359,10 @@ export function TransactionsView({
                               value={tx.type}
                               onChange={(e) => handleCategoryChange(tx.id, tx.name, e.target.value)}
                               onBlur={() => setEditingTxId(null)}
-                              className="w-full h-8 text-xs font-medium bg-[#1c1c1f] border border-white/20 rounded-lg px-2 text-white outline-none shadow-lg cursor-pointer"
+                              className="w-full h-8 text-xs font-medium bg-white dark:bg-[#1c1c1f] border border-black/[0.12] dark:border-white/20 rounded-lg px-2 text-zinc-900 dark:text-white outline-none shadow-lg cursor-pointer"
                             >
                               {OFFICIAL_CATEGORIES.map(cat => (
-                                <option key={cat} value={cat}>{cat}</option>
+                                <option key={cat} value={cat} className="bg-white dark:bg-[#1c1c1f] text-zinc-900 dark:text-white">{cat}</option>
                               ))}
                             </select>
                           </div>
@@ -370,7 +370,7 @@ export function TransactionsView({
                           <button
                             type="button"
                             onClick={() => setEditingTxId(tx.id)}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all hover:ring-1 hover:ring-white/20 cursor-pointer max-w-full ${catColor.bgSoft} ${catColor.textSoft}`}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all hover:ring-1 hover:ring-black/10 dark:hover:ring-white/20 cursor-pointer max-w-full ${catColor.bgSoft} ${catColor.textSoft}`}
                             title="Cliquer pour réassigner la catégorie"
                           >
                             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${catColor.dot}`} />
@@ -380,8 +380,8 @@ export function TransactionsView({
                       </td>
 
                       {/* 4. Bank Account */}
-                      <td className="hidden sm:table-cell py-3 px-6 text-neutral-400 text-xs whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.08] text-[11px] text-neutral-300">
+                      <td className="hidden sm:table-cell py-3 px-6 text-zinc-500 dark:text-neutral-400 text-xs whitespace-nowrap">
+                        <span className="px-2 py-0.5 rounded-md bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-[11px] text-zinc-600 dark:text-neutral-300">
                           {tx.account || "BoursoBank"}
                         </span>
                       </td>
@@ -389,7 +389,7 @@ export function TransactionsView({
                       {/* 5. Amount */}
                       <td className="py-3 px-6 text-right whitespace-nowrap">
                         <span className={`font-semibold tabular-nums text-xs sm:text-sm ${
-                          isPositive ? "text-emerald-400" : "text-white"
+                          isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-900 dark:text-white"
                         }`}>
                           {formatAmount(tx.amount)}
                         </span>
@@ -403,11 +403,11 @@ export function TransactionsView({
 
           {/* Pagination / Load more */}
           {filteredTransactions.length > pageSize && (
-            <div className="p-4 border-t border-white/5 flex justify-center bg-[#121212]">
+            <div className="p-4 border-t border-black/[0.06] dark:border-white/5 flex justify-center bg-[#F9F9FB] dark:bg-[#121212]">
               <button
                 type="button"
                 onClick={() => setPageSize(prev => prev + 50)}
-                className="px-5 py-2 rounded-full bg-white/[0.06] hover:bg-white/[0.1] text-xs font-medium text-white transition-all active:scale-95 cursor-pointer font-sans"
+                className="px-5 py-2 rounded-full bg-black/5 hover:bg-black/10 dark:bg-white/[0.06] dark:hover:bg-white/[0.1] text-xs font-medium text-zinc-900 dark:text-white border border-black/[0.06] dark:border-transparent transition-all active:scale-95 cursor-pointer font-sans"
               >
                 Afficher plus ({filteredTransactions.length - pageSize} restantes)
               </button>

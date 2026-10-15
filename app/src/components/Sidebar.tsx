@@ -86,12 +86,23 @@ export function Sidebar({
   // Avoid hydration mismatch by only rendering theme toggle after mount
   useEffect(() => setMounted(true), []);
 
+  const [isInboxOpen, setIsInboxOpen] = useState(false);
+
   useEffect(() => {
     const handleInboxCount = (e: any) => {
       setInboxCount(e.detail.count);
     };
+    const handleInboxState = (e: any) => {
+      if (typeof e.detail?.isOpen === "boolean") {
+        setIsInboxOpen(e.detail.isOpen);
+      }
+    };
     window.addEventListener("update-inbox-count", handleInboxCount);
-    return () => window.removeEventListener("update-inbox-count", handleInboxCount);
+    window.addEventListener("krona-inbox-state-changed", handleInboxState);
+    return () => {
+      window.removeEventListener("update-inbox-count", handleInboxCount);
+      window.removeEventListener("krona-inbox-state-changed", handleInboxState);
+    };
   }, []);
 
   const dateObj = mounted ? new Date() : null;
@@ -103,21 +114,21 @@ export function Sidebar({
   return (
     <aside 
       aria-label="Navigation latérale"
-      className="w-11 shrink-0 flex flex-col justify-between items-center h-full select-none z-30"
+      className="w-12 shrink-0 flex flex-col justify-between items-center h-full select-none z-30"
     >
       {/* Haut de la sidebar : Logo Krona + Navigation & Bulle de la Banque */}
       <div className="flex flex-col items-center w-full shrink-0">
         {/* Logo SVG Krona (aligné horizontalement sur la ligne médiane du titre de page) */}
-        <div className="w-11 h-9 flex items-center justify-center shrink-0">
-          <KronaLogo className="w-6 h-6 text-foreground" />
+        <div className="w-12 h-9 flex items-center justify-center shrink-0">
+          <KronaLogo className="w-6 h-6 text-zinc-900 dark:text-foreground" />
         </div>
 
         {/* Bloc de navigation décalé vers le bas pour démarrer à la même hauteur que le haut des cartes KPI */}
         <div className="mt-2.5 flex flex-col items-center gap-2 w-full shrink-0">
-          {/* Bloc de navigation principale (icônes uniquement, verticalisées) */}
+          {/* Bloc de navigation principale (icônes uniquement, verticalisées en capsule dock) */}
           <nav 
             aria-label="Onglets principaux"
-            className="w-11 flex flex-col items-center bg-card/60 backdrop-blur-2xl backdrop-saturate-150 shadow-sm border border-border rounded-full p-1 gap-1 relative shrink-0"
+            className="w-12 flex flex-col items-center bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 shadow-sm border border-black/[0.06] dark:border-border rounded-full p-1 gap-1.5 relative shrink-0"
           >
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -133,10 +144,10 @@ export function Sidebar({
                     window.dispatchEvent(new CustomEvent("navigate-tab", { detail: { tab: item.id } }));
                   }}
                   className={clsx(
-                    "relative w-9 h-9 rounded-full flex items-center justify-center outline-none cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 transition-colors",
+                    "relative w-10 h-10 rounded-full flex items-center justify-center outline-none cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 transition-all duration-200 ease-out",
                     isActive 
-                      ? "text-background" 
-                      : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08]"
+                      ? "text-zinc-900" 
+                      : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
                   )}
                   title={item.label}
                   aria-label={item.label}
@@ -144,11 +155,18 @@ export function Sidebar({
                   {isActive && (
                     <motion.div
                       layoutId="sidebar-pill"
-                      className="absolute inset-0 bg-foreground rounded-full shadow-sm"
-                      transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                      layout="position"
+                      className="absolute inset-0 w-10 h-10 bg-white shadow-sm rounded-full"
+                      style={{ borderRadius: 9999 }}
+                      transition={{ 
+                        type: "spring", 
+                        stiffness: 480, 
+                        damping: 38,
+                        mass: 0.8
+                      }}
                     />
                   )}
-                  <span className="relative z-10 flex items-center justify-center">
+                  <span className="relative z-10 flex items-center justify-center w-full h-full">
                     <Icon size={18} />
                   </span>
                 </motion.button>
@@ -156,20 +174,20 @@ export function Sidebar({
             })}
           </nav>
 
-          {/* Bulle / Pastille de la Banque sélectionnée (même largeur w-11 que le bloc de navigation) */}
-          <div className="relative w-11 h-11 shrink-0">
+          {/* Bulle / Pastille de la Banque sélectionnée (même largeur w-12 que le bloc de navigation) */}
+          <div className="relative w-12 h-12 shrink-0">
             <motion.button
               type="button"
               whileTap={{ scale: 0.94 }}
               onClick={() => setIsBankPopoverOpen(!isBankPopoverOpen)}
-              className="w-11 h-11 rounded-full bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer shadow-sm focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+              className="w-12 h-12 rounded-full bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-black/[0.06] dark:border-border flex items-center justify-center text-zinc-700 dark:text-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors cursor-pointer shadow-sm focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
               aria-label="Sélectionner la banque"
               title={`Banque active : ${selectedBank === "ca" ? "Crédit Agricole" : "BoursoBank"} (cliquer pour changer)`}
             >
               {selectedBank === "ca" ? (
-                <CreditAgricoleLogo className="w-5 h-5 text-foreground" />
+                <CreditAgricoleLogo className="w-5 h-5 text-zinc-900 dark:text-foreground" />
               ) : (
-                <BoursoBankLogo className="w-4 h-4 text-foreground" />
+                <BoursoBankLogo className="w-4 h-4 text-zinc-900 dark:text-foreground" />
               )}
             </motion.button>
 
@@ -187,7 +205,7 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Bas de la sidebar : Date verticale, Notifications, Thème, Paramètres, Profil */}
+      {/* Bas de la sidebar : Date verticale + Capsule Dock inférieure regroupant les 4 outils */}
       <div className="flex flex-col items-center gap-2 w-full shrink-0">
         {/* Date du jour verticale (format 100% numérique empilé JJ / MM / AA) */}
         {mounted ? (
@@ -196,13 +214,13 @@ export function Sidebar({
             title={dateFull}
             aria-label={`Date du jour : ${dayStr}/${monthStr}/${yearStr}`}
           >
-            <span className="text-[13px] font-semibold text-neutral-700 dark:text-neutral-200 tabular-nums leading-none">
+            <span className="text-[13px] font-semibold text-zinc-800 dark:text-white tabular-nums leading-none">
               {dayStr}
             </span>
-            <span className="text-[13px] font-semibold text-neutral-700 dark:text-neutral-200 tabular-nums leading-none">
+            <span className="text-[13px] font-semibold text-zinc-800 dark:text-white tabular-nums leading-none">
               {monthStr}
             </span>
-            <span className="text-[13px] font-semibold text-neutral-400 dark:text-neutral-400 tabular-nums leading-none">
+            <span className="text-[13px] font-semibold text-zinc-400 dark:text-neutral-400 tabular-nums leading-none">
               {yearStr}
             </span>
           </div>
@@ -210,64 +228,79 @@ export function Sidebar({
           <div className="h-[46px] w-full shrink-0 opacity-0" />
         )}
 
-        {/* Séparateur discret entre la date et les boutons d'actions */}
+        {/* Séparateur discret entre la date et le bouton de thème */}
         <div className="w-5 h-[1px] bg-black/10 dark:bg-white/10 shrink-0 my-0.5" aria-hidden="true" />
 
-        {/* 1. Notifications (avec badge) */}
-        <motion.button 
-          id="sidebar-bell-btn"
-          type="button"
-          whileTap={{ scale: 0.94 }} 
-          onClick={() => window.dispatchEvent(new CustomEvent("open-inbox"))}
-          className="relative w-9 h-9 rounded-full bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none shadow-sm"
-          aria-label="Notifications"
-          title="Notifications"
-        >
-          <Bell size={18} />
-          {inboxCount > 0 && (
-            <div className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-background shadow-sm" />
-          )}
-        </motion.button>
-
-        {/* 2. Basculeur de thème (Clair / Sombre) */}
+        {/* 1. Bouton de thème autonome (même gabarit w-12 h-12 et style que le bouton de banque active) */}
         {mounted ? (
+          <div className="relative w-12 h-12 shrink-0">
+            <motion.button 
+              type="button"
+              whileTap={{ scale: 0.94 }} 
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              className="w-12 h-12 rounded-full bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-black/[0.06] dark:border-border flex items-center justify-center text-zinc-700 dark:text-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors cursor-pointer shadow-sm focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+              aria-label="Basculer le thème"
+              title={theme === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}
+            >
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </motion.button>
+          </div>
+        ) : (
+          <div className="w-12 h-12 rounded-full opacity-0 shrink-0" />
+        )}
+
+        {/* 2. Capsule Dock inférieure (regroupant les 3 outils restants : Notifications, Paramètres, Profil) */}
+        <div 
+          role="toolbar"
+          aria-label="Outils et profil"
+          className="w-12 flex flex-col items-center bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 shadow-sm border border-black/[0.06] dark:border-border rounded-full p-1 gap-1.5 relative shrink-0"
+        >
+          {/* Notifications (avec badge) */}
+          <motion.button 
+            id="sidebar-bell-btn"
+            type="button"
+            whileTap={{ scale: 0.94 }} 
+            onClick={() => window.dispatchEvent(new CustomEvent("open-inbox"))}
+            className={clsx(
+              "relative w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0",
+              isInboxOpen
+                ? "bg-black/[0.08] dark:bg-white/10 text-zinc-900 dark:text-white"
+                : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/10"
+            )}
+            aria-label="Notifications"
+            title="Notifications"
+            aria-expanded={isInboxOpen}
+          >
+            <Bell size={18} />
+            {inboxCount > 0 && (
+              <div className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-background shadow-sm pointer-events-none" />
+            )}
+          </motion.button>
+
+          {/* Paramètres */}
           <motion.button 
             type="button"
             whileTap={{ scale: 0.94 }} 
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="w-9 h-9 rounded-full bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none shadow-sm"
-            aria-label="Basculer le thème"
-            title={theme === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}
+            onClick={() => window.dispatchEvent(new CustomEvent("open-settings"))}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0"
+            aria-label="Paramètres"
+            title="Paramètres"
           >
-            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            <Settings size={18} />
           </motion.button>
-        ) : (
-          <div className="w-9 h-9 rounded-full bg-card/60 border border-border opacity-0" />
-        )}
 
-        {/* 3. Paramètres */}
-        <motion.button 
-          type="button"
-          whileTap={{ scale: 0.94 }} 
-          onClick={() => window.dispatchEvent(new CustomEvent("open-settings"))}
-          className="w-9 h-9 rounded-full bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none shadow-sm"
-          aria-label="Paramètres"
-          title="Paramètres"
-        >
-          <Settings size={18} />
-        </motion.button>
-
-        {/* 4. Compte / Profil */}
-        <motion.button 
-          type="button"
-          whileTap={{ scale: 0.94 }} 
-          onClick={() => window.dispatchEvent(new CustomEvent("open-profile"))}
-          className="w-9 h-9 rounded-full bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-border flex items-center justify-center overflow-hidden text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-colors cursor-pointer group focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none shadow-sm"
-          aria-label="Profil utilisateur"
-          title="Profil"
-        >
-          <User size={18} className="text-muted-foreground group-hover:text-foreground transition-colors" />
-        </motion.button>
+          {/* Profil utilisateur */}
+          <motion.button 
+            type="button"
+            whileTap={{ scale: 0.94 }} 
+            onClick={() => window.dispatchEvent(new CustomEvent("open-profile"))}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer group outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0"
+            aria-label="Profil utilisateur"
+            title="Profil"
+          >
+            <User size={18} className="text-zinc-500 group-hover:text-zinc-900 dark:text-zinc-400 dark:group-hover:text-white transition-colors" />
+          </motion.button>
+        </div>
       </div>
     </aside>
   );

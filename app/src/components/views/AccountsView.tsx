@@ -220,7 +220,7 @@ export function AccountsView({
         <button
           type="button"
           onClick={handleOpenAdd}
-          className="h-9 px-3.5 rounded-full bg-white text-black dark:bg-white dark:text-black text-xs sm:text-sm font-medium flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all shadow-sm cursor-pointer font-sans"
+          className="h-9 px-3.5 rounded-full bg-zinc-900 text-white dark:bg-white dark:text-black text-xs sm:text-sm font-medium flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all shadow-xs cursor-pointer font-sans"
         >
           <Plus size={15} />
           <span>Ajouter un compte</span>
@@ -231,28 +231,28 @@ export function AccountsView({
       <div className="flex-1 overflow-y-auto pr-2 space-y-6 no-scrollbar min-h-0">
 
       {/* Total Consolidated Wealth Card (p-6, Space Grotesk tabular-nums) */}
-      <div className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shrink-0 transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
+      <div className="bg-white dark:bg-card border border-black/[0.06] dark:border-border rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shrink-0 transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
         <div>
-          <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans block mb-1">
+          <span className="text-xs sm:text-sm font-medium text-zinc-500 dark:text-neutral-400 font-sans block mb-1">
             Solde total consolidé (Tous comptes)
           </span>
           <div className="text-3xl sm:text-4xl font-bold tracking-tight text-foreground tabular-nums font-sans">
             {formatAmount(totalWealth, false)}
           </div>
-          <p className="text-xs text-neutral-400 font-sans mt-1">
+          <p className="text-xs text-zinc-500 dark:text-neutral-400 font-sans mt-1">
             Cumul des soldes déclarés et des mouvements de relevés
           </p>
         </div>
 
-        <div className="flex items-center gap-6 sm:border-l sm:border-border sm:pl-6">
+        <div className="flex items-center gap-6 sm:border-l sm:border-black/[0.06] sm:dark:border-border sm:pl-6">
           <div>
-            <div className="text-xs text-neutral-400 font-sans mb-1">Comptes actifs</div>
+            <div className="text-xs text-zinc-500 dark:text-neutral-400 font-sans mb-1">Comptes actifs</div>
             <div className="text-xl font-bold text-foreground tabular-nums font-sans">
               {accounts.length}
             </div>
           </div>
           <div>
-            <div className="text-xs text-neutral-400 font-sans mb-1">Mouvements tracés</div>
+            <div className="text-xs text-zinc-500 dark:text-neutral-400 font-sans mb-1">Mouvements tracés</div>
             <div className="text-xl font-bold text-foreground tabular-nums font-sans">
               {transactions.length} ops
             </div>
@@ -269,13 +269,13 @@ export function AccountsView({
           return (
             <div
               key={acc.id}
-              className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-foreground/20 transition-all group"
+              className="bg-white dark:bg-card border border-black/[0.06] dark:border-border rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-black/20 dark:hover:border-foreground/20 transition-all group"
             >
               {/* Account Header */}
               <div>
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-black/5 dark:bg-white/[0.04] border border-black/[0.06] dark:border-border flex items-center justify-center shrink-0">
                       {isBourso ? (
                         <BoursoBankLogo className="w-5 h-5 text-foreground" />
                       ) : isCA ? (
@@ -288,7 +288,7 @@ export function AccountsView({
                       <h3 className="font-bold text-base text-foreground font-sans truncate" title={acc.name}>
                         {acc.name}
                       </h3>
-                      <div className="flex items-center gap-2 text-xs text-neutral-400 font-sans">
+                      <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-neutral-400 font-sans">
                         <span>{acc.type}</span>
                         {acc.accountNumber && <span>· {acc.accountNumber}</span>}
                       </div>
@@ -298,7 +298,7 @@ export function AccountsView({
                   <button
                     type="button"
                     onClick={() => handleOpenEdit(acc)}
-                    className="p-1.5 rounded-full text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
+                    className="p-1.5 rounded-full text-zinc-500 dark:text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
                     title="Modifier ce compte"
                   >
                     <Edit2 size={14} />
@@ -307,7 +307,7 @@ export function AccountsView({
 
                 {/* Account Balance */}
                 <div className="mb-4">
-                  <div className="text-xs text-neutral-400 font-sans mb-1">Solde estimé</div>
+                  <div className="text-xs text-zinc-500 dark:text-neutral-400 font-sans mb-1">Solde estimé</div>
                   <div className={`text-2xl sm:text-3xl font-bold tracking-tight tabular-nums font-sans ${
                     acc.computedBalance >= 0 ? "text-foreground" : "text-rose-500"
                   }`}>
@@ -316,7 +316,7 @@ export function AccountsView({
                 </div>
 
                 {/* Meta stats */}
-                <div className="flex items-center justify-between text-xs text-neutral-400 font-sans py-2.5 border-y border-border/50 mb-4">
+                <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-neutral-400 font-sans py-2.5 border-y border-black/[0.06] dark:border-border/50 mb-4">
                   <span>Volume : <strong className="text-foreground tabular-nums">{acc.txCount}</strong> opérations</span>
                   <span>
                     {acc.lastTxDate ? `Dernier relevé : ${acc.lastTxDate}` : "Aucun relevé"}
@@ -326,13 +326,13 @@ export function AccountsView({
                 {/* Recent Transactions Preview */}
                 {acc.recentTx.length > 0 && (
                   <div className="space-y-2 mb-4">
-                    <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider font-sans">
+                    <span className="text-[11px] font-semibold text-zinc-500 dark:text-neutral-400 uppercase tracking-wider font-sans">
                       Derniers mouvements
                     </span>
                     {acc.recentTx.map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between text-xs font-sans">
-                        <span className="text-neutral-400 truncate max-w-[160px]">{tx.name}</span>
-                        <span className={`tabular-nums font-medium ${tx.amount > 0 ? "text-emerald-500" : "text-foreground"}`}>
+                        <span className="text-zinc-500 dark:text-neutral-400 truncate max-w-[160px]">{tx.name}</span>
+                        <span className={`tabular-nums font-medium ${tx.amount > 0 ? "text-emerald-600 dark:text-emerald-500" : "text-foreground"}`}>
                           {formatAmount(tx.amount)}
                         </span>
                       </div>
@@ -346,7 +346,7 @@ export function AccountsView({
                 <button
                   type="button"
                   onClick={() => handleTriggerUploadForBank(acc.bank)}
-                  className="w-full h-10 rounded-full bg-black/5 dark:bg-white/[0.06] hover:bg-black/10 dark:hover:bg-white/[0.1] border border-border text-xs font-medium text-foreground flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer font-sans"
+                  className="w-full h-10 rounded-full bg-black/5 dark:bg-white/[0.06] hover:bg-black/10 dark:hover:bg-white/[0.1] border border-black/[0.06] dark:border-border text-xs font-medium text-foreground flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer font-sans"
                 >
                   <UploadCloud size={15} />
                   <span>Importer un relevé {acc.bank}</span>

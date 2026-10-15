@@ -1,15 +1,16 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   /* Light Mode (Apple/Notion style) */
   --background: #f5f5f7; 
-  --foreground: #09090b; 
+  --foreground: #18181b; 
   --muted: #f4f4f5; 
   --muted-foreground: #71717a; 
   --border: rgba(0, 0, 0, 0.06);
   --card: #ffffff;
-  --card-foreground: #09090b;
-  --pie-1: #0a0a0a;
+  --card-foreground: #18181b;
+  --pie-1: #18181b;
   --pie-2: #262626;
   --pie-3: #404040;
   --pie-4: #525252;

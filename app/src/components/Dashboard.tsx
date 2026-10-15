@@ -17,6 +17,7 @@ import { PaymentCardBanner } from "./PaymentCardBanner";
 import { CardData, CARD_PRESETS, DEFAULT_BANK_CARDS } from "./CardSelectorModal";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import clsx from "clsx";
+import { useTheme } from "./ThemeProvider";
 import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, RotateCcw, ChevronDown, ChevronRight, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, CreditCard, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays, ArrowRight, Search, Plus } from "lucide-react";
 import { TrendsView } from "./views/TrendsView";
 import { TransactionsView } from "./views/TransactionsView";
@@ -82,6 +83,21 @@ const OFFICIAL_CATEGORIES = [
   "Épargne & Trésorerie"
 ];
 
+const RECATEGORIZATION_CATEGORIES = [
+  "Alimentation & Courses",
+  "Restos & Fast-Food",
+  "Transports",
+  "Abonnements & Forfaits",
+  "Logement & Maison",
+  "Sorties & Soirées",
+  "Santé & Soins",
+  "Shopping & Mode",
+  "Revenus & Aides",
+  "Virements proches & Remboursements",
+  "Épargne & Trésorerie",
+  "Autre"
+] as const;
+
 function getLocalFallback(categoryBourso: string, name: string, cache: Record<string, any>, amount: number = 0, rawLabel: string = "") {
   const result = categorizeLocally({
     label: name,
@@ -127,16 +143,16 @@ const CustomTooltip = ({ active, payload }: any) => {
     const data = payload[0].payload;
     if (!data.dateFormatted) return null;
     return (
-      <div className="bg-neutral-900/90 dark:bg-black/90 backdrop-blur-xl backdrop-saturate-150 border border-white/[0.1] rounded-2xl p-3 shadow-xl min-w-[180px]">
-        <div className="text-xs text-neutral-400 font-medium mb-1">{data.dateFormatted}</div>
-        <div className="text-base font-bold text-white mb-1 tabular-nums">{data.amount.toFixed(2)} €</div>
-        {!data.rawMonth && <div className="text-xs text-neutral-400 mb-2">Total cumulé : <span className="tabular-nums">{data.cumulative.toFixed(2)} €</span></div>}
+      <div className="bg-white/95 dark:bg-[#0F0F11]/95 backdrop-blur-xl backdrop-saturate-150 border border-black/[0.08] dark:border-white/[0.1] rounded-2xl p-3 shadow-xl min-w-[180px]">
+        <div className="text-xs text-zinc-500 dark:text-neutral-400 font-medium mb-1">{data.dateFormatted}</div>
+        <div className="text-base font-bold text-zinc-900 dark:text-white mb-1 tabular-nums">{data.amount.toFixed(2)} €</div>
+        {!data.rawMonth && <div className="text-xs text-zinc-500 dark:text-neutral-400 mb-2">Total cumulé : <span className="tabular-nums font-medium text-zinc-700 dark:text-neutral-300">{data.cumulative.toFixed(2)} €</span></div>}
         {data.topTx && data.topTx.length > 0 && (
-          <div className="pt-2 border-t border-white/[0.1] flex flex-col gap-1.5 mt-1">
+          <div className="pt-2 border-t border-black/[0.06] dark:border-white/[0.1] flex flex-col gap-1.5 mt-1">
             {data.topTx.map((tx: any, i: number) => (
               <div key={i} className="flex justify-between items-center text-[11px]">
-                <span className="text-neutral-300 truncate pr-3 max-w-[120px]">{tx.name}</span>
-                <span className="text-neutral-400 tabular-nums whitespace-nowrap">{tx.amount.toFixed(2)} €</span>
+                <span className="text-zinc-700 dark:text-neutral-300 truncate pr-3 max-w-[120px]">{tx.name}</span>
+                <span className="text-zinc-500 dark:text-neutral-400 tabular-nums whitespace-nowrap">{tx.amount.toFixed(2)} €</span>
               </div>
             ))}
           </div>
@@ -152,16 +168,16 @@ const CustomRaceTooltip = ({ active, payload }: any) => {
     const data = payload[0].payload;
     const sorted = [...payload].sort((a, b) => b.value - a.value);
     return (
-      <div className="bg-neutral-900/90 dark:bg-black/90 backdrop-blur-xl backdrop-saturate-150 border border-white/[0.1] rounded-2xl p-3 shadow-xl min-w-[180px]">
-        <div className="text-xs text-neutral-400 font-medium mb-3">Jour {data.day}</div>
+      <div className="bg-white/95 dark:bg-[#0F0F11]/95 backdrop-blur-xl backdrop-saturate-150 border border-black/[0.08] dark:border-white/[0.1] rounded-2xl p-3 shadow-xl min-w-[180px]">
+        <div className="text-xs text-zinc-500 dark:text-neutral-400 font-medium mb-3">Jour {data.day}</div>
         <div className="flex flex-col gap-1.5">
           {sorted.map((entry, i) => (
             <div key={i} className="flex justify-between items-center text-[11px]">
               <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: entry.color }} />
-                <span className="text-neutral-300 truncate max-w-[90px]">{formatMonthLabel(entry.dataKey)}</span>
+                <span className="text-zinc-700 dark:text-neutral-300 truncate max-w-[90px]">{formatMonthLabel(entry.dataKey)}</span>
               </div>
-              <span className="text-neutral-100 font-medium tabular-nums whitespace-nowrap pl-3">{entry.value.toFixed(2)} €</span>
+              <span className="text-zinc-900 dark:text-neutral-100 font-medium tabular-nums whitespace-nowrap pl-3">{entry.value.toFixed(2)} €</span>
             </div>
           ))}
         </div>
@@ -171,12 +187,13 @@ const CustomRaceTooltip = ({ active, payload }: any) => {
   return null;
 };
 
-const CategoryIcon = ({ type, isSubscription, isInternalTransfer }: { type: string, isSubscription?: boolean, isInternalTransfer?: boolean }) => {
+const CategoryIcon = ({ type, isSubscription, isInternalTransfer, iconSize = 16 }: { type: string, isSubscription?: boolean, isInternalTransfer?: boolean, iconSize?: number }) => {
   const color = CATEGORY_COLORS[type]?.ring || "#A1A1AA";
-  const iconProps = { size: 16, strokeWidth: 2, style: { color } };
+  const iconProps = { size: iconSize, strokeWidth: 2, style: { color } };
 
   if (isSubscription || type === "Abonnements & Forfaits") return <Repeat {...iconProps} />;
-  if (isInternalTransfer || type === "Épargne & Trésorerie" || type === "Revenus & Aides" || type === "Virements proches & Remboursements") return <ArrowRightLeft {...iconProps} />;
+  if (type === "Revenus & Aides") return <ArrowDownLeft {...iconProps} />;
+  if (isInternalTransfer || type === "Épargne & Trésorerie" || type === "Virements proches & Remboursements") return <ArrowRightLeft {...iconProps} />;
 
   switch (type) {
     case "Alimentation & Courses": return <ShoppingCart {...iconProps} />;
@@ -190,11 +207,28 @@ const CategoryIcon = ({ type, isSubscription, isInternalTransfer }: { type: stri
   }
 };
 
-const TransactionRow = ({ tx, hideDescription, isSubscription }: { tx: Transaction, hideDescription?: boolean, isSubscription?: boolean }) => {
+const TransactionRow = ({ 
+  tx, 
+  hideDescription, 
+  isSubscription,
+  isSelected,
+  onClick
+}: { 
+  tx: Transaction; 
+  hideDescription?: boolean; 
+  isSubscription?: boolean;
+  isSelected?: boolean;
+  onClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
+}) => {
   return (
     <motion.div 
       whileTap={{ scale: 0.98 }} 
-      className="flex items-center justify-between py-3.5 px-2 cursor-pointer group hover:bg-neutral-50 dark:hover:bg-white/[0.02] transition-colors rounded-xl"
+      onClick={onClick}
+      data-transaction-row={tx.id}
+      className={clsx(
+        "flex items-center justify-between py-3 px-2.5 cursor-pointer group rounded-xl transition-colors duration-150 select-none hover:bg-neutral-100/70 dark:hover:bg-white/[0.03]",
+        isSelected && "bg-neutral-100/70 dark:bg-white/[0.03]"
+      )}
     >
       <div className="flex items-center gap-3 min-w-0 max-w-[55%]">
         <div className="w-9 h-9 rounded-full bg-neutral-100 dark:bg-white/[0.06] border border-black/5 dark:border-white/[0.06] flex items-center justify-center shrink-0">
@@ -397,6 +431,19 @@ export function Dashboard({
   activeTab: propActiveTab,
   onTabChange,
 }: DashboardProps = {}) {
+  const { theme } = useTheme();
+  const [isDark, setIsDark] = useState(true);
+
+  useEffect(() => {
+    const checkDark = () => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    };
+    checkDark();
+    const observer = new MutationObserver(checkDark);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, [theme]);
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [importStep, setImportStep] = useState<ImportStep | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string, visible: boolean } | null>(null);
@@ -429,6 +476,10 @@ export function Dashboard({
       return () => window.removeEventListener("resize", updateBellPosition);
     }
   }, [showInbox, updateBellPosition]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("krona-inbox-state-changed", { detail: { isOpen: showInbox } }));
+  }, [showInbox]);
 
   const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
   const importMenuRef = useRef<HTMLDivElement>(null);
@@ -481,6 +532,191 @@ export function Dashboard({
   const [showTransactionsDrawer, setShowTransactionsDrawer] = useState(false);
   const [drawerSearch, setDrawerSearch] = useState("");
   const [drawerFilter, setDrawerFilter] = useState("all");
+  const [selectedRowTx, setSelectedRowTx] = useState<Transaction | null>(null);
+  const [popupTop, setPopupTop] = useState<number>(0);
+  const recatPopupRef = useRef<HTMLDivElement>(null);
+  const modalWrapperRef = useRef<HTMLDivElement>(null);
+  const drawerScrollRef = useRef<HTMLDivElement>(null);
+  const lastPopupClosedAtRef = useRef<number>(0);
+
+  // Dynamic positioning calculation with collision detection and adaptive vertical alignment
+  const updatePopupPosition = useCallback((txId?: string) => {
+    const id = txId || selectedRowTx?.id;
+    if (!id || !modalWrapperRef.current) return;
+    
+    const rowEl = modalWrapperRef.current.querySelector(`[data-transaction-row="${id}"]`) as HTMLElement | null;
+    if (!rowEl) return;
+
+    const wrapperRect = modalWrapperRef.current.getBoundingClientRect();
+    const rowRect = rowEl.getBoundingClientRect();
+    
+    // Relative coordinates of the row within the modal wrapper
+    const rowTop = rowRect.top - wrapperRect.top;
+    const rowBottom = rowRect.bottom - wrapperRect.top;
+    
+    // Height of the popup (measured or fallback default ~380px)
+    const popupH = recatPopupRef.current?.offsetHeight && recatPopupRef.current.offsetHeight > 50
+      ? recatPopupRef.current.offsetHeight
+      : 380;
+    
+    // Safety padding in pixels
+    const padding = 16;
+    
+    // Maximum allowed top position in wrapper coordinates, respecting both wrapper bounds and viewport
+    const maxTopWrapper = wrapperRect.height - popupH - padding;
+    const maxTopViewport = window.innerHeight - wrapperRect.top - popupH - padding;
+    const maxAllowedTop = Math.max(padding, Math.min(maxTopWrapper, maxTopViewport));
+    
+    // Check if normal top-alignment causes bottom collision / overflow
+    let calculatedTop: number;
+    if (rowTop <= maxAllowedTop) {
+      // Normal case: space below is sufficient, align TOP of popup with TOP of row
+      calculatedTop = rowTop;
+    } else {
+      // Critical bottom case: popup would overflow bottom, flip anchor to align BOTTOM of popup with BOTTOM of row
+      calculatedTop = rowBottom - popupH;
+    }
+    
+    // Strict clamp with safety margins: Math.max(16, Math.min(calculatedTop, maxAllowedTop))
+    const clampedTop = Math.max(padding, Math.min(calculatedTop, maxAllowedTop));
+    setPopupTop(Math.round(clampedTop));
+  }, [selectedRowTx]);
+
+  // Recalculate position when selected transaction changes
+  useEffect(() => {
+    if (selectedRowTx) {
+      updatePopupPosition(selectedRowTx.id);
+      const raf = requestAnimationFrame(() => {
+        updatePopupPosition(selectedRowTx.id);
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [selectedRowTx, updatePopupPosition]);
+
+  // Recalculate on window resize
+  useEffect(() => {
+    if (!selectedRowTx) return;
+    const handleResize = () => updatePopupPosition();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [selectedRowTx, updatePopupPosition]);
+
+  // Clear selected transaction when search, filter, or selectedMonth changes, or when drawer closes
+  useEffect(() => {
+    setSelectedRowTx(null);
+  }, [drawerSearch, drawerFilter, selectedMonth, showTransactionsDrawer]);
+
+  // Fermeture automatique du pop-up lors du défilement dans la liste des opérations
+  useEffect(() => {
+    const scrollEl = drawerScrollRef.current;
+    if (!scrollEl || !selectedRowTx) return;
+
+    const handleScroll = () => {
+      setSelectedRowTx(null);
+    };
+
+    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      scrollEl.removeEventListener("scroll", handleScroll);
+    };
+  }, [selectedRowTx]);
+
+  // Click outside to close lateral recategorization popup with complete event interception
+  useEffect(() => {
+    if (!showTransactionsDrawer) return;
+
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      if (!selectedRowTx) return;
+
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      // Inside lateral popup: allow normal interactions
+      if (recatPopupRef.current && recatPopupRef.current.contains(target)) {
+        return;
+      }
+
+      // Clicking on a transaction row handles its own toggle / row switch
+      if (target.closest('[data-transaction-row]')) {
+        return;
+      }
+
+      // Explicit close button of the main drawer
+      if (target.closest('[data-drawer-close]')) {
+        return;
+      }
+
+      // Outside click detected! Intercept event and close ONLY the lateral popup
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      lastPopupClosedAtRef.current = Date.now();
+      setSelectedRowTx(null);
+    };
+
+    const handleClick = (e: MouseEvent) => {
+      // Prevent click event leakage if the popup was closed in this gesture sequence (< 400ms)
+      if (Date.now() - lastPopupClosedAtRef.current < 400) {
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+
+        if (recatPopupRef.current && recatPopupRef.current.contains(target)) {
+          return;
+        }
+
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      if (selectedRowTx) {
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+
+        if (recatPopupRef.current && recatPopupRef.current.contains(target)) {
+          return;
+        }
+
+        if (target.closest('[data-transaction-row]')) {
+          return;
+        }
+
+        if (target.closest('[data-drawer-close]')) {
+          return;
+        }
+
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        lastPopupClosedAtRef.current = Date.now();
+        setSelectedRowTx(null);
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown, true);
+    window.addEventListener("touchstart", handlePointerDown, { capture: true, passive: false });
+    window.addEventListener("click", handleClick, true);
+
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown, true);
+      window.removeEventListener("touchstart", handlePointerDown, true);
+      window.removeEventListener("click", handleClick, true);
+    };
+  }, [showTransactionsDrawer, selectedRowTx]);
+
+  // Escape key to dismiss lateral popup first
+  useEffect(() => {
+    if (!selectedRowTx) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        setSelectedRowTx(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [selectedRowTx]);
   const [settingsTab, setSettingsTab] = useState<"income" | "fixed" | "subs" | "budgets" | "card">("income");
   const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
   const [activeBank, setActiveBank] = useState<string>("bourso");
@@ -1047,6 +1283,13 @@ export function Dashboard({
     window.dispatchEvent(new CustomEvent("finance-data-state"));
   };
 
+  const handleCategorySelect = (newCategory: string) => {
+    if (!selectedRowTx) return;
+    const tx = selectedRowTx;
+    handleRecategorizeTransaction(tx.id, tx.name, newCategory);
+    setSelectedRowTx(null);
+  };
+
   // Le Dashboard est strictement verrouillé sur le mois unique sélectionné
   const isAllTime = false;
   const monthsCount = 1;
@@ -1515,7 +1758,7 @@ export function Dashboard({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.98 }}
             transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-neutral-900/90 border border-white/[0.08] backdrop-blur-md text-white px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-sm"
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[105] bg-neutral-900/90 border border-white/[0.08] backdrop-blur-md text-white px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-sm"
           >
             <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
               <Check size={14} strokeWidth={3} />
@@ -1549,7 +1792,7 @@ export function Dashboard({
               type="button"
               whileTap={{ scale: 0.95 }}
               onClick={() => setShowResetModal(true)}
-              className="w-9 h-9 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-white border border-black/[0.08] text-zinc-800 shadow-sm dark:bg-zinc-900 dark:border-white/10 dark:text-white hover:bg-zinc-50 dark:hover:bg-red-950/30 hover:text-red-500 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
               title="Supprimer des données"
               aria-label="Supprimer des données"
             >
@@ -1563,10 +1806,10 @@ export function Dashboard({
               value={uniqueMonths.length > 0 ? (selectedMonth || uniqueMonths[0] || "") : ""} 
               onChange={(e) => uniqueMonths.length > 0 && setSelectedMonth(e.target.value)}
               className={clsx(
-                "h-9 appearance-none bg-card border border-border font-medium text-sm py-1.5 pl-4 pr-10 rounded-full shadow-sm outline-none transition-all font-sans",
+                "h-9 appearance-none bg-white border border-black/[0.08] text-zinc-800 shadow-sm dark:bg-zinc-900 dark:border-white/10 dark:text-white font-medium text-sm py-1.5 pl-4 pr-10 rounded-full outline-none transition-all font-sans",
                 uniqueMonths.length > 0
-                  ? "text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
-                  : "text-neutral-400 dark:text-neutral-500 cursor-not-allowed opacity-75 select-none"
+                  ? "hover:bg-zinc-50 dark:hover:bg-white/[0.08] hover:border-black/20 dark:hover:border-foreground/20 cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+                  : "cursor-not-allowed opacity-75 select-none text-zinc-400 dark:text-neutral-500"
               )}
               aria-label="Sélectionner le mois"
             >
@@ -1579,7 +1822,7 @@ export function Dashboard({
               )}
             </select>
             <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-              <ChevronDown size={14} className={clsx("text-neutral-400", uniqueMonths.length === 0 && "opacity-40")} />
+              <ChevronDown size={14} className={clsx("text-zinc-500 dark:text-neutral-400", uniqueMonths.length === 0 && "opacity-40")} />
             </div>
           </div>
           
@@ -1588,12 +1831,12 @@ export function Dashboard({
               type="button"
               whileTap={{ scale: 0.95 }}
               onClick={() => setIsImportMenuOpen((prev) => !prev)}
-              className="h-9 px-3.5 sm:px-4 rounded-full bg-white text-black font-medium text-xs sm:text-sm flex items-center gap-1.5 hover:bg-neutral-100 active:scale-95 transition-all shadow-sm cursor-pointer font-sans shrink-0 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+              className="h-9 px-3.5 sm:px-4 rounded-full bg-zinc-900 text-white dark:bg-white dark:text-black font-medium text-xs sm:text-sm flex items-center gap-1.5 hover:bg-zinc-800 dark:hover:bg-neutral-100 active:scale-95 transition-all shadow-sm cursor-pointer font-sans shrink-0 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
               title="Importer un fichier CSV"
               aria-label="Importer un fichier CSV"
             >
-              <Plus size={16} strokeWidth={2.5} className="text-black shrink-0" />
-              <span className="font-medium text-black">Importer un CSV</span>
+              <Plus size={16} strokeWidth={2.5} className="text-white dark:text-black shrink-0" />
+              <span className="font-medium text-white dark:text-black">Importer un CSV</span>
             </motion.button>
 
             {/* Menu Pop-up compact harmonisé avec le pop-up des notifications */}
@@ -1674,10 +1917,10 @@ export function Dashboard({
             disabled={uniqueMonths.length === 0}
             onClick={() => uniqueMonths.length > 0 && setShowCalendarModal(true)}
             className={clsx(
-              "w-9 h-9 flex items-center justify-center rounded-full bg-card border border-border transition-all font-sans shrink-0",
+              "w-9 h-9 flex items-center justify-center rounded-full border transition-all font-sans shrink-0 shadow-xs",
               uniqueMonths.length > 0
-                ? "text-foreground active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.08] hover:border-foreground/20 cursor-pointer"
-                : "text-neutral-400 dark:text-neutral-500 cursor-not-allowed opacity-40"
+                ? "bg-black/5 dark:bg-card border-black/[0.06] dark:border-border text-zinc-700 dark:text-foreground active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hover:bg-black/10 dark:hover:bg-white/[0.08] cursor-pointer"
+                : "bg-black/5 dark:bg-card border-black/[0.06] dark:border-border text-zinc-400 dark:text-neutral-500 cursor-not-allowed opacity-40"
             )}
             title={uniqueMonths.length > 0 ? "Vue annuelle" : "Aucun relevé disponible"}
             aria-label="Vue annuelle"
@@ -1839,27 +2082,27 @@ export function Dashboard({
               <div key={i} className="h-full">
                 <Card className="h-full min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] flex flex-col justify-between cursor-default">
                   <div className="flex justify-between items-start mb-1 sm:mb-2">
-                    <span className="text-xs sm:text-sm font-medium text-neutral-400 font-sans truncate">
+                    <span className="text-xs sm:text-sm font-medium text-zinc-500 dark:text-neutral-400 font-sans truncate">
                       {stat.label}
                     </span>
                     <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400">
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400">
                         {stat.actionIcon}
                       </div>
                     </div>
                   </div>
                   <div className="flex flex-col">
-                    <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-foreground tabular-nums font-sans">
+                    <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-zinc-900 dark:text-white tabular-nums font-sans">
                       {stat.value}
                     </div>
                     <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium w-full">
                       <div className="flex items-center truncate">
                         {stat.icon}
-                        <span className={clsx("truncate", stat.pos ? "text-neutral-400" : "text-neutral-500")}>{stat.change}</span>
+                        <span className="truncate text-zinc-500 dark:text-neutral-400">{stat.change}</span>
                       </div>
                       {stat.gauge && stat.gauge.rate > 0 && (
                         <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
-                          <div className="w-8 sm:w-10 h-1 bg-black/5 dark:bg-white/[0.08] rounded-full overflow-hidden">
+                          <div className="w-8 sm:w-10 h-1 bg-zinc-100 dark:bg-white/[0.08] rounded-full overflow-hidden">
                             <div 
                               className="h-full bg-emerald-500 dark:bg-emerald-400 rounded-full transition-all duration-500 ease-out" 
                               style={{ width: `${stat.gauge.rate}%` }} 
@@ -1889,19 +2132,19 @@ export function Dashboard({
                 }}
               >
                 <div className="flex justify-between items-start mb-1 sm:mb-2">
-                  <span className="text-xs sm:text-sm font-medium text-neutral-400 group-hover:text-foreground transition-colors duration-300 font-sans truncate">
+                  <span className="text-xs sm:text-sm font-medium text-zinc-500 dark:text-neutral-400 group-hover:text-zinc-900 dark:group-hover:text-foreground transition-colors duration-300 font-sans truncate">
                     {stat.label}
                   </span>
-                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 group-hover:text-foreground transition-colors duration-300 shrink-0 ml-2">
+                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400 group-hover:text-zinc-900 dark:group-hover:text-foreground group-hover:bg-zinc-200 dark:group-hover:bg-white/[0.08] transition-colors duration-300 shrink-0 ml-2">
                     {stat.actionIcon}
                   </div>
                 </div>
                 <div className="flex flex-col">
-                  <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-foreground tabular-nums font-sans">
+                  <div className="text-xl sm:text-2xl xl:text-3xl font-semibold mb-0.5 sm:mb-1 tracking-tight text-zinc-900 dark:text-white tabular-nums font-sans">
                     {stat.value}
                   </div>
                   <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium w-full">
-                    <span className="text-neutral-400 font-sans truncate">
+                    <span className="text-zinc-500 dark:text-neutral-400 font-sans truncate">
                       {stat.change}
                     </span>
                   </div>
@@ -1920,15 +2163,15 @@ export function Dashboard({
           <Card className="h-full flex flex-col overflow-hidden">
             <div className="flex justify-between items-start mb-2 sm:mb-2.5 shrink-0">
               <div>
-                <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Évolution des dépenses</h3>
+                <h3 className="text-base font-semibold tracking-tight text-zinc-800 dark:text-zinc-100 font-sans">Évolution des dépenses</h3>
               </div>
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400 shrink-0">
                 <Activity size={15} />
               </div>
             </div>
             
             <div className="flex items-baseline gap-2 mb-2 shrink-0">
-              <div className="text-xl sm:text-2xl font-bold text-foreground tabular-nums font-sans">{expenses.toFixed(2)} €</div>
+              <div className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-white tabular-nums font-sans">{expenses.toFixed(2)} €</div>
             </div>
             
             <div className="flex-1 w-full min-h-0 bg-transparent flex flex-col">
@@ -1961,7 +2204,7 @@ export function Dashboard({
                       />
                       <Bar 
                         dataKey="amount" 
-                        fill="#ffffff" 
+                        fill={isDark ? "#ffffff" : "#18181b"} 
                         fillOpacity={0.8} 
                         radius={[4, 4, 0, 0]}
                         maxBarSize={48}
@@ -1977,8 +2220,8 @@ export function Dashboard({
                     <AreaChart data={expensesTimeline} margin={{ top: 10, right: 10, left: 10, bottom: 6 }}>
                       <defs>
                         <linearGradient id="teaserGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#ffffff" stopOpacity={0.15}/>
-                          <stop offset="100%" stopColor="#ffffff" stopOpacity={0.15}/>
+                          <stop offset="0%" stopColor={isDark ? "#ffffff" : "#18181b"} stopOpacity={isDark ? 0.15 : 0.08}/>
+                          <stop offset="100%" stopColor={isDark ? "#ffffff" : "#18181b"} stopOpacity={0.01}/>
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} fill="none" stroke="var(--border)" strokeOpacity={0.5} />
@@ -1993,16 +2236,16 @@ export function Dashboard({
                       />
                       <Tooltip 
                         content={<CustomTooltip />}
-                        cursor={{ stroke: '#ffffff', strokeWidth: 1, strokeDasharray: '3 3', strokeOpacity: 0.3, fill: 'none' }}
+                        cursor={{ stroke: isDark ? '#ffffff' : '#18181b', strokeWidth: 1, strokeDasharray: '3 3', strokeOpacity: 0.3, fill: 'none' }}
                       />
                       <Area 
                         type="monotone" 
                         dataKey="cumulative" 
-                        stroke="#ffffff" 
+                        stroke={isDark ? "#ffffff" : "#18181b"} 
                         strokeWidth={2} 
                         fillOpacity={1} 
                         fill="url(#teaserGradient)"
-                        activeDot={{ r: 4, strokeWidth: 0, fill: "#ffffff" }}
+                        activeDot={{ r: 4, strokeWidth: 0, fill: isDark ? "#ffffff" : "#18181b" }}
                       />
                     </AreaChart>
                   )}
@@ -2017,9 +2260,9 @@ export function Dashboard({
           <Card className="flex flex-col flex-1 min-h-0 overflow-hidden justify-between">
             <div className="flex justify-between items-start shrink-0 mb-1 sm:mb-2">
               <div>
-                <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Répartition</h3>
+                <h3 className="text-base font-semibold tracking-tight text-zinc-800 dark:text-zinc-100 font-sans">Répartition</h3>
               </div>
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400 shrink-0">
                 <PieChartIcon size={15} />
               </div>
             </div>
@@ -2070,10 +2313,10 @@ export function Dashboard({
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none text-center">
-                    <span className="text-[10px] sm:text-[11px] 2xl:text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1 leading-none font-sans">
+                    <span className="text-[10px] sm:text-[11px] 2xl:text-xs font-semibold text-zinc-500 dark:text-neutral-400 uppercase tracking-wider mb-1 leading-none font-sans">
                       {isAllTime ? "MOYENNE" : "DÉPENSÉ"}
                     </span>
-                    <span className="font-bold text-xl sm:text-2xl xl:text-3xl 2xl:text-4xl tracking-tight text-foreground tabular-nums font-sans leading-none">
+                    <span className="font-bold text-xl sm:text-2xl xl:text-3xl 2xl:text-4xl tracking-tight text-zinc-900 dark:text-white tabular-nums font-sans leading-none">
                       {isAllTime ? (expenses / monthsCount).toFixed(0) : expenses.toFixed(0)} €
                     </span>
                   </div>
@@ -2090,11 +2333,11 @@ export function Dashboard({
                       <div key={i} className="flex items-start gap-3 min-w-0">
                         <div className={`w-2.5 h-2.5 2xl:w-3 2xl:h-3 rounded-full mt-1 shrink-0 ${CATEGORY_COLORS[cat.name]?.dot || CATEGORY_COLORS["Autre"].dot}`} />
                         <div className="min-w-0 flex-1">
-                          <div className="font-medium text-foreground truncate font-sans text-xs sm:text-sm 2xl:text-[15px] leading-tight" title={cat.name}>
+                          <div className="font-medium text-zinc-800 dark:text-zinc-200 truncate font-sans text-xs sm:text-sm 2xl:text-[15px] leading-tight" title={cat.name}>
                             {cat.name}
                           </div>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="font-semibold text-foreground tabular-nums text-xs sm:text-sm 2xl:text-[15px] font-sans" title={hasBudget && !isExceeded ? `Reste ${(budget - cat.value).toFixed(2)} €` : undefined}>
+                            <span className="font-semibold text-zinc-900 dark:text-white tabular-nums text-xs sm:text-sm 2xl:text-[15px] font-sans" title={hasBudget && !isExceeded ? `Reste ${(budget - cat.value).toFixed(2)} €` : undefined}>
                               {hasBudget ? `${cat.value.toFixed(0)} € / ${budget} €` : (isAllTime ? `~${cat.value.toFixed(0)} € / mois` : `${cat.value.toFixed(0)} €`)}
                             </span>
                             {isExceeded && (
@@ -2143,16 +2386,16 @@ export function Dashboard({
           <Card className="flex flex-col relative overflow-hidden shrink-0">
             <div className="flex justify-between items-start shrink-0 mb-2">
               <div>
-                <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Top Commerçants</h3>
+                <h3 className="text-base font-semibold tracking-tight text-zinc-800 dark:text-zinc-100 font-sans">Top Commerçants</h3>
               </div>
               <div 
                 className="flex items-center shrink-0 cursor-pointer group active:scale-95 transition-transform"
                 onClick={() => setShowTransactionsDrawer(true)}
               >
-                <span className="text-xs font-medium text-neutral-400 group-hover:text-white transition-colors mr-2 font-sans">
+                <span className="text-xs font-medium text-zinc-500 group-hover:text-zinc-900 dark:text-neutral-400 dark:group-hover:text-white transition-colors mr-2 font-sans">
                   Voir tout
                 </span>
-                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0 group-hover:border-black/20 dark:group-hover:border-white/[0.15] transition-colors">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400 shrink-0 group-hover:text-zinc-900 dark:group-hover:text-white group-hover:bg-zinc-200 dark:group-hover:bg-white/[0.08] transition-colors">
                   <ShoppingBag size={14} />
                 </div>
               </div>
@@ -2181,23 +2424,23 @@ export function Dashboard({
                       title={`Voir toutes les opérations de ${merchant.name}`}
                     >
                       <div className="flex items-center gap-3 min-w-0 max-w-[55%]">
-                        <div className="w-9 h-9 rounded-full bg-neutral-100 dark:bg-white/[0.06] border border-black/5 dark:border-white/[0.06] flex items-center justify-center shrink-0">
+                        <div className="w-9 h-9 rounded-full bg-zinc-100 dark:bg-white/[0.06] border border-black/5 dark:border-white/[0.06] flex items-center justify-center shrink-0">
                           <CategoryIcon type={merchant.category} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-sm text-foreground truncate font-sans" title={merchant.name}>
+                          <div className="font-semibold text-sm text-zinc-900 dark:text-white truncate font-sans" title={merchant.name}>
                             {merchant.name}
                           </div>
-                          <div className="text-xs text-neutral-500 truncate font-sans mt-0.5">
+                          <div className="text-xs text-zinc-500 dark:text-neutral-400 truncate font-sans mt-0.5">
                             {merchant.count} passage{merchant.count > 1 ? "s" : ""} {isAllTime ? "au total" : "ce mois-ci"}
                           </div>
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="font-medium tabular-nums text-sm text-foreground font-sans">
+                        <div className="font-medium tabular-nums text-sm text-zinc-900 dark:text-white font-sans">
                           {merchant.total.toFixed(2)} €
                         </div>
-                        <div className="text-xs text-neutral-500 mt-0.5 font-sans">
+                        <div className="text-xs text-zinc-500 dark:text-neutral-400 mt-0.5 font-sans">
                           {isAllTime ? "total débité" : "ce mois-ci"}
                         </div>
                       </div>
@@ -2212,9 +2455,9 @@ export function Dashboard({
           <Card className="flex-1 min-h-0 flex flex-col relative overflow-hidden justify-between">
             <div className="flex justify-between items-start shrink-0 mb-1">
               <div>
-                <h3 className="text-base font-semibold tracking-tight text-foreground font-sans">Rythme de dépense</h3>
+                <h3 className="text-base font-semibold tracking-tight text-zinc-800 dark:text-zinc-100 font-sans">Rythme de dépense</h3>
               </div>
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.08] text-neutral-500 dark:text-neutral-400 shrink-0">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400 shrink-0">
                 <Activity size={15} />
               </div>
             </div>
@@ -2222,15 +2465,15 @@ export function Dashboard({
             {/* Moyenne quotidienne réelle & pic éventuel */}
             <div className="flex items-baseline justify-between mb-2 shrink-0">
               <div className="flex items-baseline">
-                <span className="text-sm sm:text-base font-bold tabular-nums text-foreground font-sans">
+                <span className="text-sm sm:text-base font-bold tabular-nums text-zinc-900 dark:text-white font-sans">
                   {spendingCadence.pastDailyAverage.toFixed(2)} €
                 </span>
-                <span className="text-[11px] text-neutral-400 font-normal ml-1.5 font-sans">
+                <span className="text-[11px] text-zinc-500 dark:text-neutral-400 font-normal ml-1.5 font-sans">
                   / jour en moy.
                 </span>
               </div>
               {spendingCadence.weeks.some(w => w.isPeak) && (
-                <div className="inline-flex items-center text-[9px] text-neutral-300 font-medium tabular-nums font-sans bg-black/5 dark:bg-white/[0.04] px-2 py-0.5 rounded-full border border-black/10 dark:border-white/[0.06]">
+                <div className="inline-flex items-center text-[9px] text-zinc-600 dark:text-neutral-300 font-medium tabular-nums font-sans bg-black/5 dark:bg-white/[0.04] px-2 py-0.5 rounded-full border border-black/10 dark:border-white/[0.06]">
                   Pic S{spendingCadence.weeks.find(w => w.isPeak)?.label.replace('S', '')} · {spendingCadence.weeks.find(w => w.isPeak)?.amount.toFixed(0)} €
                 </div>
               )}
@@ -2241,12 +2484,12 @@ export function Dashboard({
               {spendingCadence.weeks.map((week) => (
                 <div key={week.id} className="flex flex-col items-center justify-between h-full min-h-0 group select-none">
                   {/* Montant lisible en en-tête de colonne */}
-                  <div className="text-[10px] sm:text-[11px] font-semibold tabular-nums text-neutral-400 group-hover:text-foreground transition-colors font-sans mb-1 shrink-0">
+                  <div className="text-[10px] sm:text-[11px] font-semibold tabular-nums text-zinc-500 dark:text-neutral-400 group-hover:text-zinc-900 dark:group-hover:text-white transition-colors font-sans mb-1 shrink-0">
                     {week.amount > 0 ? `${week.amount.toFixed(0)} €` : "0 €"}
                   </div>
 
                   {/* Rail vertical occupant dynamiquement 100% de la hauteur disponible dans la colonne */}
-                  <div className="w-full flex-1 min-h-[44px] bg-black/5 dark:bg-white/[0.04] rounded-xl p-1 relative flex flex-col justify-end overflow-hidden border border-black/[0.04] dark:border-white/[0.05] group-hover:border-black/15 dark:group-hover:border-white/15 transition-all">
+                  <div className="w-full flex-1 min-h-[44px] bg-zinc-100 dark:bg-zinc-900 rounded-xl p-1 relative flex flex-col justify-end overflow-hidden border border-black/[0.06] dark:border-white/[0.05] group-hover:border-black/15 dark:group-hover:border-white/15 transition-all">
                     {/* Colonne de remplissage de bas en haut proportionnelle */}
                     <motion.div
                       initial={{ height: 0 }}
@@ -2255,16 +2498,16 @@ export function Dashboard({
                       className={clsx(
                         "w-full rounded-lg transition-all duration-300",
                         week.isPeak
-                          ? "bg-foreground shadow-[0_0_14px_rgba(255,255,255,0.25)]"
+                          ? "bg-zinc-900 dark:bg-white shadow-xs dark:shadow-[0_0_14px_rgba(255,255,255,0.25)]"
                           : week.amount > 0
-                            ? "bg-neutral-300 dark:bg-white/70 group-hover:bg-neutral-400 dark:group-hover:bg-white/90"
+                            ? "bg-zinc-700 dark:bg-white/70 group-hover:bg-zinc-800 dark:group-hover:bg-white/90"
                             : "bg-transparent"
                       )}
                     />
                   </div>
 
                   {/* Label discret en bas */}
-                  <div className="text-[11px] font-semibold text-neutral-400 group-hover:text-foreground transition-colors font-sans mt-1 shrink-0">
+                  <div className="text-[11px] font-semibold text-zinc-500 dark:text-neutral-400 group-hover:text-zinc-900 dark:group-hover:text-white transition-colors font-sans mt-1 shrink-0">
                     {week.label}
                   </div>
                 </div>
@@ -2883,143 +3126,239 @@ export function Dashboard({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              onClick={() => setShowTransactionsDrawer(false)}
+              onClick={(e) => {
+                if (selectedRowTx || Date.now() - lastPopupClosedAtRef.current < 400) {
+                  e.stopPropagation();
+                  setSelectedRowTx(null);
+                  return;
+                }
+                setShowTransactionsDrawer(false);
+              }}
               className="absolute inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-md"
             />
 
-            {/* Modale flottante latérale */}
-            <motion.div
-              initial={{ x: '100%', opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: '100%', opacity: 0 }}
-              transition={{ type: "spring", damping: 28, stiffness: 280 }}
-              className="relative z-10 h-[calc(100vh-1rem)] sm:h-[calc(100vh-2rem)] md:h-[calc(100vh-3rem)] w-full max-w-lg md:max-w-xl rounded-2xl sm:rounded-3xl bg-card/95 dark:bg-[#0F0F11]/95 backdrop-blur-2xl border border-border dark:border-white/[0.08] shadow-2xl flex flex-col overflow-hidden"
+            {/* Wrapper modale + pop-up latérale */}
+            <div 
+              ref={modalWrapperRef}
+              className="relative z-10 h-[calc(100vh-1rem)] sm:h-[calc(100vh-2rem)] md:h-[calc(100vh-3rem)] w-full max-w-lg md:max-w-xl flex flex-col pointer-events-auto"
             >
-              {/* Header */}
-              <div className="p-4 sm:p-6 pb-3 sm:pb-4 border-b border-border flex items-center justify-between shrink-0">
-                <div>
-                  <div className="flex items-center gap-3 mb-1">
-                    <h2 className="text-lg font-bold tracking-tight text-foreground font-sans">Toutes les opérations</h2>
-                    <span className="bg-black/5 dark:bg-white/[0.08] text-neutral-600 dark:text-neutral-300 text-xs px-2.5 py-0.5 rounded-full font-medium tabular-nums font-sans">
-                      {displayedDrawerTx.length !== filteredTransactions.length
-                        ? `${displayedDrawerTx.length} sur ${filteredTransactions.length}`
-                        : filteredTransactions.length}
-                    </span>
+              {/* Pop-up latérale de recatégorisation (ancrée sur le flanc gauche dans l'espace vide) */}
+              <AnimatePresence>
+                {selectedRowTx && (
+                  <motion.div
+                    key="recat-popup"
+                    ref={recatPopupRef}
+                    initial={{ opacity: 0, x: 12, scale: 0.96 }}
+                    animate={{ opacity: 1, x: 0, scale: 1 }}
+                    exit={{ opacity: 0, x: 12, scale: 0.96 }}
+                    transition={{ type: "spring", stiffness: 350, damping: 28 }}
+                    style={{ top: `${popupTop}px` }}
+                    className="max-lg:fixed max-lg:inset-x-4 max-lg:bottom-4 max-lg:!top-auto max-lg:w-auto max-lg:max-h-[80vh] lg:absolute lg:right-full lg:mr-3 lg:w-72 sm:lg:w-80 max-h-[380px] sm:max-h-[420px] bg-card/95 dark:bg-[#0F0F11]/95 backdrop-blur-2xl border border-border dark:border-white/[0.08] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] rounded-2xl z-20 overflow-hidden select-none flex flex-col transition-[top,transform] duration-150 ease-out"
+                  >
+                    {/* En-tête sobre épuré : fond transparent sans séparateur avec marges symétriques */}
+                    <div className="shrink-0 w-full pt-3 px-3 pb-2 flex items-center justify-between z-10 bg-transparent">
+                      <span className="text-sm font-semibold text-foreground dark:text-white tracking-tight font-sans">
+                        Modifier la catégorie
+                      </span>
+                      <CloseButton onClick={() => setSelectedRowTx(null)} iconSize={15} />
+                    </div>
+
+                    {/* Sous-conteneur dédié scrollable uniquement pour les catégories avec marges latérales parfaitement symétriques */}
+                    <div className="flex-1 overflow-y-auto overscroll-contain no-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden px-3 pt-1 pb-3 space-y-1.5">
+                      {RECATEGORIZATION_CATEGORIES.map(cat => {
+                        const isCurrent = selectedRowTx.type === cat;
+                        return (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => handleCategorySelect(cat)}
+                            className={clsx(
+                              "w-full flex items-center gap-3 p-2.5 rounded-2xl border transition-all text-left group cursor-pointer active:scale-[0.98]",
+                              isCurrent
+                                ? "bg-neutral-100 dark:bg-white/[0.08] border-foreground/20 dark:border-white/20 shadow-xs"
+                                : "bg-neutral-50 dark:bg-white/[0.03] border-border dark:border-white/[0.08] hover:bg-neutral-100 dark:hover:bg-white/[0.06] hover:border-foreground/20 dark:hover:border-white/[0.15]"
+                            )}
+                          >
+                            <div className="w-8.5 h-8.5 rounded-xl bg-card border border-border dark:border-white/[0.08] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                              <CategoryIcon type={cat} isSubscription={cat === "Abonnements & Forfaits"} iconSize={16} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-semibold text-foreground dark:text-white tracking-tight font-sans truncate">
+                                {cat}
+                              </div>
+                            </div>
+                            {isCurrent ? (
+                              <div className="w-5 h-5 rounded-full bg-foreground text-background flex items-center justify-center shrink-0 ml-auto shadow-xs">
+                                <Check size={12} strokeWidth={2.8} />
+                              </div>
+                            ) : (
+                              <div className="w-5 h-5 flex items-center justify-center shrink-0 ml-auto">
+                                <span className="w-2 h-2 rounded-full bg-black/20 dark:bg-white/30 shrink-0 group-hover:bg-black/40 dark:group-hover:bg-white/50 transition-colors" />
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Modale flottante latérale */}
+              <motion.div
+                initial={{ x: '100%', opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: '100%', opacity: 0 }}
+                transition={{ type: "spring", damping: 28, stiffness: 280 }}
+                className="h-full w-full rounded-2xl sm:rounded-3xl bg-card/95 dark:bg-[#0F0F11]/95 backdrop-blur-2xl border border-border dark:border-white/[0.08] shadow-2xl flex flex-col overflow-hidden"
+              >
+                {/* Header */}
+                <div className="p-4 sm:p-6 pb-3 sm:pb-4 border-b border-border flex items-center justify-between shrink-0">
+                  <div>
+                    <div className="flex items-center gap-3 mb-1">
+                      <h2 className="text-lg font-bold tracking-tight text-foreground font-sans">Toutes les opérations</h2>
+                      <span className="bg-black/5 dark:bg-white/[0.08] text-neutral-600 dark:text-neutral-300 text-xs px-2.5 py-0.5 rounded-full font-medium tabular-nums font-sans">
+                        {displayedDrawerTx.length !== filteredTransactions.length
+                          ? `${displayedDrawerTx.length} sur ${filteredTransactions.length}`
+                          : filteredTransactions.length}
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-500 font-sans">
+                      {formatMonthLabel(selectedMonth || "")}
+                    </p>
                   </div>
-                  <p className="text-xs text-neutral-500 font-sans">
-                    {formatMonthLabel(selectedMonth || "")}
-                  </p>
-                </div>
-                <CloseButton onClick={() => setShowTransactionsDrawer(false)} />
-              </div>
-
-              {/* Barre de recherche et filtres */}
-              <div className="px-4 sm:px-6 py-3 sm:py-4 shrink-0 space-y-3">
-                <div className="relative">
-                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
-                  <input
-                    type="text"
-                    value={drawerSearch}
-                    onChange={(e) => setDrawerSearch(e.target.value)}
-                    placeholder="Rechercher par libellé ou catégorie..."
-                    className="w-full h-10 pl-9 pr-8 rounded-full bg-black/[0.03] dark:bg-white/[0.04] border border-border text-sm focus:outline-none focus:border-foreground/30 focus-visible:ring-2 focus-visible:ring-foreground/20 text-foreground placeholder:text-neutral-500 transition-all font-sans"
-                  />
-                  {drawerSearch && (
-                    <button
-                      type="button"
-                      onClick={() => setDrawerSearch("")}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-foreground p-1 cursor-pointer"
-                    >
-                      <X size={13} />
-                    </button>
-                  )}
+                  <CloseButton data-drawer-close="true" onClick={() => { setShowTransactionsDrawer(false); setSelectedRowTx(null); }} />
                 </div>
 
-                {/* Chips de filtrage rapide */}
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
-                  {[
-                    { id: "all", label: "Tout" },
-                    { id: "debit", label: "Dépenses" },
-                    { id: "credit", label: "Revenus" },
-                    { id: "sub", label: "Abonnements" },
-                    { id: "transfer", label: "Virements" },
-                  ].map(chip => (
-                    <button
-                      key={chip.id}
-                      type="button"
-                      onClick={() => setDrawerFilter(chip.id)}
-                      className={`h-8 px-3.5 rounded-full text-xs font-medium transition-all shrink-0 active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer font-sans ${
-                        drawerFilter === chip.id
-                          ? "bg-foreground text-background shadow-sm"
-                          : "text-neutral-400 hover:text-foreground bg-transparent hover:bg-black/5 dark:hover:bg-white/[0.04]"
-                      }`}
-                    >
-                      {chip.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Badge de recherche actif */}
-                {drawerSearch.trim() !== "" && (
-                  <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-black/5 dark:bg-white/[0.08] text-foreground border border-black/10 dark:border-white/10 font-sans max-w-[280px]">
-                      <span className="truncate">Recherche : {drawerSearch.trim()}</span>
+                {/* Barre de recherche et filtres */}
+                <div className="px-4 sm:px-6 py-3 sm:py-4 shrink-0 space-y-3">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                    <input
+                      type="text"
+                      value={drawerSearch}
+                      onChange={(e) => setDrawerSearch(e.target.value)}
+                      placeholder="Rechercher par libellé ou catégorie..."
+                      className="w-full h-10 pl-9 pr-8 rounded-full bg-black/[0.03] dark:bg-white/[0.04] border border-border text-sm focus:outline-none focus:border-foreground/30 focus-visible:ring-2 focus-visible:ring-foreground/20 text-foreground placeholder:text-neutral-500 transition-all font-sans"
+                    />
+                    {drawerSearch && (
                       <button
                         type="button"
                         onClick={() => setDrawerSearch("")}
-                        className="text-neutral-400 hover:text-foreground transition-colors p-0.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer shrink-0"
-                        title="Effacer la recherche"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-foreground p-1 cursor-pointer"
                       >
-                        <X size={12} />
-                      </button>
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Liste des transactions */}
-              <div className="flex-1 overflow-y-auto no-scrollbar px-6 flex flex-col">
-                {displayedDrawerTx.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-8 text-neutral-400">
-                    <ArrowRightLeft size={32} className="stroke-1 mb-3 opacity-40" />
-                    <p className="text-sm font-medium text-foreground font-sans">Aucune opération trouvée</p>
-                    <p className="text-xs text-neutral-500 mt-1 font-sans">Essaie d&apos;ajuster ta recherche ou tes filtres</p>
-                    {(drawerFilter !== "all" || drawerSearch.trim() !== "") && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDrawerFilter("all");
-                          setDrawerSearch("");
-                        }}
-                        className="mt-3.5 px-3.5 py-1.5 rounded-full text-xs font-medium bg-foreground text-background hover:opacity-90 active:scale-95 transition-all font-sans cursor-pointer"
-                      >
-                        Effacer les filtres
+                        <X size={13} />
                       </button>
                     )}
                   </div>
-                ) : (
-                  displayedDrawerTx.map(tx => (
-                    <TransactionRow key={tx.id} tx={tx} isSubscription={isTxSubscription(tx)} />
-                  ))
-                )}
-              </div>
 
-              {/* Résumé en bas du tiroir */}
-              <div className="p-4 px-6 border-t border-border bg-card dark:bg-[#0F0F11] flex items-center justify-between shrink-0 mt-auto">
-                <span className="text-xs text-neutral-500">
-                  {displayedDrawerTx.length} opération{displayedDrawerTx.length > 1 ? "s" : ""} au total
-                </span>
-                <span className="text-xs font-medium text-foreground tabular-nums">
-                  {drawerFilter === "debit" || drawerFilter === "all" ? (
-                    `Dépenses nettes : ${drawerDebitsTotal.toFixed(2)} €`
-                  ) : drawerFilter === "credit" ? (
-                    `Revenus nets : ${drawerCreditsTotal.toFixed(2)} €`
-                  ) : (
-                    `Total : ${Math.abs(drawerDebitsTotal - drawerCreditsTotal).toFixed(2)} €`
+                  {/* Chips de filtrage rapide */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                    {[
+                      { id: "all", label: "Tout" },
+                      { id: "debit", label: "Dépenses" },
+                      { id: "credit", label: "Revenus" },
+                      { id: "sub", label: "Abonnements" },
+                      { id: "transfer", label: "Virements" },
+                    ].map(chip => (
+                      <button
+                        key={chip.id}
+                        type="button"
+                        onClick={() => setDrawerFilter(chip.id)}
+                        className={`h-8 px-3.5 rounded-full text-xs font-medium transition-all shrink-0 active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none cursor-pointer font-sans ${
+                          drawerFilter === chip.id
+                            ? "bg-foreground text-background shadow-sm"
+                            : "text-neutral-400 hover:text-foreground bg-transparent hover:bg-black/5 dark:hover:bg-white/[0.04]"
+                        }`}
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Badge de recherche actif */}
+                  {drawerSearch.trim() !== "" && (
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-black/5 dark:bg-white/[0.08] text-foreground border border-black/10 dark:border-white/10 font-sans max-w-[280px]">
+                        <span className="truncate">Recherche : {drawerSearch.trim()}</span>
+                        <button
+                          type="button"
+                          onClick={() => setDrawerSearch("")}
+                          className="text-neutral-400 hover:text-foreground transition-colors p-0.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer shrink-0"
+                          title="Effacer la recherche"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    </div>
                   )}
-                </span>
-              </div>
-            </motion.div>
+                </div>
+
+                {/* Liste des transactions */}
+                <div 
+                  ref={drawerScrollRef}
+                  onScroll={() => {
+                    if (selectedRowTx) {
+                      setSelectedRowTx(null);
+                    }
+                  }}
+                  className="flex-1 overflow-y-auto no-scrollbar px-6 flex flex-col"
+                >
+                  {displayedDrawerTx.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center p-8 text-neutral-400">
+                      <ArrowRightLeft size={32} className="stroke-1 mb-3 opacity-40" />
+                      <p className="text-sm font-medium text-foreground font-sans">Aucune opération trouvée</p>
+                      <p className="text-xs text-neutral-500 mt-1 font-sans">Essaie d&apos;ajuster ta recherche ou tes filtres</p>
+                      {(drawerFilter !== "all" || drawerSearch.trim() !== "") && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDrawerFilter("all");
+                            setDrawerSearch("");
+                          }}
+                          className="mt-3.5 px-3.5 py-1.5 rounded-full text-xs font-medium bg-foreground text-background hover:opacity-90 active:scale-95 transition-all font-sans cursor-pointer"
+                        >
+                          Effacer les filtres
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    displayedDrawerTx.map(tx => (
+                      <TransactionRow 
+                        key={tx.id} 
+                        tx={tx} 
+                        isSubscription={isTxSubscription(tx)} 
+                        isSelected={selectedRowTx?.id === tx.id}
+                        onClick={() => {
+                          if (selectedRowTx?.id === tx.id) {
+                            setSelectedRowTx(null);
+                          } else {
+                            updatePopupPosition(tx.id);
+                            setSelectedRowTx(tx);
+                          }
+                        }}
+                      />
+                    ))
+                  )}
+                </div>
+
+                {/* Résumé en bas du tiroir */}
+                <div className="p-4 px-6 border-t border-border bg-card dark:bg-[#0F0F11] flex items-center justify-between shrink-0 mt-auto">
+                  <span className="text-xs text-neutral-500">
+                    {displayedDrawerTx.length} opération{displayedDrawerTx.length > 1 ? "s" : ""} au total
+                  </span>
+                  <span className="text-xs font-medium text-foreground tabular-nums">
+                    {drawerFilter === "debit" || drawerFilter === "all" ? (
+                      `Dépenses nettes : ${drawerDebitsTotal.toFixed(2)} €`
+                    ) : drawerFilter === "credit" ? (
+                      `Revenus nets : ${drawerCreditsTotal.toFixed(2)} €`
+                    ) : (
+                      `Total : ${Math.abs(drawerDebitsTotal - drawerCreditsTotal).toFixed(2)} €`
+                    )}
+                  </span>
+                </div>
+              </motion.div>
+            </div>
           </div>
         )}
       </AnimatePresence>
