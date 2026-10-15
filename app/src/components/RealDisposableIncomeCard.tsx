@@ -29,6 +29,7 @@ interface RealDisposableIncomeCardProps {
   transactions?: Transaction[];
   activeSubscriptions?: Transaction[];
   subs?: number;
+  selectedMonth?: string;
   onOpenSettings?: () => void;
   className?: string;
 }
@@ -39,6 +40,7 @@ export function RealDisposableIncomeCard({
   transactions = [],
   activeSubscriptions = [],
   subs = 0,
+  selectedMonth,
   onOpenSettings,
   className = "",
 }: RealDisposableIncomeCardProps) {
@@ -147,7 +149,6 @@ export function RealDisposableIncomeCard({
             type="button"
             onClick={onOpenSettings}
             className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/[0.08] transition-all active:scale-95 cursor-pointer"
-            title="Ajuster les charges incompressibles"
             aria-label="Ajuster les charges incompressibles"
           >
             <SlidersHorizontal size={13} strokeWidth={2} />
@@ -175,65 +176,59 @@ export function RealDisposableIncomeCard({
 
       {/* Bas de carte : Barre de progression segmentée (h-2 / h-2.5) avec découpe nette et coins arrondis */}
       <div className="mt-2 sm:mt-2.5 w-full shrink-0">
-        <div className="w-full flex items-center gap-1.5 sm:gap-2 h-2 sm:h-2.5">
-          {fixedBreakdown.rent > 0 && (
-            <motion.div
-              initial={{ scaleX: 0 }}
-              animate={{ scaleX: 1 }}
-              transition={{ type: "spring", stiffness: 90, damping: 20 }}
-              style={{ flex: `${fixedBreakdown.rent} 1 0%` }}
-              className="h-full rounded-full min-w-[8px] bg-zinc-900 dark:bg-white origin-left transition-colors"
-              title={`Loyer & Logement : ${fixedBreakdown.rent.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.rent / baseIncome) * 100) : 0} %)`}
-            />
-          )}
-          {fixedBreakdown.loans > 0 && (
-            <motion.div
-              initial={{ scaleX: 0 }}
-              animate={{ scaleX: 1 }}
-              transition={{ type: "spring", stiffness: 90, damping: 20 }}
-              style={{ flex: `${fixedBreakdown.loans} 1 0%` }}
-              className="h-full rounded-full min-w-[8px] bg-zinc-700 dark:bg-neutral-300 origin-left transition-colors"
-              title={`Emprunts & Crédits : ${fixedBreakdown.loans.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.loans / baseIncome) * 100) : 0} %)`}
-            />
-          )}
-          {fixedBreakdown.subscriptions > 0 && (
-            <motion.div
-              initial={{ scaleX: 0 }}
-              animate={{ scaleX: 1 }}
-              transition={{ type: "spring", stiffness: 90, damping: 20 }}
-              style={{ flex: `${fixedBreakdown.subscriptions} 1 0%` }}
-              className="h-full rounded-full min-w-[8px] bg-zinc-500 dark:bg-neutral-400 origin-left transition-colors"
-              title={`Abonnements récurrents : ${fixedBreakdown.subscriptions.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.subscriptions / baseIncome) * 100) : 0} %)`}
-            />
-          )}
-          {fixedBreakdown.regularUtilities > 0 && (
-            <motion.div
-              initial={{ scaleX: 0 }}
-              animate={{ scaleX: 1 }}
-              transition={{ type: "spring", stiffness: 90, damping: 20 }}
-              style={{ flex: `${fixedBreakdown.regularUtilities} 1 0%` }}
-              className="h-full rounded-full min-w-[8px] bg-zinc-300 dark:bg-neutral-500 origin-left transition-colors"
-              title={`Charges & Factures : ${fixedBreakdown.regularUtilities.toFixed(0)} € (${baseIncome > 0 ? Math.round((fixedBreakdown.regularUtilities / baseIncome) * 100) : 0} %)`}
-            />
-          )}
-          {disposableIncome > 0 && (
-            <div
-              style={{ flex: `${disposableIncome} 1 0%` }}
-              className="h-full rounded-full min-w-[12px] bg-zinc-200 dark:bg-zinc-800 transition-colors"
-              title={`Reste disponible pour vivre : ${disposableIncome.toFixed(0)} € (${baseIncome > 0 ? Math.round((disposableIncome / baseIncome) * 100) : 0} %)`}
-            />
-          )}
-          {disposableIncome < 0 && (
-            <div
-              style={{ flex: `${Math.abs(disposableIncome)} 1 0%` }}
-              className="h-full rounded-full min-w-[8px] bg-rose-500"
-              title={`Dépassement du budget : ${Math.abs(disposableIncome).toFixed(0)} €`}
-            />
-          )}
-          {/* Si aucune charge et aucun revenu configuré, afficher le track vide neutre */}
-          {fixedBreakdown.total === 0 && disposableIncome <= 0 && (
-            <div className="h-full w-full rounded-full bg-zinc-200 dark:bg-zinc-800" />
-          )}
+        <div className="w-full relative h-2 sm:h-2.5 bg-zinc-200/50 dark:bg-zinc-800/50 rounded-full overflow-hidden">
+          <motion.div
+            key={`budget-bar-${selectedMonth || "month"}`}
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            style={{ transformOrigin: "left" }}
+            transition={{
+              duration: 0.9,
+              ease: [0.16, 1, 0.3, 1], // easeOutExpo sur 900ms
+            }}
+            className="w-full h-full flex items-center gap-1 sm:gap-1.5"
+          >
+            {fixedBreakdown.rent > 0 && (
+              <div
+                style={{ flex: `${fixedBreakdown.rent} 1 0%` }}
+                className="h-full rounded-full min-w-[6px] bg-zinc-900 dark:bg-white transition-colors"
+              />
+            )}
+            {fixedBreakdown.loans > 0 && (
+              <div
+                style={{ flex: `${fixedBreakdown.loans} 1 0%` }}
+                className="h-full rounded-full min-w-[6px] bg-zinc-700 dark:bg-neutral-300 transition-colors"
+              />
+            )}
+            {fixedBreakdown.subscriptions > 0 && (
+              <div
+                style={{ flex: `${fixedBreakdown.subscriptions} 1 0%` }}
+                className="h-full rounded-full min-w-[6px] bg-zinc-500 dark:bg-neutral-400 transition-colors"
+              />
+            )}
+            {fixedBreakdown.regularUtilities > 0 && (
+              <div
+                style={{ flex: `${fixedBreakdown.regularUtilities} 1 0%` }}
+                className="h-full rounded-full min-w-[6px] bg-zinc-300 dark:bg-neutral-500 transition-colors"
+              />
+            )}
+            {disposableIncome > 0 && (
+              <div
+                style={{ flex: `${disposableIncome} 1 0%` }}
+                className="h-full rounded-full min-w-[10px] bg-zinc-200 dark:bg-zinc-800 transition-colors"
+              />
+            )}
+            {disposableIncome < 0 && (
+              <div
+                style={{ flex: `${Math.abs(disposableIncome)} 1 0%` }}
+                className="h-full rounded-full min-w-[6px] bg-rose-500"
+              />
+            )}
+            {/* Si aucune charge et aucun revenu configuré, afficher le track vide neutre */}
+            {fixedBreakdown.total === 0 && disposableIncome <= 0 && (
+              <div className="h-full w-full rounded-full bg-zinc-200 dark:bg-zinc-800" />
+            )}
+          </motion.div>
         </div>
       </div>
     </div>

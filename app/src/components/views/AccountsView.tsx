@@ -285,7 +285,7 @@ export function AccountsView({
                       )}
                     </div>
                     <div>
-                      <h3 className="font-bold text-base text-foreground font-sans truncate" title={acc.name}>
+                      <h3 className="font-bold text-base text-foreground font-sans truncate">
                         {acc.name}
                       </h3>
                       <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-neutral-400 font-sans">
@@ -299,7 +299,7 @@ export function AccountsView({
                     type="button"
                     onClick={() => handleOpenEdit(acc)}
                     className="p-1.5 rounded-full text-zinc-500 dark:text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
-                    title="Modifier ce compte"
+                    aria-label="Modifier ce compte"
                   >
                     <Edit2 size={14} />
                   </button>

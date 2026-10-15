@@ -170,7 +170,7 @@ export function PaymentCardBanner({ className = "", onOpenSettings }: PaymentCar
                 type="button"
                 onClick={handleCopy}
                 className="inline-flex items-center gap-1.5 text-zinc-900 dark:text-white hover:opacity-80 transition-opacity cursor-pointer select-none group/num"
-                title="Cliquer pour copier les 4 chiffres"
+                aria-label="Copier les 4 chiffres"
               >
                 <span className="text-zinc-400 dark:text-neutral-500 tracking-widest text-xs">••••</span>
                 <span className="font-semibold text-sm sm:text-base tracking-wider tabular-nums font-sans">
@@ -203,7 +203,8 @@ export function PaymentCardBanner({ className = "", onOpenSettings }: PaymentCar
           <div
             onClick={() => setIsModalOpen(true)}
             className="w-28 sm:w-32 lg:w-36 aspect-[1.586/1] rounded-xl border-2 border-dashed border-black/10 dark:border-border/80 hover:border-black/30 dark:hover:border-foreground/40 bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-all flex flex-col items-center justify-center gap-1.5 cursor-pointer group/placeholder text-center p-2 shrink-0 select-none"
-            title="Cliquer pour ajouter ou sélectionner votre carte"
+            role="button"
+            aria-label="Ajouter une carte"
           >
             <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-white/[0.06] border border-black/[0.06] dark:border-white/[0.08] flex items-center justify-center text-zinc-500 group-hover/placeholder:text-zinc-900 dark:text-neutral-400 dark:group-hover/placeholder:text-foreground transition-colors">
               <Plus size={14} strokeWidth={2.2} />
@@ -235,7 +236,8 @@ export function PaymentCardBanner({ className = "", onOpenSettings }: PaymentCar
                   ? `${-tilt.rotateY * 1.5}px ${tilt.rotateX * 1.5 + 8}px 24px rgba(0,0,0,0.35)`
                   : "0 2px 8px rgba(0,0,0,0.15)",
               }}
-              title="Cliquer pour changer de carte"
+              role="button"
+              aria-label="Changer de carte"
             >
               {/* Visuel PNG de la carte */}
               <img

@@ -149,7 +149,6 @@ export function Sidebar({
                       ? "text-zinc-900" 
                       : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
                   )}
-                  title={item.label}
                   aria-label={item.label}
                 >
                   {isActive && (
@@ -182,7 +181,6 @@ export function Sidebar({
               onClick={() => setIsBankPopoverOpen(!isBankPopoverOpen)}
               className="w-12 h-12 rounded-full bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-black/[0.06] dark:border-border flex items-center justify-center text-zinc-700 dark:text-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors cursor-pointer shadow-sm focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
               aria-label="Sélectionner la banque"
-              title={`Banque active : ${selectedBank === "ca" ? "Crédit Agricole" : "BoursoBank"} (cliquer pour changer)`}
             >
               {selectedBank === "ca" ? (
                 <CreditAgricoleLogo className="w-5 h-5 text-zinc-900 dark:text-foreground" />
@@ -211,7 +209,6 @@ export function Sidebar({
         {mounted ? (
           <div 
             className="flex flex-col items-center justify-center select-none pointer-events-none text-center font-sans tracking-tight shrink-0 gap-1"
-            title={dateFull}
             aria-label={`Date du jour : ${dayStr}/${monthStr}/${yearStr}`}
           >
             <span className="text-[13px] font-semibold text-zinc-800 dark:text-white tabular-nums leading-none">
@@ -240,7 +237,6 @@ export function Sidebar({
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
               className="w-12 h-12 rounded-full bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-black/[0.06] dark:border-border flex items-center justify-center text-zinc-700 dark:text-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors cursor-pointer shadow-sm focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
               aria-label="Basculer le thème"
-              title={theme === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}
             >
               {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </motion.button>
@@ -268,7 +264,6 @@ export function Sidebar({
                 : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/10"
             )}
             aria-label="Notifications"
-            title="Notifications"
             aria-expanded={isInboxOpen}
           >
             <Bell size={18} />
@@ -284,7 +279,6 @@ export function Sidebar({
             onClick={() => window.dispatchEvent(new CustomEvent("open-settings"))}
             className="w-10 h-10 rounded-full flex items-center justify-center text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0"
             aria-label="Paramètres"
-            title="Paramètres"
           >
             <Settings size={18} />
           </motion.button>
@@ -296,7 +290,6 @@ export function Sidebar({
             onClick={() => window.dispatchEvent(new CustomEvent("open-profile"))}
             className="w-10 h-10 rounded-full flex items-center justify-center text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer group outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0"
             aria-label="Profil utilisateur"
-            title="Profil"
           >
             <User size={18} className="text-zinc-500 group-hover:text-zinc-900 dark:text-zinc-400 dark:group-hover:text-white transition-colors" />
           </motion.button>

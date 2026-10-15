@@ -146,7 +146,7 @@ export function SubscriptionManager({ transactions, onIgnore }: { transactions: 
                     <Repeat size={18} />
                   </div>
                   <div className="min-w-0">
-                    <div className="font-semibold text-foreground text-sm truncate" title={sub.name}>{sub.name}</div>
+                    <div className="font-semibold text-foreground text-sm truncate">{sub.name}</div>
                     <div className="text-xs text-neutral-500 truncate">{sub.type}</div>
                   </div>
                 </div>
@@ -157,7 +157,6 @@ export function SubscriptionManager({ transactions, onIgnore }: { transactions: 
                     type="button"
                     onClick={(e) => handleIgnore(sub.name, e)}
                     className="p-2 text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-full transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none active:scale-95 cursor-pointer"
-                    title="Ce n'est pas un abonnement"
                     aria-label={`Ignorer ${sub.name}`}
                   >
                     <EyeOff size={16} />

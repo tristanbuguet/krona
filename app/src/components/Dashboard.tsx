@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Area, AreaChart, LineChart, Line, Legend, ResponsiveContainer, Tooltip, XAxis, PieChart, Pie, Cell, BarChart, Bar, ReferenceLine, CartesianGrid } from "recharts";
+import { Area, AreaChart, LineChart, Line, Legend, ResponsiveContainer, XAxis, PieChart, Pie, Cell, BarChart, Bar, ReferenceLine, CartesianGrid } from "recharts";
 import { CSVUploader } from "./CSVUploader";
 import { CsvAnalysisModal, ImportStep } from "./CsvAnalysisModal";
 import { NormalizedTransaction, parseBoursoBankRows } from "@/lib/bankParser";
@@ -15,6 +15,8 @@ import { MonthlyLimitCard } from "./MonthlyLimitCard";
 import { RealDisposableIncomeCard } from "./RealDisposableIncomeCard";
 import { PaymentCardBanner } from "./PaymentCardBanner";
 import { CardData, CARD_PRESETS, DEFAULT_BANK_CARDS } from "./CardSelectorModal";
+import { SemiDonutGauge } from "./SemiDonutGauge";
+import { ExpensesCurveChart } from "./ExpensesCurveChart";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import clsx from "clsx";
 import { useTheme } from "./ThemeProvider";
@@ -138,54 +140,6 @@ export const CATEGORY_COLORS: Record<string, { ring: string; fill: string; dot: 
   "Autre": { ring: "#71717A", fill: "bg-zinc-500", dot: "bg-zinc-500" },
 };
 
-const CustomTooltip = ({ active, payload }: any) => {
-  if (active && payload && payload.length) {
-    const data = payload[0].payload;
-    if (!data.dateFormatted) return null;
-    return (
-      <div className="bg-white/95 dark:bg-[#0F0F11]/95 backdrop-blur-xl backdrop-saturate-150 border border-black/[0.08] dark:border-white/[0.1] rounded-2xl p-3 shadow-xl min-w-[180px]">
-        <div className="text-xs text-zinc-500 dark:text-neutral-400 font-medium mb-1">{data.dateFormatted}</div>
-        <div className="text-base font-bold text-zinc-900 dark:text-white mb-1 tabular-nums">{data.amount.toFixed(2)} €</div>
-        {!data.rawMonth && <div className="text-xs text-zinc-500 dark:text-neutral-400 mb-2">Total cumulé : <span className="tabular-nums font-medium text-zinc-700 dark:text-neutral-300">{data.cumulative.toFixed(2)} €</span></div>}
-        {data.topTx && data.topTx.length > 0 && (
-          <div className="pt-2 border-t border-black/[0.06] dark:border-white/[0.1] flex flex-col gap-1.5 mt-1">
-            {data.topTx.map((tx: any, i: number) => (
-              <div key={i} className="flex justify-between items-center text-[11px]">
-                <span className="text-zinc-700 dark:text-neutral-300 truncate pr-3 max-w-[120px]">{tx.name}</span>
-                <span className="text-zinc-500 dark:text-neutral-400 tabular-nums whitespace-nowrap">{tx.amount.toFixed(2)} €</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-  return null;
-};
-
-const CustomRaceTooltip = ({ active, payload }: any) => {
-  if (active && payload && payload.length) {
-    const data = payload[0].payload;
-    const sorted = [...payload].sort((a, b) => b.value - a.value);
-    return (
-      <div className="bg-white/95 dark:bg-[#0F0F11]/95 backdrop-blur-xl backdrop-saturate-150 border border-black/[0.08] dark:border-white/[0.1] rounded-2xl p-3 shadow-xl min-w-[180px]">
-        <div className="text-xs text-zinc-500 dark:text-neutral-400 font-medium mb-3">Jour {data.day}</div>
-        <div className="flex flex-col gap-1.5">
-          {sorted.map((entry, i) => (
-            <div key={i} className="flex justify-between items-center text-[11px]">
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: entry.color }} />
-                <span className="text-zinc-700 dark:text-neutral-300 truncate max-w-[90px]">{formatMonthLabel(entry.dataKey)}</span>
-              </div>
-              <span className="text-zinc-900 dark:text-neutral-100 font-medium tabular-nums whitespace-nowrap pl-3">{entry.value.toFixed(2)} €</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  return null;
-};
 
 const CategoryIcon = ({ type, isSubscription, isInternalTransfer, iconSize = 16 }: { type: string, isSubscription?: boolean, isInternalTransfer?: boolean, iconSize?: number }) => {
   const color = CATEGORY_COLORS[type]?.ring || "#A1A1AA";
@@ -448,6 +402,7 @@ export function Dashboard({
   const [importStep, setImportStep] = useState<ImportStep | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string, visible: boolean } | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -538,6 +493,22 @@ export function Dashboard({
   const modalWrapperRef = useRef<HTMLDivElement>(null);
   const drawerScrollRef = useRef<HTMLDivElement>(null);
   const lastPopupClosedAtRef = useRef<number>(0);
+
+  // Répartition interactive hover state & auto-scroll synchronisé
+  const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
+  const categoryListRef = useRef<HTMLDivElement>(null);
+
+  const handleArcHoverCategory = useCallback((catName: string | null) => {
+    setHoveredCategory(catName);
+    if (catName && categoryListRef.current) {
+      const rowEl = categoryListRef.current.querySelector(
+        `[data-category-row="${catName.replace(/"/g, '\\"')}"]`
+      ) as HTMLElement | null;
+      if (rowEl) {
+        rowEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+  }, []);
 
   // Dynamic positioning calculation with collision detection and adaptive vertical alignment
   const updatePopupPosition = useCallback((txId?: string) => {
@@ -912,6 +883,8 @@ export function Dashboard({
     if (savedIgnoredSubs) {
       try { setIgnoredSubscriptions(JSON.parse(savedIgnoredSubs)); } catch(e) {}
     }
+
+    setIsDataLoaded(true);
   }, []);
 
   // Keyboard Shortcuts for Modals & Drawers
@@ -987,6 +960,7 @@ export function Dashboard({
 
   // Synchronisation stricte : toujours un seul mois sélectionné à la fois (ou null si aucun relevé)
   useEffect(() => {
+    if (!isDataLoaded) return;
     if (uniqueMonths.length > 0) {
       if (!selectedMonth || selectedMonth === "Tout" || selectedMonth === "all" || !uniqueMonths.includes(selectedMonth)) {
         setSelectedMonth(uniqueMonths[0]);
@@ -994,7 +968,7 @@ export function Dashboard({
     } else {
       setSelectedMonth(null);
     }
-  }, [uniqueMonths, selectedMonth]);
+  }, [isDataLoaded, uniqueMonths, selectedMonth]);
 
   const handleUpload = async (data: NormalizedTransaction[] | any[]) => {
     try {
@@ -1403,12 +1377,8 @@ export function Dashboard({
       .map(([name, value]) => ({ name, value: isAllTime ? value / monthsCount : value, max: exp > 0 ? exp : 1 }))
       .sort((a, b) => b.value - a.value);
 
-    let sortedCats = allSortedCats;
-    if (allSortedCats.length > 5) {
-      const top4 = allSortedCats.slice(0, 4);
-      const restValue = allSortedCats.slice(4).reduce((sum, cat) => sum + cat.value, 0);
-      sortedCats = [...top4, { name: "Autre", value: restValue, max: exp > 0 ? exp : 1 }];
-    }
+    // Conserve toutes les catégories individuelles classées par dépense pour la liste étendue et la répartition
+    const sortedCats = allSortedCats;
 
     let timeline: any[] = [];
     if (selectedMonth && selectedMonth !== "Tout") {
@@ -1793,7 +1763,6 @@ export function Dashboard({
               whileTap={{ scale: 0.95 }}
               onClick={() => setShowResetModal(true)}
               className="w-9 h-9 flex items-center justify-center rounded-full bg-white border border-black/[0.08] text-zinc-800 shadow-sm dark:bg-zinc-900 dark:border-white/10 dark:text-white hover:bg-zinc-50 dark:hover:bg-red-950/30 hover:text-red-500 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
-              title="Supprimer des données"
               aria-label="Supprimer des données"
             >
               <Trash2 size={16} />
@@ -1832,7 +1801,6 @@ export function Dashboard({
               whileTap={{ scale: 0.95 }}
               onClick={() => setIsImportMenuOpen((prev) => !prev)}
               className="h-9 px-3.5 sm:px-4 rounded-full bg-zinc-900 text-white dark:bg-white dark:text-black font-medium text-xs sm:text-sm flex items-center gap-1.5 hover:bg-zinc-800 dark:hover:bg-neutral-100 active:scale-95 transition-all shadow-sm cursor-pointer font-sans shrink-0 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
-              title="Importer un fichier CSV"
               aria-label="Importer un fichier CSV"
             >
               <Plus size={16} strokeWidth={2.5} className="text-white dark:text-black shrink-0" />
@@ -1922,7 +1890,6 @@ export function Dashboard({
                 ? "bg-black/5 dark:bg-card border-black/[0.06] dark:border-border text-zinc-700 dark:text-foreground active:scale-95 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none hover:bg-black/10 dark:hover:bg-white/[0.08] cursor-pointer"
                 : "bg-black/5 dark:bg-card border-black/[0.06] dark:border-border text-zinc-400 dark:text-neutral-500 cursor-not-allowed opacity-40"
             )}
-            title={uniqueMonths.length > 0 ? "Vue annuelle" : "Aucun relevé disponible"}
             aria-label="Vue annuelle"
           >
             <CalendarDays size={16} />
@@ -1984,7 +1951,7 @@ export function Dashboard({
                    <div className="flex justify-between items-start mb-6">
                      <div className="flex items-center gap-3 min-w-0 pr-2">
                        <div className={`w-3 h-3 rounded-full shrink-0 ${CATEGORY_COLORS[cat]?.dot || CATEGORY_COLORS["Autre"].dot}`} />
-                       <h3 className="font-semibold text-foreground truncate" title={cat}>{cat}</h3>
+                       <h3 className="font-semibold text-foreground truncate">{cat}</h3>
                      </div>
                      {isExceeded && (
                        <span className="text-[10px] uppercase font-bold text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded-full shrink-0 tabular-nums">
@@ -2122,7 +2089,7 @@ export function Dashboard({
 
           // 2. Carte "Abonnements récurrents" : Hover très subtil et discret
           return (
-            <div key={i} className="h-full" title="Cliquer pour afficher les abonnements récurrents">
+            <div key={i} className="h-full">
               <Card 
                 className="h-full min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] flex flex-col justify-between transition-colors duration-300 group cursor-pointer hover:bg-black/[0.015] dark:hover:bg-white/[0.02] active:scale-[0.995]"
                 onClick={() => {
@@ -2175,81 +2142,14 @@ export function Dashboard({
             </div>
             
             <div className="flex-1 w-full min-h-0 bg-transparent flex flex-col">
-              {expensesTimeline.length === 0 || expenses === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-neutral-400">
-                  <Activity size={32} className="stroke-1 text-neutral-400/40 mb-3" />
-                  <p className="text-sm font-medium text-foreground font-sans">Aucune dépense sur cette période</p>
-                  <p className="text-xs text-neutral-500 mt-0.5 font-sans">Les débits apparaîtront au fil de tes opérations</p>
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%" className="bg-transparent">
-                  {isAllTime ? (
-                    <BarChart data={expensesTimeline} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
-                      <XAxis 
-                        dataKey="day" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-space-grotesk)' }} 
-                        dy={10} 
-                      />
-                      <Tooltip 
-                        content={<CustomTooltip />}
-                        cursor={{ fill: 'var(--foreground)', opacity: 0.04 }}
-                      />
-                      <ReferenceLine 
-                        y={expenses / monthsCount} 
-                        stroke="#A1A1AA" 
-                        strokeDasharray="3 3" 
-                        strokeOpacity={0.4} 
-                      />
-                      <Bar 
-                        dataKey="amount" 
-                        fill={isDark ? "#ffffff" : "#18181b"} 
-                        fillOpacity={0.8} 
-                        radius={[4, 4, 0, 0]}
-                        maxBarSize={48}
-                        className="cursor-pointer transition-opacity hover:opacity-100"
-                        onClick={(data: any) => {
-                          if (data && data.rawMonth) {
-                            setSelectedMonth(data.rawMonth);
-                          }
-                        }}
-                      />
-                    </BarChart>
-                  ) : (
-                    <AreaChart data={expensesTimeline} margin={{ top: 10, right: 10, left: 10, bottom: 6 }}>
-                      <defs>
-                        <linearGradient id="teaserGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={isDark ? "#ffffff" : "#18181b"} stopOpacity={isDark ? 0.15 : 0.08}/>
-                          <stop offset="100%" stopColor={isDark ? "#ffffff" : "#18181b"} stopOpacity={0.01}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} fill="none" stroke="var(--border)" strokeOpacity={0.5} />
-                      <XAxis 
-                        dataKey="day" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fontSize: 11, fill: 'var(--muted-foreground)', fontFamily: 'var(--font-space-grotesk)' }} 
-                        dy={10} 
-                        fill="none"
-                        ticks={['01', '05', '10', '15', '20', '25', '30']}
-                      />
-                      <Tooltip 
-                        content={<CustomTooltip />}
-                        cursor={{ stroke: isDark ? '#ffffff' : '#18181b', strokeWidth: 1, strokeDasharray: '3 3', strokeOpacity: 0.3, fill: 'none' }}
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey="cumulative" 
-                        stroke={isDark ? "#ffffff" : "#18181b"} 
-                        strokeWidth={2} 
-                        fillOpacity={1} 
-                        fill="url(#teaserGradient)"
-                        activeDot={{ r: 4, strokeWidth: 0, fill: isDark ? "#ffffff" : "#18181b" }}
-                      />
-                    </AreaChart>
-                  )}
-                </ResponsiveContainer>
+              {isDataLoaded && (
+                <ExpensesCurveChart
+                  key={selectedMonth || "month"}
+                  timeline={expensesTimeline}
+                  totalExpenses={expenses}
+                  selectedMonth={selectedMonth || undefined}
+                  isDark={isDark}
+                />
               )}
             </div>
           </Card>
@@ -2258,6 +2158,7 @@ export function Dashboard({
         {/* Col 2: Répartition & 2 Bannières équilibrées (col-span-4) */}
         <div className="col-span-1 lg:col-span-4 h-full flex flex-col justify-between gap-4 min-h-0">
           <Card className="flex flex-col flex-1 min-h-0 overflow-hidden justify-between">
+            {/* En-tête de la carte */}
             <div className="flex justify-between items-start shrink-0 mb-1 sm:mb-2">
               <div>
                 <h3 className="text-base font-semibold tracking-tight text-zinc-800 dark:text-zinc-100 font-sans">Répartition</h3>
@@ -2266,9 +2167,9 @@ export function Dashboard({
                 <PieChartIcon size={15} />
               </div>
             </div>
-            
+
             {categoryData.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center text-neutral-400">
+              <div className="flex-1 flex flex-col items-center justify-center text-center text-neutral-400 py-6">
                 <div className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-2 text-neutral-400">
                   <PieChartIcon size={16} />
                 </div>
@@ -2276,75 +2177,82 @@ export function Dashboard({
                 <p className="text-[11px] text-neutral-500 mt-0.5 font-sans">Les débits classés s'afficheront ici</p>
               </div>
             ) : (
-              <div className="flex-1 min-h-0 flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-7 lg:gap-5 xl:gap-8 2xl:gap-12 px-2 sm:px-3 py-2">
-                {/* Donut à gauche avec mise à l'échelle proportionnelle sur grand écran (27") */}
-                <div className="relative w-36 h-36 sm:w-40 sm:h-40 lg:w-36 lg:h-36 xl:w-44 xl:h-44 2xl:w-60 2xl:h-60 2xl:min-w-[240px] shrink-0 flex items-center justify-center mx-auto sm:mx-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={[{ value: 1 }]}
-                        cx="50%" cy="50%"
-                        innerRadius="70%"
-                        outerRadius="92%"
-                        stroke="none"
-                        fill="var(--pie-track)"
-                        isAnimationActive={false}
-                      />
-                      <Pie
-                        data={categoryData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius="70%"
-                        outerRadius="92%"
-                        paddingAngle={3}
-                        dataKey="value"
-                        stroke="none"
-                        cornerRadius={3}
-                      >
-                        {categoryData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[entry.name]?.ring || CATEGORY_COLORS["Autre"].ring} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: 'var(--card)', borderRadius: '16px', border: '1px solid var(--border)', color: 'var(--foreground)', boxShadow: '0 8px 30px rgba(0,0,0,0.1)' }}
-                        itemStyle={{ color: 'var(--foreground)', fontWeight: 600, fontSize: '13px' }}
-                        formatter={(value: any) => [`${Number(value).toFixed(2)} €`, '']}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none text-center">
-                    <span className="text-[10px] sm:text-[11px] 2xl:text-xs font-semibold text-zinc-500 dark:text-neutral-400 uppercase tracking-wider mb-1 leading-none font-sans">
-                      {isAllTime ? "MOYENNE" : "DÉPENSÉ"}
-                    </span>
-                    <span className="font-bold text-xl sm:text-2xl xl:text-3xl 2xl:text-4xl tracking-tight text-zinc-900 dark:text-white tabular-nums font-sans leading-none">
-                      {isAllTime ? (expenses / monthsCount).toFixed(0) : expenses.toFixed(0)} €
-                    </span>
-                  </div>
-                </div>
+              <div className="flex-1 min-h-0 flex flex-col pt-0.5">
+                {/* 1. Demi-Donut (Arc 180° / Semi-circular Gauge) */}
+                {isDataLoaded && (
+                  <SemiDonutGauge
+                    key={selectedMonth || "month"}
+                    categoryData={categoryData}
+                    totalExpenses={expenses}
+                    isAllTime={isAllTime}
+                    monthsCount={monthsCount}
+                    selectedMonth={selectedMonth || undefined}
+                    hoveredCategory={hoveredCategory}
+                    onHoverCategory={handleArcHoverCategory}
+                    className="my-1 xl:my-2 min-[1600px]:my-3 min-[1850px]:my-3.5"
+                  />
+                )}
 
-                {/* Légende regroupée de manière cohérente, sans étirement excessif */}
-                <div className="flex-1 w-full flex flex-col justify-center gap-2.5 sm:gap-3 xl:gap-3.5 2xl:gap-4.5 min-w-0">
-                  {categoryData.slice(0, 4).map((cat, i) => {
-                    const budget = categoryBudgets[cat.name];
-                    const hasBudget = budget && budget > 0;
-                    const isExceeded = hasBudget && cat.value > budget;
-                    
+                {/* 2. Liste des catégories strictement sur une seule colonne verticale avec scroll masqué */}
+                <div 
+                  ref={categoryListRef}
+                  className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain pr-1 space-y-1 sm:space-y-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                >
+                  {categoryData.map((cat) => {
+                    const catColor = CATEGORY_COLORS[cat.name] || CATEGORY_COLORS["Autre"];
+                    const colorHex = catColor?.ring || "#71717A";
+                    const percentage = expenses > 0 ? ((cat.value / expenses) * 100).toFixed(0) : "0";
+                    const isHovered = hoveredCategory === cat.name;
+
                     return (
-                      <div key={i} className="flex items-start gap-3 min-w-0">
-                        <div className={`w-2.5 h-2.5 2xl:w-3 2xl:h-3 rounded-full mt-1 shrink-0 ${CATEGORY_COLORS[cat.name]?.dot || CATEGORY_COLORS["Autre"].dot}`} />
-                        <div className="min-w-0 flex-1">
-                          <div className="font-medium text-zinc-800 dark:text-zinc-200 truncate font-sans text-xs sm:text-sm 2xl:text-[15px] leading-tight" title={cat.name}>
-                            {cat.name}
+                      <div
+                        key={cat.name}
+                        data-category-row={cat.name}
+                        onMouseEnter={() => setHoveredCategory(cat.name)}
+                        onMouseLeave={() => setHoveredCategory(null)}
+                        onClick={() => {
+                          setDrawerFilter("all");
+                          setDrawerSearch(cat.name);
+                          setShowTransactionsDrawer(true);
+                        }}
+                        className={clsx(
+                          "flex items-center justify-between py-2 sm:py-2.5 px-2 rounded-xl select-none cursor-pointer transition-colors duration-150 min-h-[52px] sm:min-h-[56px]",
+                          isHovered
+                            ? "bg-black/[0.04] dark:bg-white/[0.06]"
+                            : "hover:bg-black/[0.02] dark:hover:bg-white/[0.03]"
+                        )}
+                      >
+                        {/* À gauche : pastille avec icône sur fond teinté fixe (36x36px / w-9 h-9) */}
+                        <div className="flex items-center gap-3 min-w-0 max-w-[62%]">
+                          <div
+                            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                            style={{
+                              backgroundColor: `${colorHex}18`,
+                              border: `1px solid ${colorHex}30`
+                            }}
+                          >
+                            <CategoryIcon type={cat.name} iconSize={18} />
                           </div>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="font-semibold text-zinc-900 dark:text-white tabular-nums text-xs sm:text-sm 2xl:text-[15px] font-sans" title={hasBudget && !isExceeded ? `Reste ${(budget - cat.value).toFixed(2)} €` : undefined}>
-                              {hasBudget ? `${cat.value.toFixed(0)} € / ${budget} €` : (isAllTime ? `~${cat.value.toFixed(0)} € / mois` : `${cat.value.toFixed(0)} €`)}
-                            </span>
-                            {isExceeded && (
-                              <span className="text-[9px] 2xl:text-[10px] uppercase font-bold text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded-sm tabular-nums font-sans">
-                                +{(cat.value - budget).toFixed(0)} €
-                              </span>
-                            )}
+                          {/* Au centre : nom de la catégorie en semi-bold */}
+                          <div className="min-w-0 flex-1">
+                            <div
+                              className="font-semibold text-xs sm:text-sm truncate font-sans transition-colors duration-150 text-zinc-900 dark:text-white"
+                            >
+                              {cat.name}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* À droite : montant total dépensé et pourcentage */}
+                        <div className="text-right shrink-0 pl-2">
+                          <div className={clsx(
+                            "text-xs sm:text-sm font-semibold tabular-nums font-sans transition-colors duration-150",
+                            isHovered ? "text-zinc-900 dark:text-white" : "text-zinc-800 dark:text-zinc-100"
+                          )}>
+                            {cat.value.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €
+                          </div>
+                          <div className="text-xs text-zinc-500 dark:text-neutral-400 tabular-nums font-sans mt-0.5">
+                            {percentage}%
                           </div>
                         </div>
                       </div>
@@ -2356,28 +2264,41 @@ export function Dashboard({
           </Card>
 
           {/* Les 2 bannières compactes de taille strictement identique aux KPI */}
-          <MonthlyLimitCard 
-            expenses={expenses}
-            categoryBudgets={categoryBudgets}
-            incomeSettings={incomeSettings}
-            onOpenBudgetSettings={() => {
-              setSettingsTab("budgets");
-              setShowSettingsModal(true);
-            }}
-            className="min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] shrink-0"
-          />
-          <RealDisposableIncomeCard 
-            income={income}
-            incomeSettings={incomeSettings}
-            transactions={filteredTransactions}
-            activeSubscriptions={activeSubscriptions}
-            subs={subs}
-            onOpenSettings={() => {
-              setSettingsTab("fixed");
-              setShowSettingsModal(true);
-            }}
-            className="min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] shrink-0"
-          />
+          {isDataLoaded ? (
+            <>
+              <MonthlyLimitCard 
+                key={selectedMonth || "month"}
+                expenses={expenses}
+                categoryBudgets={categoryBudgets}
+                incomeSettings={incomeSettings}
+                selectedMonth={selectedMonth || undefined}
+                onOpenBudgetSettings={() => {
+                  setSettingsTab("budgets");
+                  setShowSettingsModal(true);
+                }}
+                className="min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] shrink-0"
+              />
+              <RealDisposableIncomeCard 
+                key={selectedMonth || "month"}
+                income={income}
+                incomeSettings={incomeSettings}
+                transactions={filteredTransactions}
+                activeSubscriptions={activeSubscriptions}
+                subs={subs}
+                selectedMonth={selectedMonth || undefined}
+                onOpenSettings={() => {
+                  setSettingsTab("fixed");
+                  setShowSettingsModal(true);
+                }}
+                className="min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] shrink-0"
+              />
+            </>
+          ) : (
+            <>
+              <div className="min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] shrink-0 rounded-2xl bg-white/5 border border-black/[0.06] dark:border-white/[0.08]" />
+              <div className="min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] shrink-0 rounded-2xl bg-white/5 border border-black/[0.06] dark:border-white/[0.08]" />
+            </>
+          )}
         </div>
 
         {/* Col 3: Top Merchants & Spending Cadence (col-span-4) */}
@@ -2421,14 +2342,13 @@ export function Dashboard({
                         setShowTransactionsDrawer(true);
                       }}
                       className="flex items-center justify-between py-2 sm:py-2.5 px-2 rounded-xl hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors cursor-pointer group active:scale-[0.99] select-none"
-                      title={`Voir toutes les opérations de ${merchant.name}`}
                     >
                       <div className="flex items-center gap-3 min-w-0 max-w-[55%]">
                         <div className="w-9 h-9 rounded-full bg-zinc-100 dark:bg-white/[0.06] border border-black/5 dark:border-white/[0.06] flex items-center justify-center shrink-0">
                           <CategoryIcon type={merchant.category} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-sm text-zinc-900 dark:text-white truncate font-sans" title={merchant.name}>
+                          <div className="font-semibold text-sm text-zinc-900 dark:text-white truncate font-sans">
                             {merchant.name}
                           </div>
                           <div className="text-xs text-zinc-500 dark:text-neutral-400 truncate font-sans mt-0.5">
@@ -2481,7 +2401,7 @@ export function Dashboard({
 
             {/* Visualiseur vertical 4 colonnes dynamique */}
             <div className="flex-1 min-h-[90px] w-full grid grid-cols-4 gap-2 pt-1 pb-1 items-stretch">
-              {spendingCadence.weeks.map((week) => (
+              {isDataLoaded && spendingCadence.weeks.map((week, idx) => (
                 <div key={week.id} className="flex flex-col items-center justify-between h-full min-h-0 group select-none">
                   {/* Montant lisible en en-tête de colonne */}
                   <div className="text-[10px] sm:text-[11px] font-semibold tabular-nums text-zinc-500 dark:text-neutral-400 group-hover:text-zinc-900 dark:group-hover:text-white transition-colors font-sans mb-1 shrink-0">
@@ -2492,11 +2412,20 @@ export function Dashboard({
                   <div className="w-full flex-1 min-h-[44px] bg-zinc-100 dark:bg-zinc-900 rounded-xl p-1 relative flex flex-col justify-end overflow-hidden border border-black/[0.06] dark:border-white/[0.05] group-hover:border-black/15 dark:group-hover:border-white/15 transition-all">
                     {/* Colonne de remplissage de bas en haut proportionnelle */}
                     <motion.div
-                      initial={{ height: 0 }}
-                      animate={{ height: `${Math.max(week.amount > 0 ? 12 : 0, Math.min(100, week.pct))}%` }}
-                      transition={{ type: "spring", stiffness: 85, damping: 18 }}
+                      key={`cadence-bar-${selectedMonth || "month"}-${week.id}`}
+                      initial={{ scaleY: 0 }}
+                      animate={{ scaleY: 1 }}
+                      style={{
+                        height: `${Math.max(week.amount > 0 ? 12 : 0, Math.min(100, week.pct))}%`,
+                        transformOrigin: "bottom",
+                      }}
+                      transition={{
+                        duration: 0.9 - idx * 0.03,
+                        delay: idx * 0.03,
+                        ease: [0.16, 1, 0.3, 1], // easeOutExpo sur 900ms
+                      }}
                       className={clsx(
-                        "w-full rounded-lg transition-all duration-300",
+                        "w-full rounded-lg transition-colors",
                         week.isPeak
                           ? "bg-zinc-900 dark:bg-white shadow-xs dark:shadow-[0_0_14px_rgba(255,255,255,0.25)]"
                           : week.amount > 0
@@ -2761,7 +2690,7 @@ export function Dashboard({
                             <div key={cat} className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
                               <div className="flex items-center gap-3 min-w-0 pr-3">
                                 <div className={`w-3 h-3 rounded-full shrink-0 ${CATEGORY_COLORS[cat].dot}`} />
-                                <span className="text-sm font-medium text-foreground truncate" title={cat}>{cat}</span>
+                                <span className="text-sm font-medium text-foreground truncate">{cat}</span>
                               </div>
                               <div className="relative w-32 shrink-0">
                                 <input 
@@ -3063,7 +2992,7 @@ export function Dashboard({
                       >
                         <div className="flex items-center justify-between gap-3 mb-2">
                           <div className="min-w-0 flex-1">
-                            <div className="font-medium text-sm text-foreground truncate" title={tx.name}>{tx.name}</div>
+                            <div className="font-medium text-sm text-foreground truncate">{tx.name}</div>
                             <div className="text-xs text-neutral-500 mt-0.5">{tx.date}</div>
                           </div>
                           <div className="font-bold text-sm text-foreground shrink-0 text-right tabular-nums">{tx.amount.toFixed(2)} €</div>
@@ -3285,7 +3214,7 @@ export function Dashboard({
                           type="button"
                           onClick={() => setDrawerSearch("")}
                           className="text-neutral-400 hover:text-foreground transition-colors p-0.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer shrink-0"
-                          title="Effacer la recherche"
+                          aria-label="Effacer la recherche"
                         >
                           <X size={12} />
                         </button>

@@ -159,7 +159,7 @@ export function TransactionsView({
           type="button"
           onClick={exportFilteredCSV}
           className="h-9 px-3.5 rounded-full bg-white dark:bg-white/[0.06] hover:bg-black/5 dark:hover:bg-white/[0.1] border border-black/[0.08] dark:border-white/10 text-xs font-medium text-zinc-900 dark:text-white flex items-center gap-2 transition-all active:scale-95 cursor-pointer font-sans shadow-xs"
-          title="Exporter en CSV"
+          aria-label="Exporter en CSV"
         >
           <Download size={14} />
           <span>Exporter CSV</span>
@@ -326,12 +326,12 @@ export function TransactionsView({
                       {/* 2. Merchant & Flags */}
                       <td className="py-3 px-6">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-semibold text-zinc-900 dark:text-white truncate" title={tx.name}>
+                          <span className="font-semibold text-zinc-900 dark:text-white truncate">
                             {tx.name}
                           </span>
                           {tx.isSubscription && (
                             <span 
-                              title="Abonnement récurrent" 
+                              aria-label="Abonnement récurrent" 
                               className="px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 text-[10px] shrink-0 flex items-center gap-0.5"
                             >
                               <Repeat size={10} />
@@ -340,7 +340,7 @@ export function TransactionsView({
                           )}
                           {tx.isInternalTransfer && (
                             <span 
-                              title="Virement interne / Épargne" 
+                              aria-label="Virement interne / Épargne" 
                               className="px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] shrink-0 flex items-center gap-0.5"
                             >
                               <ArrowRightLeft size={10} />
@@ -371,7 +371,7 @@ export function TransactionsView({
                             type="button"
                             onClick={() => setEditingTxId(tx.id)}
                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all hover:ring-1 hover:ring-black/10 dark:hover:ring-white/20 cursor-pointer max-w-full ${catColor.bgSoft} ${catColor.textSoft}`}
-                            title="Cliquer pour réassigner la catégorie"
+                            aria-label="Réassigner la catégorie"
                           >
                             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${catColor.dot}`} />
                             <span className="truncate">{tx.type}</span>

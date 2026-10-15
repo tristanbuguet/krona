@@ -13,6 +13,7 @@ interface MonthlyLimitCardProps {
     aids?: number;
     savingsGoal?: number;
   };
+  selectedMonth?: string;
   onOpenBudgetSettings?: () => void;
   className?: string;
 }
@@ -21,6 +22,7 @@ export function MonthlyLimitCard({
   expenses = 0,
   categoryBudgets = {},
   incomeSettings = {},
+  selectedMonth,
   onOpenBudgetSettings,
   className = "",
 }: MonthlyLimitCardProps) {
@@ -87,7 +89,6 @@ export function MonthlyLimitCard({
               type="button"
               onClick={handleSaveEdit}
               className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-zinc-900 dark:bg-white text-white dark:text-black transition-transform active:scale-95 cursor-pointer shadow-sm"
-              title="Valider"
               aria-label="Valider le montant"
             >
               <Check size={13} strokeWidth={2.5} />
@@ -97,7 +98,6 @@ export function MonthlyLimitCard({
               type="button"
               onClick={handleStartEdit}
               className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/[0.08] transition-all active:scale-95 cursor-pointer"
-              title="Ajuster le plafond"
               aria-label="Ajuster le plafond"
             >
               <Pencil size={13} strokeWidth={2} />
@@ -146,9 +146,17 @@ export function MonthlyLimitCard({
       <div className="mt-2 sm:mt-2.5 w-full shrink-0">
         <div className="h-2 sm:h-2.5 w-full bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden relative">
           <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${Math.min(100, percentage)}%` }}
-            transition={{ type: "spring", stiffness: 90, damping: 20 }}
+            key={`limit-bar-${selectedMonth || "month"}`}
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            style={{
+              width: `${Math.min(100, percentage)}%`,
+              transformOrigin: "left",
+            }}
+            transition={{
+              duration: 0.9,
+              ease: [0.16, 1, 0.3, 1], // easeOutExpo sur 900ms
+            }}
             className={clsx(
               "h-full rounded-full transition-colors",
               isOverLimit

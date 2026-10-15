@@ -84,3 +84,37 @@ input[type="number"] {
   appearance: textfield;
 }
 
+/* Semi-Donut Gauge autonomous sizing tiers */
+/* Format par défaut : MacBook 13"/14" */
+.semi-donut-wrapper {
+  width: 210px !important;
+  height: 105px !important;
+}
+
+/* Écrans moyens / MacBook 16" (dès 1200px) */
+@media (min-width: 1200px) {
+  .semi-donut-wrapper {
+    width: 280px !important;
+    height: 140px !important;
+  }
+}
+
+/* Moniteurs externes / 27" (abaisse le seuil à 1600px pour couvrir le scaling Retina) */
+@media (min-width: 1600px) {
+  .semi-donut-wrapper {
+    width: 360px !important;
+    height: 180px !important;
+  }
+}
+
+/* Très grands écrans / Plein écran 27" natif (dès 1850px) */
+@media (min-width: 1850px) {
+  .semi-donut-wrapper {
+    width: 440px !important;
+    height: 220px !important;
+  }
+}
+
+
+
+

@@ -24,7 +24,6 @@ import {
   Bar, 
   XAxis, 
   YAxis, 
-  Tooltip, 
   CartesianGrid, 
   Legend, 
   Line, 
@@ -258,30 +257,7 @@ export function TrendsView({
     };
   }, [monthlyData]);
 
-  // Custom Chart Tooltip
-  const CustomTrendsTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-white/95 dark:bg-[#0F0F11]/95 backdrop-blur-2xl border border-black/[0.08] dark:border-white/[0.1] rounded-2xl p-4 shadow-xl text-xs min-w-[200px]">
-          <div className="font-semibold text-zinc-900 dark:text-white mb-2 text-sm">{label}</div>
-          <div className="space-y-1.5 font-sans">
-            {payload.map((entry: any, index: number) => (
-              <div key={index} className="flex items-center justify-between gap-4">
-                <span className="flex items-center gap-1.5 text-zinc-500 dark:text-neutral-400">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
-                  {entry.name}
-                </span>
-                <span className="font-medium text-zinc-900 dark:text-white tabular-nums">
-                  {formatAmount(entry.value, false)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
+
 
   return (
     <div className="flex-1 min-h-0 flex flex-col w-full h-full overflow-hidden">
@@ -439,7 +415,6 @@ export function TrendsView({
                   tick={{ fill: "#888888", fontSize: 11, fontFamily: "var(--font-space-grotesk)" }}
                   tickFormatter={(val) => `${val} €`}
                 />
-                <Tooltip content={<CustomTrendsTooltip />} />
                 <Bar dataKey="income" name="Revenus" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={32} />
                 <Bar dataKey="expenses" name="Dépenses" fill="#71717A" radius={[4, 4, 0, 0]} maxBarSize={32} />
                 <Line 
