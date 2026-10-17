@@ -12,7 +12,7 @@ import { PageHeader } from "./ui/PageHeader";
 import { Card } from "./ui/Card";
 import { SubscriptionManager, detectSubscriptions } from "./SubscriptionManager";
 import { MonthlyLimitCard } from "./MonthlyLimitCard";
-import { RealDisposableIncomeCard } from "./RealDisposableIncomeCard";
+import { RealDisposableIncomeCard, StartingBudgetCard } from "./RealDisposableIncomeCard";
 import { PaymentCardBanner } from "./PaymentCardBanner";
 import { CardData, CARD_PRESETS, DEFAULT_BANK_CARDS } from "./CardSelectorModal";
 import { SemiDonutGauge } from "./SemiDonutGauge";
@@ -714,6 +714,18 @@ export function Dashboard({
     loans: 0,
     utilities: 0
   });
+
+  const [customSpendingLimit, setCustomSpendingLimit] = useState<number | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("krona_monthly_spending_limit");
+      if (saved) {
+        const val = parseFloat(saved);
+        if (!isNaN(val) && val > 0) setCustomSpendingLimit(val);
+      }
+    } catch (e) {}
+  }, []);
 
   // Settings, Inbox & Navigation Listeners
   useEffect(() => {
@@ -1629,6 +1641,61 @@ export function Dashboard({
     };
   }, [filteredTransactions, balance, income, expenses, expensesTimeline, isAllTime, incomeSettings, selectedMonth, categoryBudgets]);
 
+  const totalCategoryBudgets = useMemo(() => 
+    Object.values(categoryBudgets).reduce((a, b) => a + b, 0),
+    [categoryBudgets]
+  );
+  const salaryBasedLimit = (incomeSettings.salary || 0) + (incomeSettings.aids || 0) - (incomeSettings.savingsGoal || 0);
+  const defaultMonthlyLimit = 2200;
+
+  const effectiveMonthlyLimit = customSpendingLimit && customSpendingLimit > 0
+    ? customSpendingLimit
+    : (totalCategoryBudgets > 0 ? totalCategoryBudgets : (salaryBasedLimit > 0 ? salaryBasedLimit : defaultMonthlyLimit));
+
+  // Revenus / Budget initial pour la trajectoire Burn-down (ex. 1 800 € ou revenus constatés)
+  const configuredIncome = (incomeSettings.salary || 0) + (incomeSettings.aids || 0);
+  const baseIncome = income > 0 ? income : (configuredIncome > 0 ? configuredIncome : 1800);
+  const effectiveInitialBudget = Math.max(baseIncome, effectiveMonthlyLimit > 0 ? effectiveMonthlyLimit * 1.05 : 0);
+
+  const finalRemainingBudget = effectiveInitialBudget - expenses;
+
+  // Calcul du dernier jour de transaction / jour courant pour arrêter la trajectoire au jour réel
+  const cutoffDay = useMemo(() => {
+    if (!selectedMonth || selectedMonth === "Tout") return undefined;
+    let yyyy: string, mm: string;
+    if (selectedMonth === "demo-month") {
+      yyyy = "2026";
+      mm = "10";
+    } else {
+      [yyyy, mm] = selectedMonth.split("-");
+    }
+    const now = new Date();
+    const isCurrentMonth = now.getFullYear() === parseInt(yyyy) && (now.getMonth() + 1) === parseInt(mm);
+    const lastDayOfMonth = new Date(parseInt(yyyy), parseInt(mm), 0).getDate();
+
+    let maxTxDay = 0;
+    filteredTransactions.forEach(tx => {
+      if (tx.date) {
+        const parts = tx.date.split("-");
+        if (parts.length === 3 && parts[0] === yyyy && parts[1] === mm) {
+          const d = parseInt(parts[2], 10);
+          if (!isNaN(d) && d > maxTxDay) {
+            maxTxDay = d;
+          }
+        }
+      }
+    });
+
+    if (isCurrentMonth) {
+      const today = now.getDate();
+      // Si mois en cours : plateau jusqu'au jour courant, et arrêt du tracé à aujourd'hui
+      return Math.min(lastDayOfMonth, Math.max(maxTxDay, today));
+    } else {
+      // Mois passé : s'arrête au dernier jour de transaction connu du CSV
+      return maxTxDay > 0 ? Math.min(lastDayOfMonth, maxTxDay) : lastDayOfMonth;
+    }
+  }, [selectedMonth, filteredTransactions]);
+
   const displayedDrawerTx = useMemo(() => {
     let list = filteredTransactions;
 
@@ -2130,15 +2197,17 @@ export function Dashboard({
           <Card className="h-full flex flex-col overflow-hidden">
             <div className="flex justify-between items-start mb-2 sm:mb-2.5 shrink-0">
               <div>
-                <h3 className="text-base font-semibold tracking-tight text-zinc-800 dark:text-zinc-100 font-sans">Évolution des dépenses</h3>
+                <h3 className="text-base font-semibold tracking-tight text-zinc-800 dark:text-zinc-100 font-sans">Trajectoire du budget</h3>
               </div>
               <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400 shrink-0">
                 <Activity size={15} />
               </div>
             </div>
             
-            <div className="flex items-baseline gap-2 mb-2 shrink-0">
-              <div className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-white tabular-nums font-sans">{expenses.toFixed(2)} €</div>
+            <div className="flex items-center gap-2 mb-2 shrink-0">
+              <div className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-white tabular-nums font-sans">
+                {finalRemainingBudget.toFixed(2)} €
+              </div>
             </div>
             
             <div className="flex-1 w-full min-h-0 bg-transparent flex flex-col">
@@ -2147,6 +2216,9 @@ export function Dashboard({
                   key={selectedMonth || "month"}
                   timeline={expensesTimeline}
                   totalExpenses={expenses}
+                  monthlyLimit={effectiveMonthlyLimit}
+                  initialBudget={effectiveInitialBudget}
+                  cutoffDay={cutoffDay}
                   selectedMonth={selectedMonth || undefined}
                   isDark={isDark}
                 />
@@ -2267,10 +2339,21 @@ export function Dashboard({
           {isDataLoaded ? (
             <>
               <MonthlyLimitCard 
-                key={selectedMonth || "month"}
+                spentAmount={expenses}
+                monthlyLimit={
+                  customSpendingLimit && customSpendingLimit > 0
+                    ? customSpendingLimit
+                    : (Object.values(categoryBudgets).reduce((a, b) => a + b, 0) > 0
+                        ? Object.values(categoryBudgets).reduce((a, b) => a + b, 0)
+                        : ((incomeSettings.salary || 0) + (incomeSettings.aids || 0) - (incomeSettings.savingsGoal || 0) > 0
+                            ? (incomeSettings.salary || 0) + (incomeSettings.aids || 0) - (incomeSettings.savingsGoal || 0)
+                            : 2200))
+                }
                 expenses={expenses}
                 categoryBudgets={categoryBudgets}
                 incomeSettings={incomeSettings}
+                customLimit={customSpendingLimit}
+                onLimitChange={(limit) => setCustomSpendingLimit(limit)}
                 selectedMonth={selectedMonth || undefined}
                 onOpenBudgetSettings={() => {
                   setSettingsTab("budgets");
@@ -2278,8 +2361,7 @@ export function Dashboard({
                 }}
                 className="min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] shrink-0"
               />
-              <RealDisposableIncomeCard 
-                key={selectedMonth || "month"}
+              <StartingBudgetCard 
                 income={income}
                 incomeSettings={incomeSettings}
                 transactions={filteredTransactions}

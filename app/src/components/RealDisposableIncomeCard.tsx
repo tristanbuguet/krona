@@ -44,6 +44,7 @@ export function RealDisposableIncomeCard({
   onOpenSettings,
   className = "",
 }: RealDisposableIncomeCardProps) {
+
   // 1. Détermination du revenu socle (revenus constatés ou configurés)
   const baseIncome = useMemo(() => {
     if (income > 0) return income;
@@ -178,7 +179,6 @@ export function RealDisposableIncomeCard({
       <div className="mt-2 sm:mt-2.5 w-full shrink-0">
         <div className="w-full relative h-2 sm:h-2.5 bg-zinc-200/50 dark:bg-zinc-800/50 rounded-full overflow-hidden">
           <motion.div
-            key={`budget-bar-${selectedMonth || "month"}`}
             initial={{ scaleX: 0 }}
             animate={{ scaleX: 1 }}
             style={{ transformOrigin: "left" }}
@@ -234,3 +234,6 @@ export function RealDisposableIncomeCard({
     </div>
   );
 }
+
+export const StartingBudgetCard = RealDisposableIncomeCard;
+
