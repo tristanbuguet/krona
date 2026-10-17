@@ -15,12 +15,12 @@ export async function POST(req: Request) {
 Ton but est d'analyser les finances du mois en cours et de donner exactement 3 conseils ultra percutants.
 
 Voici les données du mois :
-- Revenus : ${data.income.toFixed(2)} €
-- Dépenses (hors épargne) : ${data.expenses.toFixed(2)} €
-- Épargne nette (Solde fin de mois) : ${data.balance.toFixed(2)} €
-- Épargne & Virements internes : ${data.savedAmount ? data.savedAmount.toFixed(2) : 0} €
-- Total Abonnements : ${data.subs ? data.subs.toFixed(2) : 0} €
-- Rythme journalier (si en cours) : ${data.dailyPace ? `${data.dailyPace.amount.toFixed(2)} € / jour` : 'Clôturé'}
+- Revenus : ${Number(data?.income || 0).toFixed(2)} €
+- Dépenses (hors épargne) : ${Number(data?.expenses || 0).toFixed(2)} €
+- Épargne nette (Solde fin de mois) : ${Number(data?.balance || 0).toFixed(2)} €
+- Épargne & Virements internes : ${data?.savedAmount ? Number(data.savedAmount).toFixed(2) : 0} €
+- Total Abonnements : ${data?.subs ? Number(data.subs).toFixed(2) : 0} €
+- Rythme journalier (si en cours) : ${data?.dailyPace && typeof data.dailyPace.amount === 'number' ? `${Number(data.dailyPace.amount).toFixed(2)} € / jour` : 'Clôturé'}
 - Top catégories de dépenses : ${JSON.stringify(data.categoryData)}
 - Top commerçants : ${JSON.stringify(data.topMerchants)}
 

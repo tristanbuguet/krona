@@ -134,13 +134,11 @@ Réponds STRICTEMENT sous la forme d'un tableau JSON brut valide, sans balises M
 `.trim();
 
     const ai = new GoogleGenAI({ apiKey });
-    // Modèles actifs et rapides sur l'API Gemini
     const candidateModels = [
       "gemini-flash-lite-latest",
-      "gemini-3.5-flash-lite",
-      "gemini-3.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-2.5-flash",
       "gemini-flash-latest",
-      "gemini-3.8-flash"
     ];
     let responseText = "";
 

@@ -8,7 +8,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("dashboard");
 
   return (
-    <main className="h-screen w-screen overflow-hidden flex flex-row p-3.5 sm:p-4 lg:p-5 gap-3.5 sm:gap-4 lg:gap-5 box-border bg-[#F5F5F7] text-zinc-900 dark:bg-black dark:text-white min-h-screen transition-colors duration-300">
+    <main className="h-screen w-screen overflow-hidden flex flex-row p-3.5 sm:p-4 lg:p-5 gap-3.5 sm:gap-4 lg:gap-5 box-border bg-background text-foreground min-h-screen transition-colors duration-300">
       <Sidebar 
         activeTab={activeTab}
         onTabChange={setActiveTab}

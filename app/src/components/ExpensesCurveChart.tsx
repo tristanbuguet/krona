@@ -211,9 +211,10 @@ export function ExpensesCurveChart({
       const x = paddingLeft + (i / Math.max(1, count - 1)) * plotWidth;
       // Solde_jour = Budget_départ - Cumul_dépenses_jusqu'à_ce_jour
       const remaining = P_start - item.cumulative;
-      // Diagonale de référence : du point (Jour 1, Y_max) jusqu'au point (Dernier jour du mois, Solde_Restant_Cible)
-      const ideal = Y_max - (i / Math.max(1, count - 1)) * (Y_max - Solde_Restant_Cible);
-      const diff = remaining - ideal;
+      // Rythme théorique au prorata temporis exact à la fin du jour (i + 1) sur count jours
+      const elapsedRatio = (i + 1) / Math.max(1, count);
+      const ideal = Y_max - elapsedRatio * (Y_max - Solde_Restant_Cible);
+      const diff = Math.round((remaining - ideal) * 100) / 100;
       return {
         x,
         y: getY(remaining),
@@ -250,10 +251,9 @@ export function ExpensesCurveChart({
     const iEndY = limitYCoord;
 
     // État d'Alerte : « Seuil Dépassé » (Rouge) UNIQUEMENT SI Dépenses_Cumulées > Budget_Dépensable_Max
-    // (c'est-à-dire si le Solde Restant passe EN DESSOUS de la ligne de seuil)
-    // Sinon, la ligne et les badges restent dans un état neutre / positif ("Trajectoire respectée")
+    // Arrondi aux centimes pour immunité contre les dérives flottantes IEEE 754
     const currentCumulative = lastActivePoint ? lastActivePoint.data.cumulative : (totalExpenses || 0);
-    const isOverBudget = currentCumulative > Budget_Dépensable_Max;
+    const isOverBudget = Math.round(currentCumulative * 100) / 100 > Math.round(Budget_Dépensable_Max * 100) / 100;
 
     return {
       points: allPts,
@@ -274,8 +274,16 @@ export function ExpensesCurveChart({
     };
   }, [timeline, totalExpenses, monthlyLimit, maxSpending, targetRemaining, targetPercent, initialBudget, cutoffDay, plotWidth, plotHeight, paddingTop, paddingLeft, bottomY]);
 
-  // Jours clés affichés sur l'axe X (dates du mois : 01, 05, 10, 15, 20, 25, 30)
-  const axisTicks = useMemo(() => ["01", "05", "10", "15", "20", "25", "30"], []);
+  // Jours clés affichés sur l'axe X (dates du mois : 01, 05, 10, 15, 20, 25, fin de mois réelle)
+  const axisTicks = useMemo(() => {
+    const lastDayNum = timeline.length > 0 ? timeline.length : 30;
+    const lastTick = String(lastDayNum).padStart(2, "0");
+    const standardTicks = ["01", "05", "10", "15", "20", "25"];
+    if (lastDayNum >= 28 && !standardTicks.includes(lastTick)) {
+      return [...standardTicks, lastTick];
+    }
+    return ["01", "05", "10", "15", "20", "25", "30"];
+  }, [timeline.length]);
 
   // Gestion des survols (restreinte aux points actifs ayant des données réelles)
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -366,7 +374,7 @@ export function ExpensesCurveChart({
           textAnchor="start"
           className={clsx(
             "text-xs font-medium font-sans select-none tabular-nums pointer-events-none",
-            isOverBudget ? "fill-rose-500 dark:fill-rose-400 font-semibold" : "fill-zinc-400 dark:fill-neutral-500"
+            isOverBudget ? "fill-rose-500 dark:fill-rose-400 font-semibold" : "fill-muted-foreground"
           )}
         >
           {isOverBudget ? `Seuil dépassé (${targetLimit.toFixed(0)} €)` : `Seuil cible (${targetLimit.toFixed(0)} €)`}
@@ -448,7 +456,7 @@ export function ExpensesCurveChart({
               x={matchedPoint.x}
               y={bottomY + 16}
               textAnchor="middle"
-              className="text-[10px] sm:text-[11px] font-sans tabular-nums fill-zinc-400 dark:fill-neutral-500 select-none pointer-events-none"
+              className="text-[10px] sm:text-[11px] font-sans tabular-nums fill-muted-foreground select-none pointer-events-none"
             >
               {tick}
             </text>
@@ -489,26 +497,26 @@ export function ExpensesCurveChart({
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.12 }}
             style={tooltipStyle}
-            className="absolute pointer-events-none z-20 px-4 py-3 w-max min-w-[180px] rounded-xl bg-zinc-900/95 dark:bg-zinc-900/95 border border-zinc-800 shadow-xl backdrop-blur-md flex flex-col whitespace-nowrap"
+            className="absolute pointer-events-none z-20 px-4 py-3 w-max min-w-[180px] rounded-xl bg-card/95 border border-border shadow-xl backdrop-blur-md flex flex-col whitespace-nowrap"
           >
             {/* Date du jour */}
-            <div className="text-xs font-medium text-zinc-400 font-sans truncate whitespace-nowrap">
+            <div className="text-xs font-medium text-muted-foreground font-sans truncate whitespace-nowrap">
               {formatDisplayDate(activePoint.data.dateFormatted)}
             </div>
 
             {/* Montant principal & Badge d'écart */}
             <div className="flex items-baseline justify-between gap-3 mt-1 whitespace-nowrap">
-              <span className="text-base font-semibold text-white tabular-nums font-sans whitespace-nowrap">
+              <span className="text-base font-semibold text-foreground tabular-nums font-sans whitespace-nowrap">
                 {activePoint.remaining.toFixed(2)} €
               </span>
               <span
                 className={clsx(
                   "text-xs font-medium tabular-nums font-sans shrink-0 whitespace-nowrap",
                   activePoint.diff > 0
-                    ? "text-emerald-400"
+                    ? "text-emerald-500 dark:text-emerald-400"
                     : activePoint.diff < 0
-                      ? "text-rose-400"
-                      : "text-zinc-400"
+                      ? "text-rose-500 dark:text-rose-400"
+                      : "text-muted-foreground"
                 )}
               >
                 {activePoint.diff > 0
@@ -521,7 +529,7 @@ export function ExpensesCurveChart({
 
             {/* Montant quotidien avec lisibilité renforcée */}
             {activePoint.data.amount > 0 && (
-              <div className="text-xs text-zinc-300 tabular-nums font-sans mt-1.5 pt-1.5 border-t border-zinc-800/80 whitespace-nowrap">
+              <div className="text-xs text-muted-foreground tabular-nums font-sans mt-1.5 pt-1.5 border-t border-border whitespace-nowrap">
                 -{activePoint.data.amount.toFixed(2)} € dépensés ce jour
               </div>
             )}

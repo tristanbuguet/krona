@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { LayoutGrid, TrendingUp, Landmark, Sun, Moon, Settings, Bell, User } from "lucide-react";
+import { LayoutGrid, TrendingUp, Landmark, Sun, Moon, Settings, Bell } from "lucide-react";
 import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { useTheme } from "@/components/ThemeProvider";
@@ -120,7 +120,7 @@ export function Sidebar({
       <div className="flex flex-col items-center w-full shrink-0">
         {/* Logo SVG Krona (aligné horizontalement sur la ligne médiane du titre de page) */}
         <div className="w-12 h-9 flex items-center justify-center shrink-0">
-          <KronaLogo className="w-6 h-6 text-zinc-900 dark:text-foreground" />
+          <KronaLogo className="w-6 h-6 text-foreground" />
         </div>
 
         {/* Bloc de navigation décalé vers le bas pour démarrer à la même hauteur que le haut des cartes KPI */}
@@ -128,7 +128,7 @@ export function Sidebar({
           {/* Bloc de navigation principale (icônes uniquement, verticalisées en capsule dock) */}
           <nav 
             aria-label="Onglets principaux"
-            className="w-12 flex flex-col items-center bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 shadow-sm border border-black/[0.06] dark:border-border rounded-full p-1 gap-1.5 relative shrink-0"
+            className="w-12 flex flex-col items-center bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 shadow-sm border border-border rounded-full p-1 gap-1.5 relative shrink-0"
           >
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -146,8 +146,8 @@ export function Sidebar({
                   className={clsx(
                     "relative w-10 h-10 rounded-full flex items-center justify-center outline-none cursor-pointer focus-visible:ring-2 focus-visible:ring-foreground/20 transition-all duration-200 ease-out",
                     isActive 
-                      ? "text-zinc-900" 
-                      : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
+                      ? "text-black" 
+                      : "text-zinc-400 hover:text-white hover:bg-white/5"
                   )}
                   aria-label={item.label}
                 >
@@ -179,13 +179,13 @@ export function Sidebar({
               type="button"
               whileTap={{ scale: 0.94 }}
               onClick={() => setIsBankPopoverOpen(!isBankPopoverOpen)}
-              className="w-12 h-12 rounded-full bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-black/[0.06] dark:border-border flex items-center justify-center text-zinc-700 dark:text-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors cursor-pointer shadow-sm focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+              className="w-12 h-12 rounded-full bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors cursor-pointer shadow-sm focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
               aria-label="Sélectionner la banque"
             >
               {selectedBank === "ca" ? (
-                <CreditAgricoleLogo className="w-5 h-5 text-zinc-900 dark:text-foreground" />
+                <CreditAgricoleLogo className="w-5 h-4 text-foreground" />
               ) : (
-                <BoursoBankLogo className="w-4 h-4 text-zinc-900 dark:text-foreground" />
+                <BoursoBankLogo className="w-4.5 h-4.5 text-foreground" />
               )}
             </motion.button>
 
@@ -211,13 +211,13 @@ export function Sidebar({
             className="flex flex-col items-center justify-center select-none pointer-events-none text-center font-sans tracking-tight shrink-0 gap-1"
             aria-label={`Date du jour : ${dayStr}/${monthStr}/${yearStr}`}
           >
-            <span className="text-[13px] font-semibold text-zinc-800 dark:text-white tabular-nums leading-none">
+            <span className="text-[13px] font-semibold text-foreground tabular-nums leading-none">
               {dayStr}
             </span>
-            <span className="text-[13px] font-semibold text-zinc-800 dark:text-white tabular-nums leading-none">
+            <span className="text-[13px] font-semibold text-foreground tabular-nums leading-none">
               {monthStr}
             </span>
-            <span className="text-[13px] font-semibold text-zinc-400 dark:text-neutral-400 tabular-nums leading-none">
+            <span className="text-[13px] font-semibold text-muted-foreground tabular-nums leading-none">
               {yearStr}
             </span>
           </div>
@@ -235,7 +235,7 @@ export function Sidebar({
               type="button"
               whileTap={{ scale: 0.94 }} 
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="w-12 h-12 rounded-full bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-black/[0.06] dark:border-border flex items-center justify-center text-zinc-700 dark:text-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors cursor-pointer shadow-sm focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
+              className="w-12 h-12 rounded-full bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 border border-border flex items-center justify-center text-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors cursor-pointer shadow-sm focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
               aria-label="Basculer le thème"
             >
               {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
@@ -245,11 +245,11 @@ export function Sidebar({
           <div className="w-12 h-12 rounded-full opacity-0 shrink-0" />
         )}
 
-        {/* 2. Capsule Dock inférieure (regroupant les 3 outils restants : Notifications, Paramètres, Profil) */}
+        {/* 2. Capsule Dock inférieure (regroupant les 2 outils : Notifications, Paramètres) */}
         <div 
           role="toolbar"
-          aria-label="Outils et profil"
-          className="w-12 flex flex-col items-center bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 shadow-sm border border-black/[0.06] dark:border-border rounded-full p-1 gap-1.5 relative shrink-0"
+          aria-label="Outils et réglages"
+          className="w-12 flex flex-col items-center bg-[#EBEBED] dark:bg-card/60 backdrop-blur-2xl backdrop-saturate-150 shadow-sm border border-border rounded-full p-1 gap-1.5 relative shrink-0"
         >
           {/* Notifications (avec badge) */}
           <motion.button 
@@ -260,8 +260,8 @@ export function Sidebar({
             className={clsx(
               "relative w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0",
               isInboxOpen
-                ? "bg-black/[0.08] dark:bg-white/10 text-zinc-900 dark:text-white"
-                : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/10"
+                ? "bg-white/10 text-white"
+                : "bg-transparent text-zinc-400 hover:text-white hover:bg-white/10"
             )}
             aria-label="Notifications"
             aria-expanded={isInboxOpen}
@@ -277,21 +277,10 @@ export function Sidebar({
             type="button"
             whileTap={{ scale: 0.94 }} 
             onClick={() => window.dispatchEvent(new CustomEvent("open-settings"))}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0"
+            className="w-10 h-10 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/5 transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0"
             aria-label="Paramètres"
           >
             <Settings size={18} />
-          </motion.button>
-
-          {/* Profil utilisateur */}
-          <motion.button 
-            type="button"
-            whileTap={{ scale: 0.94 }} 
-            onClick={() => window.dispatchEvent(new CustomEvent("open-profile"))}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-black/[0.05] dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer group outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0"
-            aria-label="Profil utilisateur"
-          >
-            <User size={18} className="text-zinc-500 group-hover:text-zinc-900 dark:text-zinc-400 dark:group-hover:text-white transition-colors" />
           </motion.button>
         </div>
       </div>

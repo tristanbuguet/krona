@@ -28,7 +28,7 @@ export function AlternatingDigitAmount({
   if (!animate) {
     return (
       <div
-        className={`inline-flex items-baseline justify-center overflow-hidden whitespace-nowrap font-semibold tracking-tight text-zinc-900 dark:text-white tabular-nums font-sans leading-none ${className}`}
+        className={`inline-flex items-baseline justify-center overflow-hidden whitespace-nowrap font-semibold tracking-tight text-foreground tabular-nums font-sans leading-none ${className}`}
       >
         {chars.map((char, index) => {
           const isSpace = char === " " || char === "\u00A0" || char === "\u202F";
@@ -90,7 +90,7 @@ export function AlternatingDigitAmount({
 
   return (
     <div
-      className={`inline-flex items-baseline justify-center overflow-hidden whitespace-nowrap font-semibold tracking-tight text-zinc-900 dark:text-white tabular-nums font-sans leading-none ${className}`}
+      className={`inline-flex items-baseline justify-center overflow-hidden whitespace-nowrap font-semibold tracking-tight text-foreground tabular-nums font-sans leading-none ${className}`}
     >
       {slots.map((slot) => {
         return (

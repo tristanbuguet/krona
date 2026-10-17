@@ -2,19 +2,10 @@
 
 import React, { useMemo } from "react";
 import { motion } from "framer-motion";
-import { SlidersHorizontal } from "lucide-react";
+import { Coins } from "lucide-react";
 import clsx from "clsx";
 
-interface Transaction {
-  id: string;
-  name: string;
-  type: string;
-  amount: number;
-  date: string;
-  month: string;
-  isSubscription?: boolean;
-  isInternalTransfer?: boolean;
-}
+import { Transaction, isSubscriptionCategory } from "../lib/types";
 
 interface RealDisposableIncomeCardProps {
   income: number;
@@ -89,7 +80,11 @@ export function RealDisposableIncomeCard({
         autoLoans += abs;
       }
       // Abonnements & Forfaits récurrents
-      else if (tx.isSubscription || tx.type === "Abonnements & Forfaits") {
+      else if (
+        (isSubscriptionCategory(tx.type) || tx.isSubscription) &&
+        tx.isSubscription !== false &&
+        tx.isRecurring !== false
+      ) {
         if (subscriptions === 0) subscriptions += abs;
       }
       // Prélèvements fixes récurrents (énergie, mutuelle, assurance)
@@ -113,10 +108,10 @@ export function RealDisposableIncomeCard({
       subscriptions = activeSubscriptions.reduce((acc, s) => acc + Math.abs(s.amount), 0);
     }
 
-    // Priorité aux charges configurées manuellement par l'utilisateur si renseignées (> 0)
-    const rent = (incomeSettings.rent && incomeSettings.rent > 0) ? incomeSettings.rent : autoRent;
-    const loans = (incomeSettings.loans && incomeSettings.loans > 0) ? incomeSettings.loans : autoLoans;
-    const regularUtilities = (incomeSettings.utilities && incomeSettings.utilities > 0) ? incomeSettings.utilities : autoUtilities;
+    // Priorité aux charges configurées manuellement par l'utilisateur si définies (permet 0 € explicite)
+    const rent = (incomeSettings.rent !== undefined && incomeSettings.rent !== null) ? incomeSettings.rent : autoRent;
+    const loans = (incomeSettings.loans !== undefined && incomeSettings.loans !== null) ? incomeSettings.loans : autoLoans;
+    const regularUtilities = (incomeSettings.utilities !== undefined && incomeSettings.utilities !== null) ? incomeSettings.utilities : autoUtilities;
 
     const totalFixed = rent + loans + subscriptions + regularUtilities;
 
@@ -135,25 +130,26 @@ export function RealDisposableIncomeCard({
   const isHealthy = disposableIncome >= 0;
 
   return (
-    <div className={clsx(
-      "bg-white dark:bg-zinc-900/50 border border-black/[0.06] dark:border-white/[0.08] rounded-2xl shadow-sm flex flex-col justify-between p-3 sm:p-3.5 xl:p-4 transition-all duration-200 overflow-hidden",
-      className
-    )}>
+    <div 
+      onClick={onOpenSettings}
+      className={clsx(
+        "bg-card border border-border rounded-2xl shadow-sm flex flex-col justify-between p-3.5 sm:p-4 xl:p-4.5 transition-all duration-200 overflow-hidden cursor-pointer group active:scale-[0.995]",
+        className
+      )}
+    >
       {/* En-tête : Titre à gauche, bouton pastille d'action à droite (identique au gabarit KPI) */}
       <div className="flex justify-between items-start shrink-0">
-        <span className="text-xs sm:text-sm font-medium text-zinc-500 dark:text-neutral-400 font-sans truncate">
+        <span className="text-xs sm:text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors duration-200 font-sans truncate">
           Budget de départ
         </span>
 
         <div className="flex items-center gap-1.5 shrink-0 ml-2">
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/[0.08] transition-all active:scale-95 cursor-pointer"
-            aria-label="Ajuster les charges incompressibles"
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center bg-black/[0.04] dark:bg-white/[0.05] border border-border group-hover:border-black/20 dark:group-hover:border-white/20 text-muted-foreground group-hover:text-foreground transition-all duration-200 shrink-0"
+            aria-label="Ajuster les revenus et charges incompressibles"
           >
-            <SlidersHorizontal size={13} strokeWidth={2} />
-          </button>
+            <Coins size={15} strokeWidth={1.5} />
+          </div>
         </div>
       </div>
 
@@ -162,22 +158,22 @@ export function RealDisposableIncomeCard({
         <div className="flex items-baseline justify-between gap-2">
           <div className={clsx(
             "text-xl sm:text-2xl xl:text-3xl font-semibold tracking-tight tabular-nums font-sans",
-            isHealthy ? "text-zinc-900 dark:text-white" : "text-rose-500"
+            isHealthy ? "text-foreground" : "text-rose-500"
           )}>
             {disposableIncome.toFixed(0)} €
           </div>
-          <span className="text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-neutral-400 tabular-nums font-sans">
+          <span className="text-[10px] sm:text-xs font-medium text-muted-foreground tabular-nums font-sans">
             {fixedRatio}% engagés
           </span>
         </div>
-        <div className="text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-neutral-400 font-sans truncate mt-0.5">
-          pour vivre · <span className="tabular-nums font-medium text-zinc-700 dark:text-neutral-300">{fixedBreakdown.total.toFixed(0)} €</span> de charges fixes
+        <div className="text-[10px] sm:text-xs font-medium text-muted-foreground font-sans truncate mt-0.5">
+          pour vivre · <span className="tabular-nums font-medium text-foreground">{fixedBreakdown.total.toFixed(0)} €</span> de charges fixes
         </div>
       </div>
 
       {/* Bas de carte : Barre de progression segmentée (h-2 / h-2.5) avec découpe nette et coins arrondis */}
       <div className="mt-2 sm:mt-2.5 w-full shrink-0">
-        <div className="w-full relative h-2 sm:h-2.5 bg-zinc-200/50 dark:bg-zinc-800/50 rounded-full overflow-hidden">
+        <div className="w-full relative h-2 sm:h-2.5 bg-neutral-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
           <motion.div
             initial={{ scaleX: 0 }}
             animate={{ scaleX: 1 }}
@@ -191,31 +187,31 @@ export function RealDisposableIncomeCard({
             {fixedBreakdown.rent > 0 && (
               <div
                 style={{ flex: `${fixedBreakdown.rent} 1 0%` }}
-                className="h-full rounded-full min-w-[6px] bg-zinc-900 dark:bg-white transition-colors"
+                className="h-full rounded-full min-w-[6px] bg-foreground transition-colors"
               />
             )}
             {fixedBreakdown.loans > 0 && (
               <div
                 style={{ flex: `${fixedBreakdown.loans} 1 0%` }}
-                className="h-full rounded-full min-w-[6px] bg-zinc-700 dark:bg-neutral-300 transition-colors"
+                className="h-full rounded-full min-w-[6px] bg-foreground/80 transition-colors"
               />
             )}
             {fixedBreakdown.subscriptions > 0 && (
               <div
                 style={{ flex: `${fixedBreakdown.subscriptions} 1 0%` }}
-                className="h-full rounded-full min-w-[6px] bg-zinc-500 dark:bg-neutral-400 transition-colors"
+                className="h-full rounded-full min-w-[6px] bg-foreground/50 transition-colors"
               />
             )}
             {fixedBreakdown.regularUtilities > 0 && (
               <div
                 style={{ flex: `${fixedBreakdown.regularUtilities} 1 0%` }}
-                className="h-full rounded-full min-w-[6px] bg-zinc-300 dark:bg-neutral-500 transition-colors"
+                className="h-full rounded-full min-w-[6px] bg-foreground/30 transition-colors"
               />
             )}
             {disposableIncome > 0 && (
               <div
                 style={{ flex: `${disposableIncome} 1 0%` }}
-                className="h-full rounded-full min-w-[10px] bg-zinc-200 dark:bg-zinc-800 transition-colors"
+                className="h-full rounded-full min-w-[10px] bg-black/[0.08] dark:bg-white/10 transition-colors"
               />
             )}
             {disposableIncome < 0 && (
@@ -226,7 +222,7 @@ export function RealDisposableIncomeCard({
             )}
             {/* Si aucune charge et aucun revenu configuré, afficher le track vide neutre */}
             {fixedBreakdown.total === 0 && disposableIncome <= 0 && (
-              <div className="h-full w-full rounded-full bg-zinc-200 dark:bg-zinc-800" />
+              <div className="h-full w-full rounded-full bg-neutral-100 dark:bg-white/[0.06]" />
             )}
           </motion.div>
         </div>

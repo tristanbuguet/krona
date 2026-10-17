@@ -35,7 +35,9 @@ import {
   FixedIncomeSettings, 
   CATEGORY_COLORS, 
   formatMonthLabel, 
-  formatAmount 
+  formatAmount,
+  isSalaryTransaction,
+  isAidTransaction
 } from "@/lib/types";
 import { PageHeader } from "../ui/PageHeader";
 import { Card } from "../ui/Card";
@@ -112,6 +114,9 @@ export function TrendsView({
       };
     });
 
+    const hasSalaryMap: Record<string, boolean> = {};
+    const hasAidsMap: Record<string, boolean> = {};
+
     horizonTransactions.forEach(tx => {
       const m = tx.month;
       if (!dataMap[m]) return;
@@ -122,8 +127,27 @@ export function TrendsView({
         return;
       }
 
+      const nam = tx.name.toLowerCase();
+      const isSalary = 
+        isSalaryTransaction(tx, incomeSettings.salary) ||
+        Boolean(nam.match(/paie|salaire|employeur/i));
+      const isAids = 
+        isAidTransaction(tx) ||
+        Boolean(nam.match(/caf|crous|france travail|pole emploi|ameli|cpam|aide/i));
+      const isIncome = isSalary || isAids || tx.type === "Revenus & Aides";
+
       if (tx.amount > 0) {
-        dataMap[m].income += tx.amount;
+        if (isIncome) {
+          dataMap[m].income += tx.amount;
+          if (isSalary) hasSalaryMap[m] = true;
+          if (isAids) hasAidsMap[m] = true;
+        } else {
+          // Remboursement opérationnel venant déduire les dépenses
+          dataMap[m].expenses = Math.max(0, dataMap[m].expenses - tx.amount);
+          if (dataMap[m].categories[tx.type]) {
+            dataMap[m].categories[tx.type] = Math.max(0, dataMap[m].categories[tx.type] - tx.amount);
+          }
+        }
       } else {
         const absVal = Math.abs(tx.amount);
         dataMap[m].expenses += absVal;
@@ -133,30 +157,55 @@ export function TrendsView({
           tx.type === "Logement & Maison" || 
           tx.type === "Abonnements & Forfaits" || 
           tx.isSubscription ||
-          tx.name.toLowerCase().includes("loyer") ||
-          tx.name.toLowerCase().includes("assurance") ||
-          tx.name.toLowerCase().includes("edf") ||
-          tx.name.toLowerCase().includes("orange") ||
-          tx.name.toLowerCase().includes("forfait");
+          nam.includes("loyer") ||
+          nam.includes("assurance") ||
+          nam.includes("mutuelle") ||
+          nam.includes("edf") ||
+          nam.includes("engie") ||
+          nam.includes("orange") ||
+          nam.includes("forfait") ||
+          nam.includes("internet") ||
+          nam.includes("fibre") ||
+          nam.includes("credit") ||
+          nam.includes("crédit") ||
+          nam.includes("pret") ||
+          nam.includes("prêt");
 
         if (isFixed) {
           dataMap[m].fixedCosts += absVal;
-        } else {
-          dataMap[m].discretionaryExpenses += absVal;
         }
 
         dataMap[m].categories[tx.type] = (dataMap[m].categories[tx.type] || 0) + absVal;
       }
     });
 
-    // Calculate net savings for each month
+    // Prise en compte de autoApply indépendante : Salaire et Aides gérés séparément
+    if (incomeSettings.autoApply) {
+      chronologicalMonths.forEach(m => {
+        const item = dataMap[m];
+        let injected = 0;
+        if (!hasSalaryMap[m] && incomeSettings.salary > 0) {
+          injected += incomeSettings.salary;
+        }
+        if (!hasAidsMap[m] && incomeSettings.aids > 0) {
+          injected += incomeSettings.aids;
+        }
+        item.income += injected;
+      });
+    }
+
+    // Calcul des soldes nets et charges discrétionnaires garantissant fixedCosts + discretionaryExpenses = expenses
     chronologicalMonths.forEach(m => {
       const item = dataMap[m];
-      item.savings = item.income - item.expenses;
+      item.income = Math.round(item.income * 100) / 100;
+      item.expenses = Math.round(item.expenses * 100) / 100;
+      item.savings = Math.round((item.income - item.expenses) * 100) / 100;
+      item.fixedCosts = Math.round(item.fixedCosts * 100) / 100;
+      item.discretionaryExpenses = Math.round(Math.max(0, item.expenses - item.fixedCosts) * 100) / 100;
     });
 
     return chronologicalMonths.map(m => dataMap[m]);
-  }, [chronologicalMonths, horizonTransactions]);
+  }, [chronologicalMonths, horizonTransactions, incomeSettings]);
 
   // Macro KPIs
   const { totalSavings, avgSavingsRate, avgDiscretionaryExpenses, avgMonthlyIncome } = useMemo(() => {
@@ -201,16 +250,16 @@ export function TrendsView({
     });
 
     const results = Array.from(categoriesSet).map(cat => {
-      // Latest month total
-      const latestVal = horizonTransactions
-        .filter(t => t.month === latestMonth && t.type === cat && t.amount < 0)
-        .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+      // Latest month total net
+      const latestVal = Math.max(0, horizonTransactions
+        .filter(t => t.month === latestMonth && t.type === cat && !t.isInternalTransfer)
+        .reduce((sum, t) => sum + (t.amount < 0 ? Math.abs(t.amount) : -t.amount), 0));
 
-      // Prior months average
+      // Prior months average net
       const priorCount = Math.max(1, priorMonths.length);
-      const priorValTotal = horizonTransactions
-        .filter(t => priorMonths.includes(t.month) && t.type === cat && t.amount < 0)
-        .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+      const priorValTotal = Math.max(0, horizonTransactions
+        .filter(t => priorMonths.includes(t.month) && t.type === cat && !t.isInternalTransfer)
+        .reduce((sum, t) => sum + (t.amount < 0 ? Math.abs(t.amount) : -t.amount), 0));
       
       const avgPrior = priorMonths.length > 0 ? priorValTotal / priorCount : latestVal;
       const diffAmount = latestVal - avgPrior;
@@ -218,9 +267,9 @@ export function TrendsView({
 
       return {
         category: cat,
-        latestVal,
-        avgPrior,
-        diffAmount,
+        latestVal: Math.round(latestVal * 100) / 100,
+        avgPrior: Math.round(avgPrior * 100) / 100,
+        diffAmount: Math.round(diffAmount * 100) / 100,
         diffPercent,
       };
     });
@@ -279,14 +328,14 @@ export function TrendsView({
                 className={clsx(
                   "relative h-full flex items-center justify-center px-3 sm:px-3.5 rounded-full text-xs font-medium transition-colors cursor-pointer font-sans select-none leading-none outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none",
                   isActive
-                    ? "text-white dark:text-black font-semibold"
-                    : "text-zinc-600 dark:text-muted-foreground hover:text-zinc-900 dark:hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                    ? "text-zinc-950 font-medium"
+                    : "text-zinc-400 hover:text-white"
                 )}
               >
                 {isActive && (
                   <motion.div
                     layoutId="trends-horizon-pill"
-                    className="absolute inset-0 bg-zinc-900 dark:bg-white rounded-full shadow-sm"
+                    className="absolute inset-0 bg-white rounded-full shadow-sm"
                     transition={{ type: "spring", stiffness: 500, damping: 38 }}
                   />
                 )}
@@ -311,9 +360,9 @@ export function TrendsView({
                   {formatAmount(totalSavings)}
                 </span>
               ),
-              actionIcon: <Wallet size={14} />,
+              actionIcon: <Wallet size={15} strokeWidth={1.5} />,
               subline: (
-                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-neutral-400 font-sans w-full">
+                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-muted-foreground font-sans w-full">
                   <span className="truncate">Sur {selectedMonths.length} mois analysés</span>
                   <span className={clsx("tabular-nums shrink-0 ml-1.5 font-medium", totalSavings >= 0 ? "text-emerald-600 dark:text-emerald-500" : "text-rose-500")}>
                     {totalSavings >= 0 ? "+" : ""}{(totalSavings / Math.max(1, selectedMonths.length)).toFixed(0)} € / mois
@@ -324,9 +373,9 @@ export function TrendsView({
             {
               label: "Taux d'épargne moyen",
               value: `${avgSavingsRate}%`,
-              actionIcon: <TrendingUp size={14} />,
+              actionIcon: <TrendingUp size={15} strokeWidth={1.5} />,
               subline: (
-                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-neutral-400 font-sans w-full">
+                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-muted-foreground font-sans w-full">
                   <span className="truncate">{avgSavingsRate >= 20 ? "Idéal (>20%)" : avgSavingsRate > 0 ? "Positif" : "Déficit"} · Train de vie maîtrisé</span>
                 </div>
               ),
@@ -334,9 +383,9 @@ export function TrendsView({
             {
               label: "Train de vie discrétionnaire",
               value: `${avgDiscretionaryExpenses.toFixed(2)} €`,
-              actionIcon: <Activity size={14} />,
+              actionIcon: <Activity size={15} strokeWidth={1.5} />,
               subline: (
-                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-neutral-400 font-sans w-full">
+                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-muted-foreground font-sans w-full">
                   <span className="truncate">Hors charges fixes & abonnements</span>
                 </div>
               ),
@@ -344,9 +393,9 @@ export function TrendsView({
             {
               label: "Revenus mensuels moyens",
               value: `${avgMonthlyIncome.toFixed(2)} €`,
-              actionIcon: <ArrowDownLeft size={14} />,
+              actionIcon: <ArrowDownLeft size={15} strokeWidth={1.5} />,
               subline: (
-                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-neutral-400 font-sans w-full">
+                <div className="flex items-center justify-between text-[10px] sm:text-xs font-medium text-muted-foreground font-sans w-full">
                   <span className="truncate">Salaires et encaissements lissés</span>
                 </div>
               ),
@@ -355,11 +404,11 @@ export function TrendsView({
             <div key={i} className="h-full">
               <Card className="h-full min-h-[120px] sm:min-h-[126px] xl:min-h-[132px] flex flex-col justify-between cursor-default">
                 <div className="flex justify-between items-start mb-1 sm:mb-2">
-                  <span className="text-xs sm:text-sm font-medium text-zinc-500 dark:text-neutral-400 font-sans truncate">
+                  <span className="text-xs sm:text-sm font-medium text-muted-foreground font-sans truncate">
                     {stat.label}
                   </span>
                   <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-zinc-100 dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] text-zinc-600 dark:text-neutral-400">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-black/[0.04] dark:bg-white/[0.05] border border-border text-muted-foreground">
                       {stat.actionIcon}
                     </div>
                   </div>
@@ -376,7 +425,7 @@ export function TrendsView({
         </div>
 
         {/* 2. Main Evolution Graph: Revenus vs Dépenses & Épargne (Remplit harmonieusement la hauteur disponible) */}
-        <div className="bg-white dark:bg-card border border-black/[0.06] dark:border-border rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col flex-[1.2] min-h-[190px] overflow-hidden">
+        <div className="bg-card border border-border rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col flex-[1.2] min-h-[190px] overflow-hidden">
           <div className="flex items-center justify-between mb-2 shrink-0">
             <div>
               <h3 className="text-sm sm:text-base font-semibold tracking-tight text-foreground font-sans">
@@ -384,15 +433,15 @@ export function TrendsView({
               </h3>
             </div>
             <div className="flex items-center gap-3 sm:gap-4 text-xs font-medium font-sans">
-              <span className="flex items-center gap-1.5 text-zinc-500 dark:text-neutral-400">
-                <span className="w-2 h-2 rounded-sm bg-emerald-500" />
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 Revenus
               </span>
-              <span className="flex items-center gap-1.5 text-zinc-500 dark:text-neutral-400">
-                <span className="w-2 h-2 rounded-sm bg-zinc-600 dark:bg-zinc-400" />
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <span className="w-2 h-2 rounded-full bg-muted-foreground" />
                 Dépenses
               </span>
-              <span className="flex items-center gap-1.5 text-zinc-500 dark:text-neutral-400">
+              <span className="flex items-center gap-1.5 text-muted-foreground">
                 <span className="w-2.5 h-0.5 bg-blue-500 rounded-full" />
                 Épargne nette
               </span>
@@ -433,12 +482,12 @@ export function TrendsView({
         {/* 3. Bottom Grid: Dérive des Catégories & Stabilité des Charges Fixes */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-[180px]">
           {/* Card: Dérive des Catégories */}
-          <div className="bg-white dark:bg-card border border-black/[0.06] dark:border-border rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col justify-between overflow-hidden h-full">
+          <div className="bg-card border border-border rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col justify-between overflow-hidden h-full">
             <div className="flex items-center justify-between mb-2 shrink-0">
               <h3 className="text-sm sm:text-base font-semibold tracking-tight text-foreground font-sans">
                 Dérive des Catégories
               </h3>
-              <span className="text-[10px] sm:text-xs text-zinc-500 dark:text-neutral-400 font-sans">Dernier mois vs Moyenne</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground font-sans">Dernier mois vs Moyenne</span>
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col justify-around gap-1.5">
@@ -446,13 +495,13 @@ export function TrendsView({
                 const isIncrease = item.diffAmount > 0;
                 const color = CATEGORY_COLORS[item.category] || CATEGORY_COLORS["Autre"];
                 return (
-                  <div key={item.category} className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.06] dark:border-border/40">
+                  <div key={item.category} className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-border/40">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className={`w-2 h-2 rounded-full shrink-0 ${color.dot}`} />
                       <span className="font-semibold text-xs text-foreground font-sans truncate max-w-[120px] sm:max-w-[180px]">
                         {item.category}
                       </span>
-                      <span className="text-[10px] text-zinc-500 dark:text-neutral-400 font-sans hidden sm:inline tabular-nums">
+                      <span className="text-[10px] text-muted-foreground font-sans hidden sm:inline tabular-nums">
                         (moy. {item.avgPrior.toFixed(0)} €)
                       </span>
                     </div>
@@ -476,7 +525,7 @@ export function TrendsView({
           </div>
 
           {/* Card: Stabilité des Charges Fixes */}
-          <div className="bg-white dark:bg-card border border-black/[0.06] dark:border-border rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col justify-between overflow-hidden h-full">
+          <div className="bg-card border border-border rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col justify-between overflow-hidden h-full">
             <div className="flex items-center justify-between mb-2 shrink-0">
               <h3 className="text-sm sm:text-base font-semibold tracking-tight text-foreground font-sans">
                 Stabilité des Charges Fixes
@@ -487,14 +536,14 @@ export function TrendsView({
               </div>
             </div>
 
-            <div className="bg-black/[0.02] dark:bg-white/[0.02] border border-black/[0.06] dark:border-border/40 rounded-xl px-3 py-1.5 mb-1 shrink-0">
+            <div className="bg-black/[0.02] dark:bg-white/[0.02] border border-border/40 rounded-xl px-3 py-1.5 mb-1 shrink-0">
               <div className="flex items-center justify-between mb-0.5">
-                <span className="text-[11px] text-zinc-500 dark:text-neutral-400 font-sans">Moyenne incompressible</span>
+                <span className="text-[11px] text-muted-foreground font-sans">Moyenne incompressible</span>
                 <span className="text-sm sm:text-base font-bold text-foreground tabular-nums font-sans">
                   {fixedChargesAnalysis.avgFixed.toFixed(2)} € / mois
                 </span>
               </div>
-              <div className="text-[10px] text-zinc-500 dark:text-neutral-400 font-sans truncate">
+              <div className="text-[10px] text-muted-foreground font-sans truncate">
                 Variation &lt; <strong className="text-foreground tabular-nums">{fixedChargesAnalysis.variationPercent}%</strong> d'un mois sur l'autre · Budget hautement prévisible
               </div>
             </div>
@@ -503,7 +552,7 @@ export function TrendsView({
             <div className="flex-1 min-h-0 flex flex-col justify-around gap-1">
               {fixedChargesAnalysis.series.slice(-3).map((item) => (
                 <div key={item.month} className="flex items-center justify-between text-xs font-sans">
-                  <span className="text-zinc-500 dark:text-neutral-400 text-[11px]">{item.label}</span>
+                  <span className="text-muted-foreground text-[11px]">{item.label}</span>
                   <div className="flex items-center gap-2.5">
                     <div className="w-20 sm:w-28 h-1 bg-black/5 dark:bg-white/[0.08] rounded-full overflow-hidden">
                       <div 

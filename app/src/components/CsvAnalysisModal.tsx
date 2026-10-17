@@ -57,7 +57,7 @@ export function CsvAnalysisModal({ step }: CsvAnalysisModalProps) {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ type: "spring", stiffness: 380, damping: 28 }}
-            className="w-full max-w-[210px] sm:max-w-[220px] p-6 bg-card/90 dark:bg-[#0F0F11]/90 backdrop-blur-2xl border border-black/[0.06] dark:border-white/[0.08] rounded-3xl shadow-[0_20px_50px_-10px_rgba(0,0,0,0.35),inset_0_1px_0_0_rgba(255,255,255,0.08)] flex flex-col items-center justify-center text-center gap-4"
+            className="w-full max-w-[210px] sm:max-w-[220px] p-6 bg-card/90 backdrop-blur-2xl border border-border rounded-3xl shadow-[0_20px_50px_-10px_rgba(0,0,0,0.35),inset_0_1px_0_0_rgba(255,255,255,0.08)] flex flex-col items-center justify-center text-center gap-4"
           >
             {/* Élément central : Logo Krona + Anneau fluide de chargement ou Coche discrète */}
             <div className="relative w-14 h-14 flex items-center justify-center">
@@ -83,11 +83,11 @@ export function CsvAnalysisModal({ step }: CsvAnalysisModalProps) {
                     className="relative w-14 h-14 flex items-center justify-center"
                   >
                     {/* Piste circulaire subtile */}
-                    <div className="absolute inset-0 rounded-full border border-black/10 dark:border-white/10" />
+                    <div className="absolute inset-0 rounded-full border border-border" />
                     {/* Anneau de chargement circulaire fluide fin et net */}
-                    <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-foreground dark:border-t-white animate-spin" />
+                    <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-foreground animate-spin" />
                     {/* Logo SVG Krona centré */}
-                    <KronaLogo className="w-6 h-6 text-foreground dark:text-white" />
+                    <KronaLogo className="w-6 h-6 text-foreground" />
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -102,7 +102,7 @@ export function CsvAnalysisModal({ step }: CsvAnalysisModalProps) {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -3 }}
                   transition={{ duration: 0.15, ease: "easeOut" }}
-                  className="text-sm font-semibold tracking-tight text-foreground dark:text-white font-sans truncate"
+                  className="text-sm font-semibold tracking-tight text-foreground font-sans truncate"
                 >
                   {label}
                 </motion.span>

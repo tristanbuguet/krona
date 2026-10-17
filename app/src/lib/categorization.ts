@@ -1,4 +1,4 @@
-import { OFFICIAL_CATEGORIES } from "./types";
+import { OFFICIAL_CATEGORIES, isSubscriptionCategory } from "./types";
 
 export type OfficialCategory = (typeof OFFICIAL_CATEGORIES)[number];
 
@@ -137,9 +137,13 @@ export function categorizeLocally({
 
   // 3. CACHE LOCAL UTILISATEUR (krona_merchant_knowledge)
   if (cache[label]?.categorie && OFFICIAL_CATEGORIES.includes(cache[label].categorie)) {
+    const cat = cache[label].categorie;
+    const isSub = isSubscriptionCategory(cat) 
+      ? cache[label].isSubscription !== false 
+      : Boolean(cache[label].isSubscription && cat === "Transports");
     return {
-      category: cache[label].categorie,
-      isSubscription: cache[label].isSubscription || false,
+      category: cat,
+      isSubscription: isSub,
       isInternalTransfer: false,
     };
   }
@@ -158,17 +162,20 @@ export function categorizeLocally({
   }
 
   // --- REVENUS & SALAIRES ---
-  // virement recu, salaire, remboursement, paye, caf, cpam, pole emploi, france travail
+  // virement recu (hors remboursement/avoir), salaire, paye, caf, pole emploi, france travail
   if (
-    combined.includes("virement recu") ||
-    combined.includes("vir recu") ||
-    combined.includes("vir sepa recu") ||
-    combined.includes("pole emploi") ||
-    combined.includes("france travail") ||
-    combined.includes("remboursement") ||
-    combined.includes("virement en votre faveur") ||
-    /\b(salaire|paye|caf|cpam|employeur)\b/.test(combined) ||
-    (amount > 0 && normCat.includes("salaire"))
+    !combined.includes("remboursement") &&
+    !combined.includes("avoir") &&
+    (
+      combined.includes("virement recu") ||
+      combined.includes("vir recu") ||
+      combined.includes("vir sepa recu") ||
+      combined.includes("pole emploi") ||
+      combined.includes("france travail") ||
+      combined.includes("virement en votre faveur") ||
+      /\b(salaire|paye|caf|employeur)\b/.test(combined) ||
+      (amount > 0 && normCat.includes("salaire"))
+    )
   ) {
     return { category: "Revenus & Aides", isSubscription: false, isInternalTransfer: false };
   }
@@ -248,7 +255,7 @@ export function categorizeLocally({
   }
 
   // Santé -> Santé & Soins
-  // pharmacie, doctolib, laboratoire, dentiste, optique
+  // pharmacie, doctolib, laboratoire, dentiste, optique, cpam, secu, ameli
   if (
     combined.includes("pharmacie") ||
     combined.includes("doctolib") ||
@@ -256,6 +263,9 @@ export function categorizeLocally({
     combined.includes("dentiste") ||
     combined.includes("optique") ||
     combined.includes("livi") ||
+    combined.includes("cpam") ||
+    combined.includes("ameli") ||
+    combined.includes("secu") ||
     /\b(medecin|mutuelle|clinique|hopital)\b/.test(combined)
   ) {
     return { category: "Santé & Soins", isSubscription: false, isInternalTransfer: false };
@@ -343,8 +353,14 @@ export function categorizeLocally({
     return { category: "Sorties & Soirées", isSubscription: false, isInternalTransfer: false };
   }
 
-  // --- VIREMENTS PROCHES ---
-  if (combined.includes("lydia") || combined.includes("paylib") || combined.includes("vir inst")) {
+  // --- VIREMENTS PROCHES & REMBOURSEMENTS ---
+  if (
+    combined.includes("lydia") || 
+    combined.includes("paylib") || 
+    combined.includes("vir inst") ||
+    combined.includes("remboursement") ||
+    combined.includes("avoir")
+  ) {
     return { category: "Virements proches & Remboursements", isSubscription: false, isInternalTransfer: false };
   }
 

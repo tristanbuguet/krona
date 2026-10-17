@@ -6,13 +6,14 @@ export type Transaction = {
   date: string;
   month: string;
   isSubscription?: boolean;
+  isRecurring?: boolean;
   isInternalTransfer?: boolean;
   account?: "BoursoBank" | "Crédit Agricole" | string;
+  rawName?: string;
 };
 
 export type FixedIncomeSettings = {
   salary: number;
-  salaryDay: number;
   aids: number;
   autoApply: boolean;
   savingsGoal?: number;
@@ -46,6 +47,60 @@ export const OFFICIAL_CATEGORIES = [
   "Épargne & Trésorerie",
   "Autre"
 ] as const;
+
+export const isSubscriptionCategory = (category?: string): boolean => {
+  if (!category) return false;
+  const c = category.toLowerCase().trim();
+  return (
+    c === "abonnements & forfaits" ||
+    c === "abonnements" ||
+    c === "subscriptions" ||
+    c === "forfaits" ||
+    c.startsWith("abonnement") ||
+    c.startsWith("subscription")
+  );
+};
+
+export const isSalaryTransaction = (
+  tx: { name: string; amount: number; type?: string; rawName?: string },
+  referenceSalary = 0
+): boolean => {
+  if (tx.amount <= 0) return false;
+  const nam = (tx.name || "").toLowerCase();
+  const raw = (tx.rawName || "").toLowerCase();
+  const combined = `${nam} ${raw}`;
+
+  // Les aides sociales ou remboursements ne sont pas des salaires
+  const isAids = Boolean(combined.match(/caf|crous|france travail|pole emploi|ameli|cpam|aide|allocation/i));
+  if (isAids) return false;
+
+  const isRefund = Boolean(combined.match(/remboursement|avoir/i));
+  if (isRefund) return false;
+
+  // 1. Mots-clés de rémunération
+  const matchesKeyword = Boolean(
+    combined.match(/salaire|paie|paye|virement sepa|vir sepa|remuneration|rémunération|appointement|appointements|galeries|employeur/i)
+  );
+
+  // 2. Montant créditeur significatif en Revenus & Aides (>= 500 € ou >= 50% du salaire de référence)
+  const isSignificantIncome =
+    tx.type === "Revenus & Aides" &&
+    (tx.amount >= 500 || (referenceSalary > 0 && tx.amount >= referenceSalary * 0.5));
+
+  return matchesKeyword || isSignificantIncome;
+};
+
+export const isAidTransaction = (
+  tx: { name: string; amount: number; type?: string; rawName?: string }
+): boolean => {
+  if (tx.amount <= 0) return false;
+  const nam = (tx.name || "").toLowerCase();
+  const raw = (tx.rawName || "").toLowerCase();
+  return Boolean(
+    nam.match(/caf|crous|france travail|pole emploi|ameli|cpam|aide|allocation/i) ||
+    raw.match(/caf|crous|france travail|pole emploi|ameli|cpam|aide|allocation/i)
+  );
+};
 
 export const CATEGORY_COLORS: Record<string, { ring: string; fill: string; dot: string; bgSoft: string; textSoft: string }> = {
   "Transports": { ring: "#3B82F6", fill: "bg-blue-500", dot: "bg-blue-500", bgSoft: "bg-blue-500/10", textSoft: "text-blue-500" },

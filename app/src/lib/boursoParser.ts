@@ -192,9 +192,9 @@ export function parseBoursoBankCSV(content: string): BoursoNormalizedTransaction
       dateCol = dIdx !== -1 ? dIdx : normalizedHeaders.findIndex(h => h.includes("date"));
       if (dateCol === -1) dateCol = 0;
 
-      // Libellé Suggéré : index 3 (priorité)
+      // Libellé Suggéré : si présent dans les en-têtes (priorité)
       const suggIdx = normalizedHeaders.findIndex(h => h.includes("sugg"));
-      suggestedLabelCol = suggIdx !== -1 ? suggIdx : 3;
+      suggestedLabelCol = suggIdx !== -1 ? suggIdx : -1;
 
       // Libellé standard : index 2 (ne doit PAS matcher "Date Opération")
       const libIdx = normalizedHeaders.findIndex((h, idx) => 
@@ -240,6 +240,7 @@ export function parseBoursoBankCSV(content: string): BoursoNormalizedTransaction
 
   const results: BoursoNormalizedTransaction[] = [];
   const startIndex = headerIndex + 1;
+  const occurrenceMap = new Map<string, number>();
 
   for (let i = startIndex; i < rows.length; i++) {
     const row = rows[i];
@@ -252,18 +253,12 @@ export function parseBoursoBankCSV(content: string): BoursoNormalizedTransaction
     const dateInfo = parseDateToIso(firstCell);
     if (!dateInfo) continue;
 
-    // Montant : extrait la PREMIÈRE colonne "Solde" (index 6). Remplace la virgule par un point et parseFloat().
-    // Ignore totalement l'index 10.
+    // Montant : extrait la colonne montant via parseAmount (gère les séparateurs de milliers européens/US et devises)
     const rawAmountCell = row[amountCol] !== undefined ? String(row[amountCol]).replace(/"/g, "").trim() : "";
     if (!rawAmountCell) continue;
 
-    const cleanAmountStr = rawAmountCell
-      .replace(/[\s\u00A0\u202F€$£\(\)]/g, "")
-      .replace(",", ".");
-    const isNegative = rawAmountCell.includes("-") || rawAmountCell.includes("(");
-    let absNum = parseFloat(cleanAmountStr.replace(/[^\d\.]/g, ""));
-    if (isNaN(absNum) || absNum === 0) continue;
-    const amount = isNegative ? -Math.abs(absNum) : Math.abs(absNum);
+    const amount = parseAmount(rawAmountCell);
+    if (amount === null || amount === 0) continue;
 
     // Libellé / Commerçant : utilise en priorité « Libellé Suggéré » (index 3). Si vide, prends « Libellé » (index 2).
     const suggested = suggestedLabelCol !== -1 && row[suggestedLabelCol] ? String(row[suggestedLabelCol]).replace(/"/g, "").trim() : "";
@@ -280,8 +275,12 @@ export function parseBoursoBankCSV(content: string): BoursoNormalizedTransaction
       categoryBourso = "Autre";
     }
 
-    // Identifiant unique demandé : `bourso-${date}-${Math.abs(amount)}-${index}`
-    const uniqueId = `bourso-${dateInfo.date}-${Math.abs(amount)}-${i}`;
+    // Identifiant unique stable basé sur les données et l'occurrence
+    const slug = toSlug(cleanedLabel) || "tx";
+    const baseKey = `${dateInfo.date}_${amount}_${slug}`;
+    const occurrenceIndex = (occurrenceMap.get(baseKey) || 0) + 1;
+    occurrenceMap.set(baseKey, occurrenceIndex);
+    const uniqueId = `bourso_${baseKey}_${occurrenceIndex}`;
 
     results.push({
       id: uniqueId,

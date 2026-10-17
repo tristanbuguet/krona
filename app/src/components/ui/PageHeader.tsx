@@ -29,11 +29,11 @@ export function PageHeader({ title, children, className = "", showDate }: PageHe
   return (
     <div className={clsx("flex items-center justify-between min-h-[36px] h-9 shrink-0 mb-3.5 w-full", className)}>
       <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-        <h1 className="text-lg sm:text-xl font-semibold tracking-tight text-zinc-900 dark:text-white truncate font-sans leading-none">
+        <h1 className="text-lg sm:text-xl font-semibold tracking-tight text-foreground truncate font-sans leading-none">
           {title}
         </h1>
         {shouldDisplayDate && currentDate && (
-          <span className="text-xs sm:text-sm font-medium text-zinc-500 dark:text-neutral-400 select-none truncate leading-none">
+          <span className="text-xs sm:text-sm font-medium text-muted-foreground select-none truncate leading-none">
             {currentDate}
           </span>
         )}

@@ -15,7 +15,8 @@ import {
   Calendar,
   Activity,
   Trash2,
-  Edit2
+  Edit2,
+  ArrowRight
 } from "lucide-react";
 import { BoursoBankLogo, CreditAgricoleLogo } from "../BankSelectorPopover";
 import { CloseButton } from "../ui/CloseButton";
@@ -25,7 +26,7 @@ import { PageHeader } from "../ui/PageHeader";
 interface AccountsViewProps {
   transactions: Transaction[];
   onTriggerUpload?: (bank: string) => void;
-  onNavigateTransactions?: () => void;
+  onNavigateTransactions?: (bank?: string) => void;
 }
 
 const DEFAULT_ACCOUNTS: AccountInfo[] = [
@@ -93,15 +94,37 @@ export function AccountsView({
   // Compute metrics for each account from actual transactions
   const accountsData = useMemo(() => {
     return accounts.map(acc => {
-      // Find matching transactions by bank or account name
+      // Find matching transactions by bank and account type
+      const isSavingsAcc = acc.type === "Livret d'épargne" || 
+        acc.id.includes("savings") || 
+        acc.name.toLowerCase().includes("livret") || 
+        acc.name.toLowerCase().includes("épargne");
+
       const accTx = transactions.filter(t => {
-        if (!t.account) return acc.bank === "BoursoBank";
-        return t.account.toLowerCase().includes(acc.bank.toLowerCase()) || 
-               t.account.toLowerCase().includes(acc.name.toLowerCase());
+        const isBourso = !t.account || t.account.toLowerCase().includes("bourso");
+        const isCA = Boolean(t.account && t.account.toLowerCase().includes("agricole"));
+
+        if (acc.bank.toLowerCase().includes("agricole")) {
+          if (!isCA) return false;
+        } else {
+          if (!isBourso) return false;
+        }
+
+        const isSavingsTx = t.type === "Épargne & Trésorerie" || Boolean(t.isInternalTransfer);
+        if (isSavingsAcc) {
+          return isSavingsTx;
+        }
+        return true;
       });
 
       // Compute transactions sum
-      const netTxSum = accTx.reduce((sum, t) => sum + t.amount, 0);
+      const netTxSum = accTx.reduce((sum, t) => {
+        if (isSavingsAcc) {
+          // Sur le livret d'épargne : un virement vers l'épargne (débité du courant) crédite l'épargne (+)
+          return sum + (-t.amount);
+        }
+        return sum + t.amount;
+      }, 0);
       const computedBalance = (acc.initialBalance || 0) + netTxSum;
 
       // Find newest transaction date
@@ -220,7 +243,7 @@ export function AccountsView({
         <button
           type="button"
           onClick={handleOpenAdd}
-          className="h-9 px-3.5 rounded-full bg-zinc-900 text-white dark:bg-white dark:text-black text-xs sm:text-sm font-medium flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all shadow-xs cursor-pointer font-sans"
+          className="h-9 px-3.5 rounded-full bg-foreground text-background text-xs sm:text-sm font-medium flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all shadow-xs cursor-pointer font-sans"
         >
           <Plus size={15} />
           <span>Ajouter un compte</span>
@@ -231,28 +254,28 @@ export function AccountsView({
       <div className="flex-1 overflow-y-auto pr-2 space-y-6 no-scrollbar min-h-0">
 
       {/* Total Consolidated Wealth Card (p-6, Space Grotesk tabular-nums) */}
-      <div className="bg-white dark:bg-card border border-black/[0.06] dark:border-border rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shrink-0 transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
+      <div className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shrink-0 transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
         <div>
-          <span className="text-xs sm:text-sm font-medium text-zinc-500 dark:text-neutral-400 font-sans block mb-1">
+          <span className="text-xs sm:text-sm font-medium text-muted-foreground font-sans block mb-1">
             Solde total consolidé (Tous comptes)
           </span>
           <div className="text-3xl sm:text-4xl font-bold tracking-tight text-foreground tabular-nums font-sans">
             {formatAmount(totalWealth, false)}
           </div>
-          <p className="text-xs text-zinc-500 dark:text-neutral-400 font-sans mt-1">
+          <p className="text-xs text-muted-foreground font-sans mt-1">
             Cumul des soldes déclarés et des mouvements de relevés
           </p>
         </div>
 
-        <div className="flex items-center gap-6 sm:border-l sm:border-black/[0.06] sm:dark:border-border sm:pl-6">
+        <div className="flex items-center gap-6 sm:border-l sm:border-border sm:pl-6">
           <div>
-            <div className="text-xs text-zinc-500 dark:text-neutral-400 font-sans mb-1">Comptes actifs</div>
+            <div className="text-xs text-muted-foreground font-sans mb-1">Comptes actifs</div>
             <div className="text-xl font-bold text-foreground tabular-nums font-sans">
               {accounts.length}
             </div>
           </div>
           <div>
-            <div className="text-xs text-zinc-500 dark:text-neutral-400 font-sans mb-1">Mouvements tracés</div>
+            <div className="text-xs text-muted-foreground font-sans mb-1">Mouvements tracés</div>
             <div className="text-xl font-bold text-foreground tabular-nums font-sans">
               {transactions.length} ops
             </div>
@@ -269,17 +292,17 @@ export function AccountsView({
           return (
             <div
               key={acc.id}
-              className="bg-white dark:bg-card border border-black/[0.06] dark:border-border rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-black/20 dark:hover:border-foreground/20 transition-all group"
+              className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-foreground/20 transition-all group"
             >
               {/* Account Header */}
               <div>
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-black/5 dark:bg-white/[0.04] border border-black/[0.06] dark:border-border flex items-center justify-center shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center shrink-0">
                       {isBourso ? (
-                        <BoursoBankLogo className="w-5 h-5 text-foreground" />
+                        <BoursoBankLogo className="w-4.5 h-4.5 text-foreground" />
                       ) : isCA ? (
-                        <CreditAgricoleLogo className="w-5 h-5 text-foreground" />
+                        <CreditAgricoleLogo className="w-5 h-4 text-foreground" />
                       ) : (
                         <Landmark size={20} className="text-foreground" />
                       )}
@@ -288,7 +311,7 @@ export function AccountsView({
                       <h3 className="font-bold text-base text-foreground font-sans truncate">
                         {acc.name}
                       </h3>
-                      <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-neutral-400 font-sans">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground font-sans">
                         <span>{acc.type}</span>
                         {acc.accountNumber && <span>· {acc.accountNumber}</span>}
                       </div>
@@ -298,7 +321,7 @@ export function AccountsView({
                   <button
                     type="button"
                     onClick={() => handleOpenEdit(acc)}
-                    className="p-1.5 rounded-full text-zinc-500 dark:text-neutral-400 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
+                    className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
                     aria-label="Modifier ce compte"
                   >
                     <Edit2 size={14} />
@@ -307,7 +330,7 @@ export function AccountsView({
 
                 {/* Account Balance */}
                 <div className="mb-4">
-                  <div className="text-xs text-zinc-500 dark:text-neutral-400 font-sans mb-1">Solde estimé</div>
+                  <div className="text-xs text-muted-foreground font-sans mb-1">Solde estimé</div>
                   <div className={`text-2xl sm:text-3xl font-bold tracking-tight tabular-nums font-sans ${
                     acc.computedBalance >= 0 ? "text-foreground" : "text-rose-500"
                   }`}>
@@ -316,8 +339,15 @@ export function AccountsView({
                 </div>
 
                 {/* Meta stats */}
-                <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-neutral-400 font-sans py-2.5 border-y border-black/[0.06] dark:border-border/50 mb-4">
-                  <span>Volume : <strong className="text-foreground tabular-nums">{acc.txCount}</strong> opérations</span>
+                <div className="flex items-center justify-between text-xs text-muted-foreground font-sans py-2.5 border-y border-border/50 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTransactions && onNavigateTransactions(acc.bank)}
+                    className="hover:underline flex items-center gap-1 cursor-pointer text-left hover:text-foreground transition-colors group/link"
+                  >
+                    <span>Volume : <strong className="text-foreground tabular-nums">{acc.txCount}</strong> opérations</span>
+                    <ArrowRight size={11} className="opacity-60 group-hover/link:opacity-100 transition-opacity" />
+                  </button>
                   <span>
                     {acc.lastTxDate ? `Dernier relevé : ${acc.lastTxDate}` : "Aucun relevé"}
                   </span>
@@ -326,12 +356,12 @@ export function AccountsView({
                 {/* Recent Transactions Preview */}
                 {acc.recentTx.length > 0 && (
                   <div className="space-y-2 mb-4">
-                    <span className="text-[11px] font-semibold text-zinc-500 dark:text-neutral-400 uppercase tracking-wider font-sans">
+                    <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-sans">
                       Derniers mouvements
                     </span>
                     {acc.recentTx.map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between text-xs font-sans">
-                        <span className="text-zinc-500 dark:text-neutral-400 truncate max-w-[160px]">{tx.name}</span>
+                        <span className="text-muted-foreground truncate max-w-[160px]">{tx.name}</span>
                         <span className={`tabular-nums font-medium ${tx.amount > 0 ? "text-emerald-600 dark:text-emerald-500" : "text-foreground"}`}>
                           {formatAmount(tx.amount)}
                         </span>
@@ -481,7 +511,7 @@ export function AccountsView({
                     </button>
                     <button
                       type="submit"
-                      className="h-10 px-5 rounded-full bg-black text-white dark:bg-white dark:text-black text-xs font-medium hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+                      className="h-10 px-5 rounded-full bg-foreground text-background text-xs font-medium hover:opacity-90 active:scale-95 transition-all cursor-pointer"
                     >
                       Enregistrer
                     </button>

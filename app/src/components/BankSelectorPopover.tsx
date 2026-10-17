@@ -4,14 +4,14 @@ import React, { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 // Logo BoursoBank (Officiel)
-export const BoursoBankLogo = ({ className = "w-5 h-5" }: { className?: string }) => (
+export const BoursoBankLogo = ({ className = "w-4.5 h-4.5" }: { className?: string }) => (
   <svg viewBox="0 0 31 36" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
     <path d="M30.4004 0.0517578C30.5991 -0.0997255 30.8993 0.101661 30.8496 0.402344L27.792 17.5469H27.7949L24.5361 35.793C24.5359 36.0437 24.1857 36.0438 24.1357 35.8428V35.8447L18.4834 18.3896L0.222656 19.8516C0.0212473 19.8516 -0.0784181 19.6002 0.0732422 19.4512L15.6621 9.47656V9.47559L30.4004 0.0517578Z" fill="currentColor"/>
   </svg>
 );
 
 // Logo Crédit Agricole (Officiel)
-export const CreditAgricoleLogo = ({ className = "w-5 h-5" }: { className?: string }) => (
+export const CreditAgricoleLogo = ({ className = "w-5 h-4" }: { className?: string }) => (
   <svg viewBox="0 0 36 25" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
     <path d="M23.7431 11.5845L21.4915 5.90262L18.5643 12.1808C17.5736 14.161 14.3312 14.7349 12.0682 15.0499L12.4848 14.206L19.0371 1.84091H24.1484L27.8074 9.3455L29.4173 12.9009L32.7273 20.0455L30.4418 20.0342L28.663 20.0229C27.92 20.0342 27.1882 19.9779 26.8729 19.1904L26.2425 17.6602L25.1842 15.0836L23.7431 11.5845Z" fill="currentColor"/>
     <path d="M33.5454 22.0909H0V24.9545H33.5454V22.0909Z" fill="currentColor"/>
@@ -79,7 +79,7 @@ export function BankSelectorPopover({
           exit={side === "right" ? { opacity: 0, x: -8, scale: 0.96 } : { opacity: 0, y: -8, scale: 0.96 }}
           transition={{ type: "spring", stiffness: 350, damping: 28 }}
           className={clsx(
-            "absolute w-64 sm:w-72 bg-card/95 dark:bg-[#0F0F11]/95 backdrop-blur-2xl border border-border dark:border-white/[0.08] shadow-[0_20px_40px_-15px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] rounded-2xl p-2 z-[101] overflow-hidden select-none",
+            "absolute w-64 sm:w-72 bg-card/95 backdrop-blur-2xl border border-border shadow-[0_20px_40px_-15px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] rounded-2xl p-2 z-[101] overflow-hidden select-none",
             side === "right"
               ? "left-full top-0 ml-3"
               : align === "left" ? "top-full mt-2.5 left-0" : "top-full mt-2.5 right-0"
@@ -87,7 +87,7 @@ export function BankSelectorPopover({
         >
           {/* Header */}
           <div className="px-3 pt-2 pb-1">
-            <span className="text-[11px] font-semibold tracking-tight text-neutral-400 uppercase font-sans">
+            <span className="text-[11px] font-semibold tracking-tight text-muted-foreground uppercase font-sans">
               Sélectionner ta banque
             </span>
           </div>
@@ -102,14 +102,14 @@ export function BankSelectorPopover({
               }}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-black/[0.04] dark:hover:bg-white/[0.05] active:scale-[0.98] transition-all text-left group cursor-pointer"
             >
-              <div className="w-9 h-9 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-border dark:border-white/[0.08] flex items-center justify-center text-foreground dark:text-white shrink-0 group-hover:bg-black/[0.06] dark:group-hover:bg-white/[0.08] transition-colors">
-                <BoursoBankLogo className="w-5 h-5 text-foreground dark:text-white" />
+              <div className="w-9 h-9 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-border flex items-center justify-center text-foreground shrink-0 group-hover:bg-black/[0.06] dark:group-hover:bg-white/[0.08] transition-colors">
+                <BoursoBankLogo className="w-4.5 h-4.5 text-foreground" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-foreground dark:text-white tracking-tight font-sans">
+                <div className="text-sm font-medium text-foreground tracking-tight font-sans">
                   BoursoBank
                 </div>
-                <div className="text-xs text-neutral-500 dark:text-neutral-400 font-sans truncate">
+                <div className="text-xs text-muted-foreground font-sans truncate">
                   Relevé de compte CSV
                 </div>
               </div>
@@ -124,14 +124,14 @@ export function BankSelectorPopover({
               }}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-black/[0.04] dark:hover:bg-white/[0.05] active:scale-[0.98] transition-all text-left group cursor-pointer"
             >
-              <div className="w-9 h-9 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-border dark:border-white/[0.08] flex items-center justify-center text-foreground dark:text-white shrink-0 group-hover:bg-black/[0.06] dark:group-hover:bg-white/[0.08] transition-colors">
-                <CreditAgricoleLogo className="w-5 h-5 text-foreground dark:text-white" />
+              <div className="w-9 h-9 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-border flex items-center justify-center text-foreground shrink-0 group-hover:bg-black/[0.06] dark:group-hover:bg-white/[0.08] transition-colors">
+                <CreditAgricoleLogo className="w-5 h-4 text-foreground" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-foreground dark:text-white tracking-tight font-sans">
+                <div className="text-sm font-medium text-foreground tracking-tight font-sans">
                   Crédit Agricole
                 </div>
-                <div className="text-xs text-neutral-500 dark:text-neutral-400 font-sans truncate">
+                <div className="text-xs text-muted-foreground font-sans truncate">
                   Relevé de compte CSV
                 </div>
               </div>

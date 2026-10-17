@@ -18,8 +18,8 @@ export const CloseButton = ({ className, iconSize = 16, onClick, ...props }: Clo
       onClick={onClick}
       aria-label="Fermer"
       className={cn(
-        "w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 cursor-pointer",
-        "bg-black/5 hover:bg-black/10 dark:bg-white/[0.06] dark:hover:bg-white/[0.12] text-zinc-500 hover:text-zinc-900 dark:text-neutral-400 dark:hover:text-foreground",
+        "w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 cursor-pointer",
+        "bg-transparent text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10 hover:text-foreground",
         className
       )}
       {...props}

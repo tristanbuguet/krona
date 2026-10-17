@@ -86,6 +86,7 @@ export function parseCreditAgricoleCSV(content: string): CANormalizedTransaction
 
   const results: CANormalizedTransaction[] = [];
   const startIndex = headerIndex + 1;
+  const occurrenceMap = new Map<string, number>();
 
   for (let i = startIndex; i < rows.length; i++) {
     const row = rows[i];
@@ -129,10 +130,12 @@ export function parseCreditAgricoleCSV(content: string): CANormalizedTransaction
       }
     }
 
-    // Identifiant unique comprenant l'index de ligne :
-    // Deux transactions de 6,00 € le même jour à la laverie auront deux ID distincts et seront conservées
-    const slug = toSlug(cleanedLabel);
-    const uniqueId = `ca_${dateInfo.date}_${amount}_${slug}_${i}`;
+    // Identifiant unique stable basé sur les données et l'occurrence
+    const slug = toSlug(cleanedLabel) || "tx";
+    const baseKey = `${dateInfo.date}_${amount}_${slug}`;
+    const occurrenceIndex = (occurrenceMap.get(baseKey) || 0) + 1;
+    occurrenceMap.set(baseKey, occurrenceIndex);
+    const uniqueId = `ca_${baseKey}_${occurrenceIndex}`;
 
     results.push({
       id: uniqueId,

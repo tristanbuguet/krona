@@ -1,5 +1,6 @@
 import React from "react";
 import clsx from "clsx";
+import { twMerge } from "tailwind-merge";
 
 export interface CardProps {
   children: React.ReactNode;
@@ -12,10 +13,12 @@ export function Card({ children, className = "", noPadding = false, onClick }: C
   return (
     <div 
       onClick={onClick} 
-      className={clsx(
-        "bg-white dark:bg-zinc-900/50 border border-black/[0.06] dark:border-white/[0.08] rounded-2xl shadow-sm flex flex-col overflow-hidden",
-        noPadding ? "" : "p-3 sm:p-3.5 xl:p-4",
-        className
+      className={twMerge(
+        clsx(
+          "bg-card border border-border rounded-2xl shadow-sm flex flex-col overflow-hidden",
+          noPadding ? "" : "p-3.5 sm:p-4 xl:p-4.5",
+          className
+        )
       )}
     >
       {children}

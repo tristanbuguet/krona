@@ -192,7 +192,7 @@ export function SemiDonutGauge({
             stroke="currentColor"
             strokeWidth={strokeWidth}
             strokeLinecap="round"
-            className="text-zinc-100 dark:text-white/[0.06]"
+            className="text-black/[0.04] dark:text-white/[0.06]"
           />
 
           {/* Segments avec terminaisons arrondies et animation sweep progressive */}
@@ -226,13 +226,13 @@ export function SemiDonutGauge({
           transition={{ duration: 0.2, ease: "easeOut" }}
           className="absolute inset-x-0 bottom-[8%] sm:bottom-[10%] flex flex-col items-center justify-center text-center pointer-events-none select-none"
         >
-          <div className="inline-flex items-baseline justify-center overflow-hidden text-xl sm:text-2xl xl:text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white tabular-nums font-sans leading-none">
+          <div className="inline-flex items-baseline justify-center overflow-hidden text-xl sm:text-2xl xl:text-3xl font-semibold tracking-tight text-foreground tabular-nums font-sans leading-none">
             <AlternatingDigitAmount value={displayAmount} animate={isInteracting} />
-            <span className="ml-1 select-none font-semibold text-lg sm:text-xl xl:text-2xl text-zinc-900 dark:text-white shrink-0">
+            <span className="ml-1 select-none font-semibold text-lg sm:text-xl xl:text-2xl text-foreground shrink-0">
               €
             </span>
           </div>
-          <span className="text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-neutral-400 mt-1 sm:mt-1.5 font-sans leading-none truncate max-w-[140px] sm:max-w-[180px] xl:max-w-[220px]">
+          <span className="text-[10px] sm:text-xs font-medium text-muted-foreground mt-1 sm:mt-1.5 font-sans leading-none truncate max-w-[140px] sm:max-w-[180px] xl:max-w-[220px]">
             {displayLabel}
           </span>
         </motion.div>
