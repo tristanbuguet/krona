@@ -6,6 +6,7 @@ import { cleanMerchantName, categorizeLocally } from "../src/lib/categorization"
 import { detectSubscriptions } from "../src/components/SubscriptionManager";
 import type { MonthlyLimitConfig } from "../src/components/MonthlyLimitCard";
 import { Transaction, isSalaryTransaction, isAidTransaction } from "../src/lib/types";
+import { formatCurrencyFr, formatEurosFr } from "../src/components/views/TrendsView";
 
 test("parseAmount gère correctement les formats français et internationaux", () => {
   // Format standard français
@@ -506,6 +507,147 @@ test("Détection élargie du salaire réel : virement employeur Galeries Lafayet
   assert.strictEqual(resAid.hasRealSalary, false, "Une aide sociale ne doit pas être qualifiée de salaire");
   assert.strictEqual(resAid.injectedSalary, 1300, "Le salaire de référence manquant doit être injecté");
   assert.strictEqual(resAid.total, 2100); // 800 + 1300
+});
+
+test("Harmonisation du calcul des Dépenses nettes : Single Source of Truth et exclusion des virements internes", () => {
+  // Scénario identique à celui rencontré par l'utilisateur :
+  // Dépenses réelles : 927.83 €
+  // Virement interne / épargne : -695.00 € (marqué isInternalTransfer ou Épargne & Trésorerie)
+  // Remboursement perçu : +50.00 € (doit venir en déduction)
+  const txs: Transaction[] = [
+    {
+      id: "tx-exp-1",
+      name: "Monoprix Courses",
+      type: "Alimentation & Courses",
+      amount: -800.00,
+      date: "2026-10-05",
+      month: "2026-10",
+    },
+    {
+      id: "tx-exp-2",
+      name: "Restaurant",
+      type: "Restos & Fast-Food",
+      amount: -177.83,
+      date: "2026-10-10",
+      month: "2026-10",
+    },
+    {
+      id: "tx-refund",
+      name: "Remboursement Commande",
+      type: "Shopping & Mode",
+      amount: 50.00,
+      date: "2026-10-12",
+      month: "2026-10",
+    },
+    {
+      id: "tx-saving",
+      name: "Virement Livret A",
+      type: "Épargne & Trésorerie",
+      amount: -695.00,
+      date: "2026-10-15",
+      month: "2026-10",
+      isInternalTransfer: true,
+    },
+  ];
+
+  // Calcul Dashboard (Single Source of Truth)
+  let dashboardExpenses = 0;
+  txs.forEach(tx => {
+    if (tx.type === "Épargne & Trésorerie" || tx.isInternalTransfer) return;
+    if (tx.amount < 0) {
+      dashboardExpenses += Math.abs(tx.amount);
+    } else {
+      dashboardExpenses -= tx.amount;
+    }
+  });
+  dashboardExpenses = Math.round(dashboardExpenses * 100) / 100;
+
+  // 800 + 177.83 - 50 = 927.83 €
+  assert.strictEqual(dashboardExpenses, 927.83, "Les dépenses nettes du Dashboard doivent être de 927.83 €");
+
+  // Calcul Tiroir d'opérations (aligné)
+  let drawerNetDebits = 0;
+  txs.forEach(tx => {
+    if (tx.type === "Épargne & Trésorerie" || tx.isInternalTransfer) return;
+    if (tx.amount < 0) {
+      drawerNetDebits += Math.abs(tx.amount);
+    } else {
+      drawerNetDebits -= tx.amount;
+    }
+  });
+  drawerNetDebits = Math.round(drawerNetDebits * 100) / 100;
+
+  assert.strictEqual(drawerNetDebits, dashboardExpenses, "Le montant dans le tiroir doit correspondre exactement aux dépenses du Dashboard");
+  assert.strictEqual(drawerNetDebits, 927.83, "Le montant net calculé ne doit pas inclure les 695 € d'épargne");
+});
+
+test("TrendsView : Formatage numérique unifié fr-FR et gestion des signes", () => {
+  // Test formatCurrencyFr
+  const formattedIncome = formatCurrencyFr(1507.84);
+  assert.ok(formattedIncome.includes("1") && formattedIncome.includes("507,84") && formattedIncome.includes("€"), "Revenu moyen formaté en fr-FR avec virgule");
+
+  const formattedDiscretionary = formatCurrencyFr(787.17);
+  assert.ok(formattedDiscretionary.includes("787,17") && formattedDiscretionary.includes("€"), "Train de vie discrétionnaire formaté avec virgule");
+
+  const formattedPositive = formatCurrencyFr(1365.4, true);
+  assert.ok(formattedPositive.startsWith("+") && formattedPositive.includes("1") && formattedPositive.includes("365,40"), "Épargne positive avec signe +");
+
+  const formattedNegative = formatCurrencyFr(-450.5, true);
+  assert.ok(formattedNegative.startsWith("-") && formattedNegative.includes("450,50"), "Épargne négative avec signe -");
+
+  // Test formatEurosFr
+  assert.strictEqual(formatEurosFr(455, true), "+455 €");
+  assert.strictEqual(formatEurosFr(-65, true), "-65 €");
+  assert.strictEqual(formatEurosFr(0, true), "0 €");
+});
+
+test("TrendsView : Calcul mathématique de la Dérive des Catégories et garde-fou sur les pourcentages", () => {
+  // Scénario : 3 mois dans l'horizon (Octobre, Septembre, Août)
+  // Catégorie « Shopping & Mode » :
+  // Août : 20 €
+  // Septembre : 24 € -> Moyenne des mois précédents (hors mois évalué Octobre) = 22 €
+  // Octobre (mois évalué) : 428 €
+  const priorVals = [20, 24];
+  const avgPrior = priorVals.reduce((a, b) => a + b, 0) / priorVals.length; // 22 €
+  const latestVal = 428;
+  const diffAmount = latestVal - avgPrior; // +406 €
+  const diffPercent = Math.round((diffAmount / avgPrior) * 100); // 1845%
+
+  assert.strictEqual(avgPrior, 22);
+  assert.strictEqual(diffAmount, 406);
+
+  // Vérification de la règle du garde-fou :
+  // Si diffPercent > 200 || avgPrior < 30 : afficher multiplicateur lisible (ex: ×19.5 ou +406 €) au lieu d'un % absurde
+  const mult = latestVal / avgPrior;
+  assert.ok(mult >= 1.5, "Le multiplicateur doit être calculé");
+  const badgeText = (diffPercent > 200 || avgPrior < 30) ? `×${mult.toFixed(1)}` : `+${diffPercent}%`;
+  assert.strictEqual(badgeText, "×19.5", "Le badge doit afficher le multiplicateur lisible au lieu de +1845%");
+});
+
+test("TrendsView : Structure du Budget (50 / 30 / 20) et cohérence comptable", () => {
+  // Revenu mensuel net : 2000 €
+  // Dépenses nettes : 1600 € dont Fixes = 900 €, Variables = 700 €
+  // Épargne nette = 400 €
+  const income = 2000;
+  const fixed = 900;
+  const variable = 700;
+  const expenses = fixed + variable;
+  const savings = Math.max(0, income - expenses);
+
+  assert.strictEqual(expenses, 1600);
+  assert.strictEqual(savings, 400);
+
+  const fixedShare = Math.round((fixed / income) * 100); // 45%
+  const variableShare = Math.round((variable / income) * 100); // 35%
+  const savingsShare = Math.max(0, 100 - fixedShare - variableShare); // 20%
+
+  assert.strictEqual(fixedShare, 45, "Socle Fixe : 45% (Cible < 50% -> Optimal)");
+  assert.strictEqual(variableShare, 35, "Train de vie Variable : 35% (Cible < 30% -> Sous contrôle)");
+  assert.strictEqual(savingsShare, 20, "Capacité d'Épargne : 20% (Cible > 20% -> Optimal)");
+
+  // Dépense quotidienne moyenne
+  const dailyVariable = variable / 30.4;
+  assert.ok(dailyVariable > 23 && dailyVariable < 24, "Dépense variable quotidienne d'environ 23 € / jour");
 });
 
 

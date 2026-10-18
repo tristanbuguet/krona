@@ -1917,14 +1917,63 @@ export function Dashboard({
   }, [filteredTransactions, drawerFilter, drawerSearch, isTxSubscription]);
 
   const { drawerDebitsTotal, drawerCreditsTotal } = useMemo(() => {
+    const hasSearch = Boolean(drawerSearch.trim());
+    if (!hasSearch && (drawerFilter === "all" || drawerFilter === "debit")) {
+      return { 
+        drawerDebitsTotal: expenses, 
+        drawerCreditsTotal: income 
+      };
+    }
+
     let deb = 0;
     let cred = 0;
+
     displayedDrawerTx.forEach(tx => {
-      if (tx.amount < 0) deb += Math.abs(tx.amount);
-      else cred += tx.amount;
+      const isInternal = tx.type === "Épargne & Trésorerie" || tx.isInternalTransfer;
+      if (isInternal) {
+        if (drawerFilter === "transfer") {
+          deb += Math.abs(tx.amount);
+        }
+        return;
+      }
+
+      const nam = tx.name.toLowerCase();
+      const raw = (tx.rawName || "").toLowerCase();
+      const combinedText = `${nam} ${raw}`;
+
+      if (tx.amount < 0) {
+        deb += Math.abs(tx.amount);
+      } else {
+        const isAids = isAidTransaction(tx) || Boolean(combinedText.match(/caf|crous|france travail|pole emploi|ameli|cpam|aide|allocation/i));
+        const isRefundLabel = Boolean(combinedText.match(/remboursement|avoir/i));
+        const matchesSalaryKeywords = Boolean(
+          combinedText.match(/salaire|paie|paye|virement sepa|vir sepa|remuneration|rémunération|appointement|appointements|galeries|employeur/i)
+        );
+        const isSignificantIncome = 
+          tx.type === "Revenus & Aides" &&
+          (tx.amount >= 500 || (incomeSettings.salary > 0 && tx.amount >= incomeSettings.salary * 0.5));
+
+        const isSalary = !isRefundLabel && !isAids && (
+          matchesSalaryKeywords ||
+          isSignificantIncome ||
+          isSalaryTransaction(tx, incomeSettings.salary)
+        );
+        const isIncome = isSalary || isAids || tx.type === "Revenus & Aides";
+        const isRefund = !isIncome;
+
+        if (isRefund) {
+          deb = Math.max(0, deb - tx.amount);
+        } else {
+          cred += tx.amount;
+        }
+      }
     });
-    return { drawerDebitsTotal: deb, drawerCreditsTotal: cred };
-  }, [displayedDrawerTx]);
+
+    return { 
+      drawerDebitsTotal: Math.round(Math.max(0, deb) * 100) / 100, 
+      drawerCreditsTotal: Math.round(Math.max(0, cred) * 100) / 100 
+    };
+  }, [displayedDrawerTx, drawerFilter, drawerSearch, expenses, income, incomeSettings]);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 w-full overflow-hidden relative">
@@ -3584,8 +3633,12 @@ export function Dashboard({
                       `Dépenses nettes : ${drawerDebitsTotal.toFixed(2)} €`
                     ) : drawerFilter === "credit" ? (
                       `Revenus nets : ${drawerCreditsTotal.toFixed(2)} €`
+                    ) : drawerFilter === "sub" ? (
+                      `Total abonnements : ${drawerDebitsTotal.toFixed(2)} €`
+                    ) : drawerFilter === "transfer" ? (
+                      `Total virements : ${drawerDebitsTotal.toFixed(2)} €`
                     ) : (
-                      `Total : ${Math.abs(drawerDebitsTotal - drawerCreditsTotal).toFixed(2)} €`
+                      `Total : ${drawerDebitsTotal.toFixed(2)} €`
                     )}
                   </span>
                 </div>
