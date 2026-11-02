@@ -37,7 +37,7 @@ export interface MonthlyLimitCardProps {
 export function MonthlyLimitCard({
   spentAmount,
   expenses = 0,
-  income = 1800,
+  income = 0,
   maxSpending: propMaxSpending,
   targetRemaining: propTargetRemaining,
   targetPercent: propTargetPercent,
@@ -56,33 +56,67 @@ export function MonthlyLimitCard({
 
   // Chargement de la configuration persistée
   useEffect(() => {
-    try {
-      const savedConfig = localStorage.getItem("krona_monthly_limit_config");
-      if (savedConfig) {
-        const parsed = JSON.parse(savedConfig);
-        if (
-          parsed &&
-          (parsed.type === "amount" || parsed.type === "percent") &&
-          typeof parsed.value === "number" &&
-          parsed.value > 0
-        ) {
-          setUserSavedConfig(parsed);
-          return;
+    const loadFromStorage = () => {
+      try {
+        const savedConfig = localStorage.getItem("krona_monthly_limit_config");
+        if (savedConfig) {
+          const parsed = JSON.parse(savedConfig);
+          if (
+            parsed &&
+            (parsed.type === "amount" || parsed.type === "percent") &&
+            typeof parsed.value === "number" &&
+            parsed.value > 0
+          ) {
+            setUserSavedConfig(parsed);
+            return;
+          }
         }
-      }
-      const legacySaved = localStorage.getItem("krona_monthly_spending_limit");
-      if (legacySaved) {
-        const val = parseFloat(legacySaved);
-        if (!isNaN(val) && val > 0) {
-          setUserSavedConfig({ type: "amount", value: val });
+        const legacySaved = localStorage.getItem("krona_monthly_spending_limit");
+        if (legacySaved) {
+          const val = parseFloat(legacySaved);
+          if (!isNaN(val) && val > 0) {
+            setUserSavedConfig({ type: "amount", value: val });
+            return;
+          }
         }
+        setUserSavedConfig(null);
+      } catch (e) {}
+    };
+
+    loadFromStorage();
+
+    const handleCloudRestored = (e: any) => {
+      const payload = e?.detail?.payload;
+      const cfg = payload?.settings?.monthlyLimitConfig || payload?.monthlyLimitConfig;
+      if (
+        cfg &&
+        (cfg.type === "amount" || cfg.type === "percent") &&
+        typeof cfg.value === "number" &&
+        cfg.value > 0
+      ) {
+        setUserSavedConfig(cfg);
+      } else {
+        loadFromStorage();
       }
-    } catch (e) {}
+    };
+
+    const handleSignedOut = () => {
+      setUserSavedConfig(null);
+    };
+
+    window.addEventListener("krona-cloud-data-restored", handleCloudRestored);
+    window.addEventListener("krona-user-signed-out", handleSignedOut);
+    window.addEventListener("krona-data-reset", handleSignedOut);
+    return () => {
+      window.removeEventListener("krona-cloud-data-restored", handleCloudRestored);
+      window.removeEventListener("krona-user-signed-out", handleSignedOut);
+      window.removeEventListener("krona-data-reset", handleSignedOut);
+    };
   }, []);
 
-  const resolvedDefaultLimit = customLimit && customLimit > 0 ? customLimit : (monthlyLimit && monthlyLimit > 0 ? monthlyLimit : 2200);
+  const resolvedDefaultLimit = customLimit && customLimit > 0 ? customLimit : (monthlyLimit && monthlyLimit > 0 ? monthlyLimit : 0);
   const activeConfig: MonthlyLimitConfig = propLimitConfig || userSavedConfig || { type: "amount", value: resolvedDefaultLimit };
-  const effectiveIncome = income > 0 ? income : (monthlyLimit || 2200);
+  const effectiveIncome = income > 0 ? income : (monthlyLimit || 0);
 
   // Calcul du budget dépensable max et du solde restant cible
   let effectiveMaxSpending: number;
@@ -97,7 +131,7 @@ export function MonthlyLimitCard({
         ? propTargetPercent
         : effectiveIncome > 0
           ? Math.round((effectiveTargetRemaining / effectiveIncome) * 100)
-          : 40;
+          : 0;
   } else if (activeConfig.type === "percent") {
     effectiveTargetPercent = Math.min(99, Math.max(1, activeConfig.value));
     effectiveTargetRemaining = Math.round(effectiveIncome * (effectiveTargetPercent / 100));
@@ -106,12 +140,12 @@ export function MonthlyLimitCard({
     effectiveMaxSpending = activeConfig.value > 0 ? activeConfig.value : resolvedDefaultLimit;
     effectiveTargetRemaining = Math.max(0, effectiveIncome - effectiveMaxSpending);
     effectiveTargetPercent =
-      effectiveIncome > 0 ? Math.round((effectiveTargetRemaining / effectiveIncome) * 100) : 40;
+      effectiveIncome > 0 ? Math.round((effectiveTargetRemaining / effectiveIncome) * 100) : 0;
   }
 
   const spent = Math.max(0, spentAmount !== undefined ? spentAmount : expenses);
   const percentage = effectiveMaxSpending > 0 ? Math.round((spent / effectiveMaxSpending) * 100) : 0;
-  const isOverLimit = spent > effectiveMaxSpending;
+  const isOverLimit = effectiveMaxSpending > 0 && spent > effectiveMaxSpending;
 
   return (
     <div

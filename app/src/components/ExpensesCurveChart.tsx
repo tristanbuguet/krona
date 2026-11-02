@@ -50,9 +50,9 @@ function getSmoothCurvePath(points: { x: number; y: number }[]): string {
     const p2 = points[i + 1];
     const p3 = points[Math.min(points.length - 1, i + 2)];
 
-    let cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
     let cp1y = p1.y + (p2.y - p0.y) / 6;
-    let cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
     let cp2y = p2.y - (p3.y - p1.y) / 6;
 
     // Bornage monotone pour garantir l'absence de rebond / ondulation artificielle
@@ -154,7 +154,7 @@ export function ExpensesCurveChart({
     }
 
     // Y_max (haut du SVG) = Total Revenus / Budget initial (100 %)
-    const P_start = initialBudget && initialBudget > 0 ? initialBudget : 1800;
+    const P_start = initialBudget && initialBudget > 0 ? initialBudget : 0;
     const count = timeline.length;
 
     // Calcul du Solde Restant Cible et du Budget Dépensable Max
@@ -307,16 +307,6 @@ export function ExpensesCurveChart({
     setHoveredIndex(null);
   };
 
-  if (timeline.length === 0) {
-    return (
-      <div className={`flex-1 flex flex-col items-center justify-center text-center p-8 text-neutral-400 ${className}`}>
-        <Activity size={32} className="stroke-1 text-neutral-400/40 mb-3" />
-        <p className="text-sm font-medium text-foreground font-sans">Aucune dépense sur cette période</p>
-        <p className="text-xs text-neutral-500 mt-0.5 font-sans">Les débits apparaîtront au fil de tes opérations</p>
-      </div>
-    );
-  }
-
   const activePoint = hoveredIndex !== null && activePoints[hoveredIndex] ? activePoints[hoveredIndex] : null;
 
   // Calcul de positionnement intelligent du Tooltip au survol (ancré strictement au-dessus du point blanc)
@@ -340,6 +330,16 @@ export function ExpensesCurveChart({
       transition: "left 0.12s ease-out, bottom 0.12s ease-out, top 0.12s ease-out, transform 0.12s ease-out",
     };
   }, [activePoint, dimensions.width, dimensions.height]);
+
+  if (timeline.length === 0) {
+    return (
+      <div className={`flex-1 flex flex-col items-center justify-center text-center p-8 text-neutral-400 ${className}`}>
+        <Activity size={32} className="stroke-1 text-neutral-400/40 mb-3" />
+        <p className="text-sm font-medium text-foreground font-sans">Aucune dépense sur cette période</p>
+        <p className="text-xs text-neutral-500 mt-0.5 font-sans">Les débits apparaîtront au fil de tes opérations</p>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className={`w-full h-full flex-1 min-h-0 relative select-none ${className}`}>

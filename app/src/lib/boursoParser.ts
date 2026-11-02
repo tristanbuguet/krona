@@ -86,7 +86,7 @@ export function parseAmount(val: any): number | null {
   if (!str) return null;
 
   // Détection de parenthèses comptables (12.50) -> -12.50
-  let isNegative = str.includes("-") || /^\(.*\)$/.test(str);
+  const isNegative = str.includes("-") || /^\(.*\)$/.test(str);
 
   // Nettoyage des devises, espaces classiques et insécables (\u00A0, \u202F)
   str = str.replace(/[€$£\s\u00A0\u202F\(\)]/g, "");

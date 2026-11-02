@@ -63,7 +63,7 @@ function localFallbackCategorize(items: TransactionItem[]): Array<{ id: string; 
 }
 
 export async function POST(req: NextRequest) {
-  let items: TransactionItem[] = [];
+  const items: TransactionItem[] = [];
 
   try {
     const body = await req.json();

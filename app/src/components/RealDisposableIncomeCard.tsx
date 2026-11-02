@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { Coins } from "lucide-react";
 import clsx from "clsx";
 
-import { Transaction, isSubscriptionCategory } from "../lib/types";
+import { Transaction, isSubscriptionCategory, isInternalTransferTransaction } from "../lib/types";
 
 interface RealDisposableIncomeCardProps {
   income: number;
@@ -36,11 +36,11 @@ export function RealDisposableIncomeCard({
   className = "",
 }: RealDisposableIncomeCardProps) {
 
-  // 1. Détermination du revenu socle (revenus constatés ou configurés)
+  // 1. Détermination du revenu socle (revenus constatés ou configurés — jamais de fallback fictif 3200 €)
   const baseIncome = useMemo(() => {
     if (income > 0) return income;
     const configured = (incomeSettings.salary || 0) + (incomeSettings.aids || 0);
-    return configured > 0 ? configured : 3200; // Fallback représentatif en mode démo
+    return configured > 0 ? configured : 0;
   }, [income, incomeSettings]);
 
   // 2. Détection et ventilation automatique des charges incompressibles (fixes)
@@ -51,7 +51,7 @@ export function RealDisposableIncomeCard({
     let autoUtilities = 0;
 
     transactions.forEach(tx => {
-      if (tx.amount >= 0 || tx.isInternalTransfer || tx.type === "Épargne & Trésorerie") return;
+      if (tx.amount >= 0 || isInternalTransferTransaction(tx)) return;
       const abs = Math.abs(tx.amount);
       const nam = tx.name.toLowerCase();
 

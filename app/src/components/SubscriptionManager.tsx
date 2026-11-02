@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { Repeat, EyeOff, Eye } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Transaction, isSubscriptionCategory } from "../lib/types";
+import { Transaction, isSubscriptionCategory, isInternalTransferTransaction } from "../lib/types";
 
 const EXCLUDED_KEYWORDS = ["monoprix", "franprix", "carrefour", "boulangerie", "auchan", "leclerc", "intermarche", "lidl", "aldi", "casino", "ratp", "sncf", "uber", "bolt", "freenow", "taxi", "velib", "deliveroo", "ubereats", "just eat", "mcdonalds", "burger king", "kfc"];
 
@@ -17,7 +17,7 @@ export function detectSubscriptions(transactions: Transaction[], ignoredList: st
     const nameLower = tx.name.toLowerCase();
     const isExplicitSub = tx.isSubscription === true || nameLower.includes("navigo") || nameLower.includes("pass ratp");
     if (!isExplicitSub && EXCLUDED_KEYWORDS.some(kw => nameLower.includes(kw))) return;
-    if (tx.type === "Alimentation & Courses" || tx.type === "Restos & Fast-Food" || tx.type === "Épargne & Trésorerie" || tx.isInternalTransfer) return;
+    if (tx.type === "Alimentation & Courses" || tx.type === "Restos & Fast-Food" || isInternalTransferTransaction(tx)) return;
     if (!isSubscriptionCategory(tx.type) && !tx.isSubscription && !isExplicitSub) return;
 
     if (!byMerchant.has(tx.name)) {

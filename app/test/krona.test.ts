@@ -2,12 +2,31 @@ import test from "node:test";
 import assert from "node:assert";
 import { parseAmount, parseBoursoBankCSV } from "../src/lib/boursoParser";
 import { parseCreditAgricoleCSV } from "../src/lib/creditAgricoleParser";
-import { cleanMerchantName, categorizeLocally } from "../src/lib/categorization";
+import { parseCaisseEpargneCSV } from "../src/lib/caisseEpargneParser";
+import { detectBankType } from "../src/lib/bankParser";
+import { cleanMerchantName, categorizeLocally, mapCaisseEpargneCategory } from "../src/lib/categorization";
 import { detectSubscriptions } from "../src/components/SubscriptionManager";
 import type { MonthlyLimitConfig } from "../src/components/MonthlyLimitCard";
-import { Transaction, isSalaryTransaction, isAidTransaction } from "../src/lib/types";
+import {
+  Transaction,
+  isSalaryTransaction,
+  isAidTransaction,
+  initialDemoTransactions,
+  isInternalTransferCategory,
+  isInternalTransferTransaction,
+  isRegularisationCategory,
+  isRegularisationTransaction,
+  INTERNAL_TRANSFER_CATEGORY,
+  REGULARISATION_CATEGORY,
+} from "../src/lib/types";
+import { calculateFinancialMetrics } from "../src/lib/financialCalculations";
 import { formatCurrencyFr, formatEurosFr } from "../src/components/views/TrendsView";
-import { mergeTransactionsLossless, mergeCloudAndLocalData } from "../src/lib/cloudSync";
+import {
+  mergeTransactionsLossless,
+  mergeCloudAndLocalData,
+  normalizeUserFinancialPayload,
+  resolveUserAvatarUrl,
+} from "../src/lib/cloudSync";
 
 test("parseAmount gère correctement les formats français et internationaux", () => {
   // Format standard français
@@ -724,7 +743,885 @@ test("Google Cloud Sync : Migration Local-First sans écrasement à la première
   assert.strictEqual(mergedState.ignoredSubscriptions.length, 2);
   assert.ok(mergedState.merchantKnowledge["Carrefour"]);
   assert.ok(mergedState.merchantKnowledge["Netflix"]);
+
+  // Résolution de l'URL de photo de profil multi-provider (Firebase, Supabase, NextAuth, Google OAuth)
+  assert.strictEqual(
+    resolveUserAvatarUrl({ photoURL: "https://lh3.googleusercontent.com/a/firebase-photo" }),
+    "https://lh3.googleusercontent.com/a/firebase-photo"
+  );
+  assert.strictEqual(
+    resolveUserAvatarUrl({ user_metadata: { avatar_url: "https://lh3.googleusercontent.com/a/supabase-avatar" } }),
+    "https://lh3.googleusercontent.com/a/supabase-avatar"
+  );
+  assert.strictEqual(
+    resolveUserAvatarUrl({ image: "https://lh3.googleusercontent.com/a/nextauth-image" }),
+    "https://lh3.googleusercontent.com/a/nextauth-image"
+  );
+  assert.strictEqual(resolveUserAvatarUrl({ picture: "" }), undefined);
 });
+
+test("Cycle de vie des données : Reconnexion après purge locale restaure 100% du cloud utilisateur", () => {
+  // État local complètement purgé après une déconnexion (Empty State invité)
+  const emptyLocalState = {
+    transactions: [],
+    categoryBudgets: {},
+    fixedIncomeSettings: { salary: 0, aids: 0, autoApply: false, savingsGoal: 0 },
+    ignoredSubscriptions: [],
+    merchantKnowledge: {},
+    monthlyLimitConfig: undefined,
+    monthlySpendingLimit: null,
+    accounts: undefined,
+    selectedBank: undefined,
+    selectedMonth: null,
+  };
+
+  // Données cloud précédemment sauvegardées sur le compte Google de l'utilisateur
+  const existingCloudData = {
+    transactions: [
+      {
+        id: "bourso_2026-10-20_-42_monoprix_1",
+        name: "Monoprix",
+        type: "Alimentation & Courses",
+        amount: -42,
+        date: "2026-10-20",
+        month: "2026-10",
+      },
+    ],
+    categoryBudgets: { "Alimentation & Courses": 350 },
+    fixedIncomeSettings: { salary: 2800, aids: 0, autoApply: true, savingsGoal: 500, rent: 850 },
+    ignoredSubscriptions: ["Ancien Abo"],
+    merchantKnowledge: { Monoprix: { categorie: "Alimentation & Courses", isSubscription: false } },
+    monthlyLimitConfig: { type: "percent" as const, value: 25 },
+    monthlySpendingLimit: 2100,
+    accounts: [
+      {
+        id: "bourso-main",
+        name: "Compte courant BoursoBank",
+        bank: "BoursoBank" as const,
+        type: "Compte courant" as const,
+        initialBalance: 2400,
+      },
+    ],
+    selectedBank: "ca" as const,
+    selectedMonth: "2026-10",
+  };
+
+  const restored = mergeCloudAndLocalData(emptyLocalState, existingCloudData);
+
+  assert.strictEqual(restored.transactions.length, 1, "Les transactions cloud doivent être intégralement restaurées");
+  assert.strictEqual(restored.transactions[0].name, "Monoprix");
+  assert.strictEqual(restored.categoryBudgets["Alimentation & Courses"], 350, "Les plafonds cloud doivent être restaurés");
+  assert.strictEqual(restored.fixedIncomeSettings.salary, 2800, "Le salaire cloud doit être restauré");
+  assert.strictEqual(restored.fixedIncomeSettings.rent, 850, "Le loyer cloud doit être restauré");
+  assert.deepStrictEqual(restored.monthlyLimitConfig, { type: "percent", value: 25 }, "La configuration du plafond mensuel cloud doit être restaurée");
+  assert.strictEqual(restored.monthlySpendingLimit, 2100);
+  assert.strictEqual(restored.accounts?.length, 1, "Les comptes cloud doivent être restaurés");
+  assert.strictEqual(restored.accounts?.[0].initialBalance, 2400);
+  assert.strictEqual(restored.selectedBank, "ca");
+  assert.strictEqual(restored.selectedMonth, "2026-10");
+  // Vérification du contrat structuré UserFinancialPayload (settings & learningRules)
+  assert.strictEqual(restored.settings.monthlyCap, 2100);
+  assert.strictEqual(restored.settings.incomeSettings.salary, 2800);
+  assert.strictEqual(restored.settings.categoryBudgets["Alimentation & Courses"], 350);
+  assert.strictEqual(restored.learningRules["Monoprix"]?.categorie, "Alimentation & Courses");
+  assert.ok(restored.lastUpdated);
+});
+
+test("UserFinancialPayload : Persistance intégrale et sérialisation atomique (Transactions + Settings + LearningRules)", () => {
+  const fullPayload = normalizeUserFinancialPayload({
+    transactions: [
+      {
+        id: "ca_2026-10-12_-19.9_boulangerie_1",
+        name: "Boulangerie",
+        type: "Alimentation & Courses",
+        amount: -19.9,
+        date: "2026-10-12",
+        month: "2026-10",
+        account: "Crédit Agricole",
+      },
+    ],
+    accounts: [
+      {
+        id: "ca-main",
+        name: "Compte Crédit Agricole",
+        bank: "Crédit Agricole",
+        type: "Compte courant",
+        initialBalance: 1250,
+      },
+    ],
+    settings: {
+      monthlyCap: 1850,
+      monthlyLimitConfig: { type: "amount", value: 1850 },
+      incomeSettings: {
+        salary: 2650,
+        aids: 180,
+        autoApply: true,
+        savingsGoal: 400,
+        rent: 780,
+        loans: 120,
+        utilities: 95,
+      },
+      categoryBudgets: {
+        "Alimentation & Courses": 400,
+        "Restos & Fast-Food": 150,
+      },
+      ignoredSubscriptions: ["Faux Positif"],
+      selectedBank: "ca",
+      selectedMonth: "2026-10",
+    },
+    learningRules: {
+      Boulangerie: { categorie: "Alimentation & Courses", isSubscription: false },
+    },
+  });
+
+  // Sérialisation JSON complète (simulation stockage cloud .krona-cloud/users-cloud-store.json)
+  const serialized = JSON.stringify(fullPayload);
+  const deserialized = JSON.parse(serialized);
+  const rehydrated = mergeCloudAndLocalData({}, deserialized);
+
+  assert.strictEqual(rehydrated.transactions.length, 1);
+  assert.strictEqual(rehydrated.accounts.length, 1);
+  assert.strictEqual(rehydrated.accounts[0].initialBalance, 1250);
+  assert.strictEqual(rehydrated.settings.monthlyCap, 1850);
+  assert.deepStrictEqual(rehydrated.settings.monthlyLimitConfig, {
+    type: "amount",
+    value: 1850,
+  });
+  assert.strictEqual(rehydrated.settings.incomeSettings.salary, 2650);
+  assert.strictEqual(rehydrated.settings.incomeSettings.aids, 180);
+  assert.strictEqual(rehydrated.settings.incomeSettings.autoApply, true);
+  assert.strictEqual(rehydrated.settings.incomeSettings.rent, 780);
+  assert.strictEqual(rehydrated.settings.incomeSettings.loans, 120);
+  assert.strictEqual(rehydrated.settings.incomeSettings.utilities, 95);
+  assert.strictEqual(
+    rehydrated.settings.categoryBudgets["Alimentation & Courses"],
+    400
+  );
+  assert.strictEqual(
+    rehydrated.learningRules["Boulangerie"]?.categorie,
+    "Alimentation & Courses"
+  );
+  assert.ok(typeof rehydrated.lastUpdated === "string" && rehydrated.lastUpdated.length > 0);
+});
+
+test("Empty State pur & Réinitialisation complète : transactions = [], accounts = [], budget/revenu = 0 (jamais 3200)", () => {
+  // 1. Les transactions de démonstration par défaut sont un tableau strictement vide
+  assert.deepStrictEqual(initialDemoTransactions, [], "Aucune transaction de démo ne doit être injectée par défaut");
+
+  // 2. Payload après une réinitialisation complète ou un état vierge
+  const resetPayload = normalizeUserFinancialPayload({});
+
+  assert.deepStrictEqual(resetPayload.transactions, [], "transactions doit être [] après reset");
+  assert.deepStrictEqual(resetPayload.accounts, [], "accounts doit être [] après reset");
+  assert.strictEqual(resetPayload.settings.incomeSettings.salary, 0, "Le salaire de référence doit être à 0");
+  assert.strictEqual(resetPayload.settings.incomeSettings.aids, 0, "Les aides de référence doivent être à 0");
+  assert.strictEqual(resetPayload.settings.incomeSettings.autoApply, false, "autoApply doit être à false");
+  assert.strictEqual(resetPayload.settings.monthlyCap, 0, "Le plafond mensuel par défaut doit être à 0");
+  assert.deepStrictEqual(resetPayload.settings.monthlyLimitConfig, { type: "amount", value: 0 });
+  assert.deepStrictEqual(resetPayload.learningRules, {}, "Les règles d'apprentissage doivent être vides");
+
+  // 3. Calcul du budget de départ (RealDisposableIncomeCard) sur état vierge
+  const income = 0;
+  const configured =
+    (resetPayload.settings.incomeSettings.salary || 0) +
+    (resetPayload.settings.incomeSettings.aids || 0);
+  const baseIncome = income > 0 ? income : configured > 0 ? configured : 0;
+
+  assert.strictEqual(baseIncome, 0, "Le budget/revenu de départ doit être strictement égal à 0 (et non 3200)");
+});
+
+test("Traitement neutre des virements internes : exclusion stricte des dépenses, revenus et reste à vivre", () => {
+  // 1. Validation des drapeaux et helpers d'exclusion
+  assert.strictEqual(isInternalTransferCategory("Virement interne"), true);
+  assert.strictEqual(isInternalTransferCategory("Épargne & Trésorerie"), true);
+  assert.strictEqual(isInternalTransferCategory("Virement compte à compte"), true);
+  assert.strictEqual(isInternalTransferCategory("Alimentation & Courses"), false);
+  assert.strictEqual(INTERNAL_TRANSFER_CATEGORY, "Virement interne");
+
+  const outgoingTransfer: Transaction = {
+    id: "tx-out-1",
+    name: "VIR Vers Livret A",
+    type: "Virement interne",
+    amount: -200,
+    date: "2026-10-10",
+    month: "2026-10",
+    isInternalTransfer: true,
+    excludeFromSpending: true,
+  };
+
+  const incomingTransfer: Transaction = {
+    id: "tx-in-1",
+    name: "VIR Depuis Livret A",
+    type: "Épargne & Trésorerie",
+    amount: 150,
+    date: "2026-10-12",
+    month: "2026-10",
+    isInternalTransfer: true,
+    excludeFromSpending: true,
+  };
+
+  assert.strictEqual(isInternalTransferTransaction(outgoingTransfer), true);
+  assert.strictEqual(isInternalTransferTransaction(incomingTransfer), true);
+
+  // Un virement entrant depuis un livret ne doit JAMAIS être détecté comme salaire ou aide
+  assert.strictEqual(isSalaryTransaction(incomingTransfer, 2000), false);
+  assert.strictEqual(isAidTransaction(incomingTransfer), false);
+
+  // 2. Scénario de base avec opérations opérationnelles réelles :
+  // - Salaire : +2 000 €
+  // - Dépenses opérationnelles (courses, restos) : -500 €
+  // - Loyer (charges incompressibles) : -700 €
+  const baseTransactions: Transaction[] = [
+    {
+      id: "tx-sal-1",
+      name: "VIR SALAIRE EMPLOYEUR",
+      type: "Revenus & Aides",
+      amount: 2000,
+      date: "2026-10-01",
+      month: "2026-10",
+    },
+    {
+      id: "tx-courses-1",
+      name: "MONOPRIX",
+      type: "Alimentation & Courses",
+      amount: -500,
+      date: "2026-10-05",
+      month: "2026-10",
+    },
+    {
+      id: "tx-loyer-1",
+      name: "PRLV LOYER RESIDENCE",
+      type: "Logement & Maison",
+      amount: -700,
+      date: "2026-10-06",
+      month: "2026-10",
+    },
+  ];
+
+  const baseMetrics = calculateFinancialMetrics({
+    transactions: baseTransactions,
+    incomeSettings: { salary: 2000 },
+    selectedMonth: "2026-10",
+  });
+
+  // Dépenses opérationnelles = 500 + 700 = 1200 €
+  assert.strictEqual(baseMetrics.expenses, 1200);
+  assert.strictEqual(baseMetrics.income, 2000);
+  assert.strictEqual(baseMetrics.balance, 800);
+  assert.strictEqual(baseMetrics.fixedCharges.rent, 700);
+  // Reste à vivre (disposable income = 2000 - 700 charges fixes = 1300 €)
+  assert.strictEqual(baseMetrics.disposableIncome, 1300);
+
+  // 3. Injection du virement sortant (-200 € vers livret) et entrant (+150 € depuis livret)
+  const transactionsWithTransfers: Transaction[] = [
+    ...baseTransactions,
+    outgoingTransfer,
+    incomingTransfer,
+  ];
+
+  const metricsWithTransfers = calculateFinancialMetrics({
+    transactions: transactionsWithTransfers,
+    incomeSettings: { salary: 2000 },
+    selectedMonth: "2026-10",
+  });
+
+  // VÉRIFICATION FORMELLE :
+  // - Les dépenses nettes ne bougent pas d'un centime (strictement 1 200 €)
+  assert.strictEqual(
+    metricsWithTransfers.expenses,
+    baseMetrics.expenses,
+    "Les dépenses nettes ne doivent pas bouger d'un centime suite aux virements internes"
+  );
+
+  // - Les revenus totaux ne bougent pas d'un centime (strictement 2 000 €)
+  assert.strictEqual(
+    metricsWithTransfers.income,
+    baseMetrics.income,
+    "Les revenus réels ne doivent pas être gonflés par un virement entrant depuis un livret"
+  );
+
+  // - Le solde opérationnel reste strictement identique (800 €)
+  assert.strictEqual(
+    metricsWithTransfers.balance,
+    baseMetrics.balance,
+    "Le solde opérationnel doit être identique"
+  );
+
+  // - Le reste à vivre (disposable income) reste strictement identique (1 300 €)
+  assert.strictEqual(
+    metricsWithTransfers.disposableIncome,
+    baseMetrics.disposableIncome,
+    "Le reste à vivre ne doit subir aucune altération due aux virements internes"
+  );
+
+  // - Le flux d'épargne net interne est correctement comptabilisé à part (-200 + 150 = -50 €)
+  assert.strictEqual(metricsWithTransfers.internalTransfersSaved, -50);
+});
+
+test("Caisse d'Épargne : Détection automatique, parsing rigoureux des métadonnées et normalisation", () => {
+  // 1. Détection automatique du format
+  const ceSample = [
+    `"Compte de dépôt n° 08000123456 - Caisse d'Épargne Île-de-France";;;;`,
+    `"Solde au 15/10/2026 : +2 340,50 EUR";;;;`,
+    `"Date de l'opération";"Date de valeur";"Libellé";"Débit";"Crédit"`,
+  ].join("\n");
+
+  const caSample = [
+    `Compte de depot n° 12345678901;;;`,
+    `Date;Libellé;Débit euros;Crédit euros;`,
+  ].join("\n");
+
+  const boursoSample = [
+    `date;dateVal;label;category;categoryParent;amount;comment`,
+  ].join("\n");
+
+  assert.strictEqual(detectBankType(ceSample), "ce");
+  assert.strictEqual(detectBankType(caSample), "ca");
+  assert.strictEqual(detectBankType(boursoSample), "bourso");
+
+  // 2. Fixture représentative d'un mois type avec métadonnées initiales et colonnes Débit / Crédit
+  const ceCsvData = [
+    `"Compte de dépôt n° 08000123456 - Caisse d'Épargne";;;;`,
+    `"Solde au 15/10/2026 : +2 340,50 EUR";;;;`,
+    `;;;;`,
+    `"Date de l'opération";"Date de valeur";"Libellé";"Débit";"Crédit"`,
+    `"01/10/2026";"01/10/2026";"VIR SEPA RECU DE SOCIETE GENERALE SALAIRE";;"2 450,00"`,
+    `"04/10/2026";"04/10/2026";"PAIEMENT CB 04/10 MONOPRIX NATION";"45,60";`,
+    `"05/10/2026";"05/10/2026";"PRELEVEMENT SEPA DE TOTAL DIRECT ENERGIE";"82,30";`,
+    `"08/10/2026";"08/10/2026";"RETRAIT DAB 08/10 DAB CE PARIS REPUBLIQUE";"50,00";`,
+    `"10/10/2026";"10/10/2026";"VIR SEPA EMIS VERS LIVRET A";"200,00";`,
+    `"12/10/2026";"12/10/2026";"COTIS MENSUELLE FORMULE CONFORT";"9,90";`,
+    `"14/10/2026";"14/10/2026";"VIR RECU REMBOURSEMENT AMELI CPAM";;"35,50"`,
+  ].join("\n");
+
+  const txs = parseCaisseEpargneCSV(ceCsvData);
+  assert.strictEqual(txs.length, 7, "Les 7 transactions doivent être extraites après les métadonnées");
+
+  // Virement Salaire
+  assert.strictEqual(txs[0].amount, 2450.0);
+  assert.strictEqual(txs[0].date, "2026-10-01");
+  assert.strictEqual(txs[0].month, "2026-10");
+  assert.strictEqual(txs[0].account, "Caisse d'Épargne");
+  assert.ok(txs[0].label.includes("Societe Generale Salaire"));
+  assert.ok(txs[0].id.startsWith("ce_2026-10-01_2450_"));
+
+  // Paiement CB avec préfixe et date
+  assert.strictEqual(txs[1].amount, -45.6);
+  assert.strictEqual(txs[1].date, "2026-10-04");
+  assert.strictEqual(txs[1].label, "Monoprix Nation");
+
+  // Prélèvement énergie
+  assert.strictEqual(txs[2].amount, -82.3);
+  assert.strictEqual(txs[2].label, "Total Direct Energie");
+
+  // Retrait DAB
+  assert.strictEqual(txs[3].amount, -50.0);
+  assert.ok(txs[3].label.includes("Paris Republique"));
+
+  // Virement interne vers Livret A
+  assert.strictEqual(txs[4].amount, -200.0);
+  assert.strictEqual(txs[4].label, "Livret A");
+
+  // Cotisation bancaire
+  assert.strictEqual(txs[5].amount, -9.9);
+  assert.strictEqual(txs[5].label, "Formule Confort");
+
+  // Remboursement CPAM
+  assert.strictEqual(txs[6].amount, 35.5);
+  assert.ok(txs[6].label.includes("Ameli"));
+
+  // 3. Support de la variante avec colonne Montant unique (+ / -)
+  const ceSingleAmountCsv = [
+    `"Date opération";"Date valeur";"Libellé";"Montant"`,
+    `"15/10/2026";"15/10/2026";"PAIEMENT CB 15/10 RESTAURANT LE BISTROT";"-28,50"`,
+    `"16/10/2026";"16/10/2026";"VIREMENT RECU DE PIERRE";"+50,00"`,
+  ].join("\n");
+
+  const singleTxs = parseCaisseEpargneCSV(ceSingleAmountCsv);
+  assert.strictEqual(singleTxs.length, 2);
+  assert.strictEqual(singleTxs[0].amount, -28.5);
+  assert.strictEqual(singleTxs[0].label, "Restaurant Le Bistrot");
+  assert.strictEqual(singleTxs[1].amount, 50.0);
+  assert.strictEqual(singleTxs[1].label, "Pierre");
+
+  // 4. Intégration sans doublon ni perte (IDs déterministes et index d'occurrence)
+  const duplicateCsv = [
+    `"Date de l'opération";"Date de valeur";"Libellé";"Débit";"Crédit"`,
+    `"18/10/2026";"18/10/2026";"PAIEMENT CB BOULANGERIE";"4,50";`,
+    `"18/10/2026";"18/10/2026";"PAIEMENT CB BOULANGERIE";"4,50";`,
+  ].join("\n");
+
+  const dupTxs = parseCaisseEpargneCSV(duplicateCsv);
+  assert.strictEqual(dupTxs.length, 2);
+  assert.strictEqual(dupTxs[0].id, "ce_2026-10-18_-4.5_boulangerie_1");
+  assert.strictEqual(dupTxs[1].id, "ce_2026-10-18_-4.5_boulangerie_2");
+
+  // Fusion sans perte dans le grand livre
+  const merged = mergeTransactionsLossless(
+    [
+      {
+        id: dupTxs[0].id,
+        name: dupTxs[0].label,
+        type: "Alimentation & Courses",
+        amount: dupTxs[0].amount,
+        date: dupTxs[0].date,
+        month: dupTxs[0].month,
+        account: dupTxs[0].account,
+      },
+    ],
+    dupTxs.map(t => ({
+      id: t.id,
+      name: t.label,
+      type: "Alimentation & Courses",
+      amount: t.amount,
+      date: t.date,
+      month: t.month,
+      account: t.account,
+    }))
+  );
+
+  assert.strictEqual(merged.length, 2, "La fusion sans perte doit conserver les 2 occurrences distinctes");
+
+  // 5. Test complet avec le format réel Caisse d'Épargne (13 colonnes complètes)
+  const ceRealExportCsv = [
+    "Date de comptabilisation;Libelle simplifie;Libelle operation;Reference;Informations complementaires;Type operation;Categorie;Sous categorie;Debit;Credit;Date operation;Date de valeur;Pointage operation",
+    `"12/10/2026";"AUCHAN SUPERMARCHE";"PAIEMENT CB 1110 PARIS AUCHAN SUPERMARCHE";"REF-001";"PARIS";"PAIEMENT CB";"Alimentation";"Hyper/supermarche";"-45,80";;"11/10/2026";"12/10/2026";"O"`,
+    `"15/10/2026";"Deezer";"PRELEVEMENT SEPA DEEZER 15/10";"REF-002";"PARIS";"PRELEVEMENT";"Logement - maison";"Internet et telephonie";"-10,99";;"15/10/2026";"15/10/2026";"O"`,
+    `"16/10/2026";"PICARD";"PAIEMENT CB 1610 PICARD NATION";"REF-003";"PARIS";"PAIEMENT CB";"Alimentation";"Hyper/supermarche";"-18,40";;"16/10/2026";"16/10/2026";"O"`,
+    `"17/10/2026";"Burger King";"PAIEMENT CB 1710 BK PARIS";"REF-004";"PARIS";"PAIEMENT CB";"Alimentation";"Restauration rapide";"-14,50";;"17/10/2026";"17/10/2026";"O"`,
+    `"18/10/2026";"APRR";"TELEPEAGE APRR 18/10";"REF-005";"DIJON";"TELEPEAGE";"Transports";"Peage et Stationnement";"-32,10";;"18/10/2026";"18/10/2026";"O"`,
+    `"28/10/2026";"Societe Generale";"VIR SEPA SALAIRE OCTOBRE SOCIETE GENERALE";"REF-006";"PARIS";"VIREMENT";"Revenus";"Salaire";;"2 500,00";"28/10/2026";"28/10/2026";"O"`,
+  ].join("\n");
+
+  // A. Détection automatique immédiate sur le format réel
+  assert.strictEqual(detectBankType(ceRealExportCsv), "ce", "Le format réel 13 colonnes CE doit être détecté comme 'ce'");
+
+  // B. Extraction et parsing
+  const realTxs = parseCaisseEpargneCSV(ceRealExportCsv);
+  assert.strictEqual(realTxs.length, 6, "Les 6 opérations doivent être extraites");
+
+  // C. Vérification de la priorité Date d'opération sur Date de comptabilisation
+  assert.strictEqual(realTxs[0].date, "2026-10-11", "Date d'achat réelle '11/10/2026' prioritaire sur comptabilisation '12/10/2026'");
+  assert.strictEqual(realTxs[0].month, "2026-10");
+
+  // D. Vérification du libellé épuré (priorité Libelle simplifie)
+  assert.strictEqual(realTxs[0].label, "Auchan Supermarche");
+  assert.strictEqual(realTxs[0].rawLabel, "PAIEMENT CB 1110 PARIS AUCHAN SUPERMARCHE");
+  assert.strictEqual(realTxs[0].amount, -45.8);
+  assert.strictEqual(realTxs[0].categoryCE, "Alimentation");
+  assert.strictEqual(realTxs[0].subCategoryCE, "Hyper/supermarche");
+
+  // E. Vérification Deezer (Abonnement avec montant signé négativement dans la colonne Débit)
+  assert.strictEqual(realTxs[1].label, "Deezer");
+  assert.strictEqual(realTxs[1].amount, -10.99);
+
+  // F. Vérification Picard
+  assert.strictEqual(realTxs[2].label, "Picard");
+  assert.strictEqual(realTxs[2].amount, -18.4);
+
+  // G. Vérification Burger King
+  assert.strictEqual(realTxs[3].label, "Burger King");
+  assert.strictEqual(realTxs[3].amount, -14.5);
+
+  // H. Vérification APRR (Péage)
+  assert.strictEqual(realTxs[4].label, "Aprr");
+  assert.strictEqual(realTxs[4].amount, -32.1);
+
+  // I. Vérification Salaire Crédit
+  assert.strictEqual(realTxs[5].label, "Societe Generale");
+  assert.strictEqual(realTxs[5].amount, 2500.0);
+
+  // J. Vérification du mapping natif Caisse d'Épargne dans categorizeLocally
+  const catAuchan = categorizeLocally({
+    label: realTxs[0].label,
+    rawLabel: realTxs[0].rawLabel,
+    amount: realTxs[0].amount,
+    bankCategory: realTxs[0].categoryCE,
+    subCategory: realTxs[0].subCategoryCE,
+  });
+  assert.strictEqual(catAuchan.category, "Alimentation & Courses", "Alimentation + Hyper/supermarche -> Courses");
+
+  const catDeezer = categorizeLocally({
+    label: realTxs[1].label,
+    rawLabel: realTxs[1].rawLabel,
+    amount: realTxs[1].amount,
+    bankCategory: realTxs[1].categoryCE,
+    subCategory: realTxs[1].subCategoryCE,
+  });
+  assert.strictEqual(catDeezer.category, "Abonnements & Forfaits", "Logement - maison + Internet et telephonie -> Abonnements");
+  assert.strictEqual(catDeezer.isSubscription, true);
+
+  const catBK = categorizeLocally({
+    label: realTxs[3].label,
+    rawLabel: realTxs[3].rawLabel,
+    amount: realTxs[3].amount,
+    bankCategory: realTxs[3].categoryCE,
+    subCategory: realTxs[3].subCategoryCE,
+  });
+  assert.strictEqual(catBK.category, "Restos & Fast-Food", "Alimentation + Restauration rapide -> Resto/Fast-Food");
+
+  const catAprr = categorizeLocally({
+    label: realTxs[4].label,
+    rawLabel: realTxs[4].rawLabel,
+    amount: realTxs[4].amount,
+    bankCategory: realTxs[4].categoryCE,
+    subCategory: realTxs[4].subCategoryCE,
+  });
+  assert.strictEqual(catAprr.category, "Transports", "Transports + Peage et Stationnement -> Transports");
+
+  // K. Ordre de priorité : la règle personnalisée (learningRules) l'emporte sur le mapping natif
+  const customCache = {
+    "Auchan Supermarche": { categorie: "Shopping & Mode", isSubscription: false },
+  };
+  const catCustom = categorizeLocally({
+    label: realTxs[0].label,
+    rawLabel: realTxs[0].rawLabel,
+    amount: realTxs[0].amount,
+    bankCategory: realTxs[0].categoryCE,
+    subCategory: realTxs[0].subCategoryCE,
+    cache: customCache,
+  });
+  assert.strictEqual(catCustom.category, "Shopping & Mode", "La règle apprise utilisateur doit avoir priorité sur le mapping natif");
+});
+
+test("Opérations de Régularisation : exclusion stricte des revenus, des dépenses et neutralité du reste à vivre", () => {
+  // 1. Détection automatique et catégorisation par le moteur local
+  assert.strictEqual(REGULARISATION_CATEGORY, "Régularisation");
+  assert.strictEqual(isRegularisationCategory("Régularisation"), true);
+  assert.strictEqual(isRegularisationCategory("regularisation"), true);
+  assert.strictEqual(isRegularisationCategory("REGULARISATION DE COMPTE"), true);
+  assert.strictEqual(isRegularisationCategory("Ajustement de solde"), true);
+  assert.strictEqual(isRegularisationCategory("Regul"), true);
+  assert.strictEqual(isRegularisationCategory("Alimentation & Courses"), false);
+
+  // Catégorisation locale automatique avec libellés réels
+  const creditRegulResult = categorizeLocally({
+    label: "Regularisation De Compte",
+    rawLabel: "REGULARISATION DE COMPTE 15/10",
+    amount: 100,
+  });
+  assert.strictEqual(creditRegulResult.category, "Régularisation");
+  assert.strictEqual(creditRegulResult.isInternalTransfer, true);
+  assert.strictEqual(creditRegulResult.excludeFromSpending, true);
+  assert.strictEqual(creditRegulResult.excludeFromIncome, true);
+
+  const debitRegulResult = categorizeLocally({
+    label: "Ajustement De Solde",
+    rawLabel: "AJUSTEMENT SOLDE BANCAIRE",
+    amount: -50,
+  });
+  assert.strictEqual(debitRegulResult.category, "Régularisation");
+  assert.strictEqual(debitRegulResult.isInternalTransfer, true);
+  assert.strictEqual(debitRegulResult.excludeFromSpending, true);
+  assert.strictEqual(debitRegulResult.excludeFromIncome, true);
+
+  // 2. Drapeaux d'exclusion et helpers
+  const creditTx: Transaction = {
+    id: "tx-regul-credit-1",
+    name: "Régularisation de compte",
+    rawName: "REGULARISATION DE COMPTE",
+    type: "Régularisation",
+    amount: 100,
+    date: "2026-10-15",
+    month: "2026-10",
+    isInternalTransfer: true,
+    excludeFromSpending: true,
+    excludeFromIncome: true,
+  };
+
+  const debitTx: Transaction = {
+    id: "tx-regul-debit-1",
+    name: "Régularisation débitrice",
+    rawName: "REGUL FRAIS BANCAIRE SOLDE",
+    type: "Régularisation",
+    amount: -50,
+    date: "2026-10-16",
+    month: "2026-10",
+    isInternalTransfer: true,
+    excludeFromSpending: true,
+    excludeFromIncome: true,
+  };
+
+  assert.strictEqual(isRegularisationTransaction(creditTx), true);
+  assert.strictEqual(isRegularisationTransaction(debitTx), true);
+  assert.strictEqual(isInternalTransferTransaction(creditTx), true);
+  assert.strictEqual(isInternalTransferTransaction(debitTx), true);
+
+  // Une régularisation créditrice ne doit JAMAIS être prise pour un salaire ou une aide sociale
+  assert.strictEqual(isSalaryTransaction(creditTx, 2000), false);
+  assert.strictEqual(isAidTransaction(creditTx), false);
+
+  // 3. Neutralité comptable absolue dans calculateFinancialMetrics
+  const baseTransactions: Transaction[] = [
+    {
+      id: "tx-sal-1",
+      name: "VIR SALAIRE SOCIETE",
+      type: "Revenus & Aides",
+      amount: 2000,
+      date: "2026-10-01",
+      month: "2026-10",
+    },
+    {
+      id: "tx-courses-1",
+      name: "MONOPRIX",
+      type: "Alimentation & Courses",
+      amount: -500,
+      date: "2026-10-05",
+      month: "2026-10",
+    },
+    {
+      id: "tx-loyer-1",
+      name: "PRLV LOYER",
+      type: "Logement & Maison",
+      amount: -700,
+      date: "2026-10-06",
+      month: "2026-10",
+    },
+  ];
+
+  const baseMetrics = calculateFinancialMetrics({
+    transactions: baseTransactions,
+    incomeSettings: { salary: 2000 },
+    selectedMonth: "2026-10",
+  });
+
+  // Métriques de référence :
+  // - Revenus : 2 000 €
+  // - Dépenses : 500 (courses) + 700 (loyer) = 1 200 €
+  // - Charges fixes : 700 €
+  // - Reste à vivre : 2000 - 700 = 1 300 €
+  // - Solde : 2000 - 1200 = 800 €
+  assert.strictEqual(baseMetrics.income, 2000);
+  assert.strictEqual(baseMetrics.expenses, 1200);
+  assert.strictEqual(baseMetrics.disposableIncome, 1300);
+  assert.strictEqual(baseMetrics.balance, 800);
+
+  // Injection des opérations de régularisation (+100 € et -50 €)
+  const transactionsWithRegul: Transaction[] = [
+    ...baseTransactions,
+    creditTx,
+    debitTx,
+  ];
+
+  const metricsWithRegul = calculateFinancialMetrics({
+    transactions: transactionsWithRegul,
+    incomeSettings: { salary: 2000 },
+    selectedMonth: "2026-10",
+  });
+
+  // Vérifications formelles strictes :
+  // 1. Le total des revenus mensuels reste strictement inchangé (2 000 € et non 2 100 €)
+  assert.strictEqual(
+    metricsWithRegul.income,
+    baseMetrics.income,
+    "Les revenus réels ne doivent pas être gonflés par une régularisation créditrice (+100 €)"
+  );
+
+  // 2. Le total des dépenses nettes reste strictement inchangé (500 € et non 550 €)
+  assert.strictEqual(
+    metricsWithRegul.expenses,
+    baseMetrics.expenses,
+    "Les dépenses nettes ne doivent pas être augmentées par une régularisation débitrice (-50 €)"
+  );
+
+  // 3. Le reste à vivre reste strictement identique (1 300 €)
+  assert.strictEqual(
+    metricsWithRegul.disposableIncome,
+    baseMetrics.disposableIncome,
+    "Le reste à vivre ne doit subir aucune altération due aux régularisations"
+  );
+
+  // 4. Le solde d'activité opérationnel reste strictement identique (1 500 €)
+  assert.strictEqual(
+    metricsWithRegul.balance,
+    baseMetrics.balance,
+    "Le solde opérationnel d'activité doit être strictement identique"
+  );
+
+  // 5. Les régularisations ne sont pas comptées dans l'épargne nette transférée
+  assert.strictEqual(
+    metricsWithRegul.internalTransfersSaved,
+    0,
+    "Les régularisations ne doivent pas être comptabilisées comme de l'épargne"
+  );
+
+  // 4. Recatégorisation manuelle vers « Régularisation » ou « Virement interne »
+  const manualTx: Transaction = {
+    id: "tx-manual-1",
+    name: "Opération bancaire atypique",
+    type: "Autre",
+    amount: 150,
+    date: "2026-10-20",
+    month: "2026-10",
+  };
+
+  // Avant recatégorisation : compté comme revenu ou remboursement
+  const metricsBefore = calculateFinancialMetrics({
+    transactions: [...baseTransactions, manualTx],
+    incomeSettings: { salary: 2000 },
+    selectedMonth: "2026-10",
+  });
+  assert.notStrictEqual(metricsBefore.expenses, baseMetrics.expenses);
+
+  // Après recatégorisation manuelle en « Régularisation »
+  const manualRegulTx: Transaction = {
+    ...manualTx,
+    type: "Régularisation",
+    isInternalTransfer: true,
+    excludeFromSpending: true,
+    excludeFromIncome: true,
+  };
+
+  const metricsAfterRegul = calculateFinancialMetrics({
+    transactions: [...baseTransactions, manualRegulTx],
+    incomeSettings: { salary: 2000 },
+    selectedMonth: "2026-10",
+  });
+
+  assert.strictEqual(metricsAfterRegul.income, baseMetrics.income);
+  assert.strictEqual(metricsAfterRegul.expenses, baseMetrics.expenses);
+  assert.strictEqual(metricsAfterRegul.disposableIncome, baseMetrics.disposableIncome);
+
+  // Après recatégorisation manuelle en « Virement interne »
+  const manualInternalTx: Transaction = {
+    ...manualTx,
+    type: "Virement interne",
+    isInternalTransfer: true,
+    excludeFromSpending: true,
+    excludeFromIncome: true,
+  };
+
+  const metricsAfterInternal = calculateFinancialMetrics({
+    transactions: [...baseTransactions, manualInternalTx],
+    incomeSettings: { salary: 2000 },
+    selectedMonth: "2026-10",
+  });
+
+  assert.strictEqual(metricsAfterInternal.income, baseMetrics.income);
+  assert.strictEqual(metricsAfterInternal.expenses, baseMetrics.expenses);
+  assert.strictEqual(metricsAfterInternal.disposableIncome, baseMetrics.disposableIncome);
+});
+
+test("Verrouillage strict : Exclusion absolue de « Vir Regularisation Du Compte Bo... » (+100 €) du calcul des dépenses", () => {
+  const baseTxs: Transaction[] = [
+    {
+      id: "sal-base",
+      name: "VIR SALAIRE",
+      type: "Revenus & Aides",
+      amount: 2500,
+      date: "2026-10-01",
+      month: "2026-10",
+    },
+    {
+      id: "exp-loyer",
+      name: "PRLV LOYER",
+      type: "Logement & Maison",
+      amount: -800,
+      date: "2026-10-05",
+      month: "2026-10",
+    },
+    {
+      id: "exp-courses",
+      name: "CARREFOUR MARKET",
+      type: "Alimentation & Courses",
+      amount: -350,
+      date: "2026-10-10",
+      month: "2026-10",
+    },
+  ];
+
+  const metricsWithoutRegul = calculateFinancialMetrics({
+    transactions: baseTxs,
+    incomeSettings: { salary: 2500 },
+    selectedMonth: "2026-10",
+  });
+
+  // Métriques de base : Dépenses = 800 + 350 = 1 150 €, Reste à vivre = 2500 - 800 = 1 700 €
+  assert.strictEqual(metricsWithoutRegul.expenses, 1150);
+  assert.strictEqual(metricsWithoutRegul.income, 2500);
+  assert.strictEqual(metricsWithoutRegul.disposableIncome, 1700);
+  assert.strictEqual(metricsWithoutRegul.balance, 1350);
+
+  // Cas réel 1 : Opération créditrice (+100.00 €) avec libellé tronqué BoursoBank
+  // "Vir Regularisation Du Compte Bo..." avec catégorie par défaut "Virements proches & Remboursements"
+  const positiveRegulTx: Transaction = {
+    id: "tx-vir-regul-bourso",
+    name: "Vir Regularisation Du Compte Bo...",
+    rawName: "VIR REGULARISATION DU COMPTE BOURSOBANK 100 EUR",
+    type: "Virements proches & Remboursements",
+    amount: 100,
+    date: "2026-10-15",
+    month: "2026-10",
+  };
+
+  // 1. Détection universelle par les prédicats types
+  assert.strictEqual(isRegularisationTransaction(positiveRegulTx), true);
+  assert.strictEqual(isInternalTransferTransaction(positiveRegulTx), true);
+
+  // 2. Calcul avec injection du +100 €
+  const metricsWithPositiveRegul = calculateFinancialMetrics({
+    transactions: [...baseTxs, positiveRegulTx],
+    incomeSettings: { salary: 2500 },
+    selectedMonth: "2026-10",
+  });
+
+  // VERROU CRITIQUE : Les dépenses nettes DOIVENT être strictement égales à 1 150,00 €
+  // (Elle ne doit en aucun cas être traitée comme un remboursement d'achat qui ferait tomber les dépenses à 1 050 €)
+  assert.strictEqual(
+    metricsWithPositiveRegul.expenses,
+    metricsWithoutRegul.expenses,
+    "Les dépenses nettes ne doivent JAMAIS déduire une régularisation créditrice (+100 €)"
+  );
+  assert.strictEqual(metricsWithPositiveRegul.expenses, 1150);
+
+  // Revenus réels strictement inchangés (2 500 € et non 2 600 €)
+  assert.strictEqual(
+    metricsWithPositiveRegul.income,
+    metricsWithoutRegul.income,
+    "Les revenus ne doivent pas être artificiellement augmentés de 100 €"
+  );
+
+  // Reste à vivre strictement inchangé (1 700 €)
+  assert.strictEqual(
+    metricsWithPositiveRegul.disposableIncome,
+    metricsWithoutRegul.disposableIncome,
+    "Le reste à vivre doit être insensible aux régularisations techniques"
+  );
+
+  // Solde opérationnel d'activité strictement inchangé (1 350 €)
+  assert.strictEqual(
+    metricsWithPositiveRegul.balance,
+    metricsWithoutRegul.balance,
+    "Le solde opérationnel d'activité doit rester strictement identique"
+  );
+
+  // Cas réel 2 : Régularisation débitrice (-50.00 €)
+  const negativeRegulTx: Transaction = {
+    id: "tx-regul-debit",
+    name: "Vir Regularisation Du Compte Bo...",
+    type: "Autre",
+    amount: -50,
+    date: "2026-10-16",
+    month: "2026-10",
+  };
+
+  const metricsWithNegativeRegul = calculateFinancialMetrics({
+    transactions: [...baseTxs, negativeRegulTx],
+    incomeSettings: { salary: 2500 },
+    selectedMonth: "2026-10",
+  });
+
+  // Les dépenses nettes ne doivent PAS augmenter à 1 200 €
+  assert.strictEqual(
+    metricsWithNegativeRegul.expenses,
+    metricsWithoutRegul.expenses,
+    "Une régularisation débitrice (-50 €) ne doit jamais être incluse dans les dépenses nettes"
+  );
+  assert.strictEqual(metricsWithNegativeRegul.expenses, 1150);
+});
+
+
+
 
 
 
