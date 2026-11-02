@@ -409,11 +409,19 @@ function getInitialPersistedMonth(months: string[]): string | null {
 interface DashboardProps {
   activeTab?: string;
   onTabChange?: (tab: string) => void;
+  isNotificationOpen?: boolean;
+  isOpen?: boolean;
+  onNotificationChange?: (isOpen: boolean) => void;
+  onNotificationClose?: () => void;
 }
 
 export function Dashboard({
   activeTab: propActiveTab,
   onTabChange,
+  isNotificationOpen: propIsNotificationOpen,
+  isOpen: propIsOpen,
+  onNotificationChange,
+  onNotificationClose,
 }: DashboardProps = {}) {
   const { theme } = useTheme();
   const [isDark, setIsDark] = useState(true);
@@ -467,7 +475,21 @@ export function Dashboard({
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
 
-  const [showInbox, setShowInbox] = useState(false);
+  const [internalShowInbox, setInternalShowInbox] = useState(false);
+  const isInboxControlled = propIsNotificationOpen !== undefined || propIsOpen !== undefined;
+  const showInbox = isInboxControlled 
+    ? Boolean(propIsNotificationOpen ?? propIsOpen) 
+    : internalShowInbox;
+
+  const setShowInbox = useCallback((valueOrUpdater: boolean | ((prev: boolean) => boolean)) => {
+    setInternalShowInbox(prevInternal => {
+      const current = isInboxControlled ? Boolean(propIsNotificationOpen ?? propIsOpen) : prevInternal;
+      const nextVal = typeof valueOrUpdater === "function" ? valueOrUpdater(current) : valueOrUpdater;
+      if (onNotificationChange) onNotificationChange(nextVal);
+      if (!nextVal && onNotificationClose) onNotificationClose();
+      return nextVal;
+    });
+  }, [isInboxControlled, propIsNotificationOpen, propIsOpen, onNotificationChange, onNotificationClose]);
   const inboxRef = useRef<HTMLDivElement>(null);
   const [bellPosition, setBellPosition] = useState<{ left: number; bottom: number } | null>(null);
 
@@ -799,9 +821,13 @@ export function Dashboard({
   // Settings, Inbox & Navigation Listeners
   useEffect(() => {
     const handleOpenSettings = () => setShowSettingsModal(true);
-    const handleOpenInbox = () => {
+    const handleOpenInbox = (e?: any) => {
       updateBellPosition();
-      setShowInbox(prev => !prev);
+      if (e?.detail && typeof e.detail.open === "boolean") {
+        setShowInbox(e.detail.open);
+      } else {
+        setShowInbox(prev => !prev);
+      }
     };
     const handleNav = (e: any) => setActiveTab(e.detail.tab);
     window.addEventListener("open-settings", handleOpenSettings);
@@ -812,7 +838,7 @@ export function Dashboard({
       window.removeEventListener("open-inbox", handleOpenInbox);
       window.removeEventListener("navigate-tab", handleNav);
     };
-  }, [updateBellPosition]);
+  }, [updateBellPosition, setShowInbox]);
 
   // Load transactions and settings from localStorage on mount
   useEffect(() => {
@@ -906,7 +932,57 @@ export function Dashboard({
     }
 
     setIsDataLoaded(true);
-  }, []);
+
+    const handleCloudRestored = (e: any) => {
+      const payload = e?.detail?.payload;
+      if (!payload) return;
+      if (Array.isArray(payload.transactions)) {
+        setTransactions(payload.transactions);
+        const months = Array.from(new Set(payload.transactions.map((tx: Transaction) => tx.month))).sort().reverse() as string[];
+        if (months.length > 0) {
+          const targetMonth = getInitialPersistedMonth(months);
+          handleMonthChange(targetMonth, false);
+        }
+      }
+      if (payload.categoryBudgets && typeof payload.categoryBudgets === "object") {
+        const nextBudgets = { ...payload.categoryBudgets };
+        delete nextBudgets["Revenus & Aides"];
+        delete nextBudgets["Épargne & Trésorerie"];
+        setCategoryBudgets(nextBudgets);
+      }
+      if (payload.fixedIncomeSettings && typeof payload.fixedIncomeSettings === "object") {
+        const p = payload.fixedIncomeSettings;
+        setIncomeSettings({
+          salary: typeof p.salary === "number" ? Math.max(0, p.salary) : 0,
+          aids: typeof p.aids === "number" ? Math.max(0, p.aids) : 0,
+          autoApply: Boolean(p.autoApply),
+          savingsGoal: typeof p.savingsGoal === "number" ? Math.max(0, p.savingsGoal) : 0,
+          rent: typeof p.rent === "number" ? Math.max(0, p.rent) : undefined,
+          loans: typeof p.loans === "number" ? Math.max(0, p.loans) : undefined,
+          utilities: typeof p.utilities === "number" ? Math.max(0, p.utilities) : undefined,
+        });
+      }
+      if (Array.isArray(payload.ignoredSubscriptions)) {
+        setIgnoredSubscriptions(payload.ignoredSubscriptions);
+      }
+      if (
+        payload.monthlyLimitConfig &&
+        (payload.monthlyLimitConfig.type === "amount" || payload.monthlyLimitConfig.type === "percent") &&
+        typeof payload.monthlyLimitConfig.value === "number" &&
+        payload.monthlyLimitConfig.value > 0
+      ) {
+        setMonthlyLimitConfig(payload.monthlyLimitConfig);
+      }
+      if (typeof payload.monthlySpendingLimit === "number" && payload.monthlySpendingLimit > 0) {
+        setCustomSpendingLimit(payload.monthlySpendingLimit);
+      }
+    };
+
+    window.addEventListener("krona-cloud-data-restored", handleCloudRestored);
+    return () => {
+      window.removeEventListener("krona-cloud-data-restored", handleCloudRestored);
+    };
+  }, [handleMonthChange]);
 
   // Keyboard Shortcuts for Modals & Drawers
   useEffect(() => {

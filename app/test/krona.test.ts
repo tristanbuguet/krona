@@ -7,6 +7,7 @@ import { detectSubscriptions } from "../src/components/SubscriptionManager";
 import type { MonthlyLimitConfig } from "../src/components/MonthlyLimitCard";
 import { Transaction, isSalaryTransaction, isAidTransaction } from "../src/lib/types";
 import { formatCurrencyFr, formatEurosFr } from "../src/components/views/TrendsView";
+import { mergeTransactionsLossless, mergeCloudAndLocalData } from "../src/lib/cloudSync";
 
 test("parseAmount gère correctement les formats français et internationaux", () => {
   // Format standard français
@@ -649,6 +650,82 @@ test("TrendsView : Structure du Budget (50 / 30 / 20) et cohérence comptable", 
   const dailyVariable = variable / 30.4;
   assert.ok(dailyVariable > 23 && dailyVariable < 24, "Dépense variable quotidienne d'environ 23 € / jour");
 });
+
+test("Google Cloud Sync : Migration Local-First sans écrasement à la première connexion", () => {
+  const localTxs: Transaction[] = [
+    {
+      id: "bourso_2026-10-18_-34.5_carrefour_1",
+      name: "Carrefour",
+      type: "Alimentation & Courses",
+      amount: -34.5,
+      date: "2026-10-18",
+      month: "2026-10",
+    },
+    {
+      id: "bourso_2026-10-10_-15.99_netflix_1",
+      name: "Netflix",
+      type: "Abonnements & Forfaits",
+      amount: -15.99,
+      date: "2026-10-10",
+      month: "2026-10",
+      isSubscription: true,
+    },
+  ];
+
+  const cloudTxs: Transaction[] = [
+    {
+      id: "bourso_2026-09-10_-15.99_netflix_1",
+      name: "Netflix",
+      type: "Abonnements & Forfaits",
+      amount: -15.99,
+      date: "2026-09-10",
+      month: "2026-09",
+      isSubscription: true,
+    },
+    // Même opération qu'en local mais recatégorisée localement par l'utilisateur
+    {
+      id: "bourso_2026-10-18_-34.5_carrefour_1",
+      name: "Carrefour",
+      type: "Autre",
+      amount: -34.5,
+      date: "2026-10-18",
+      month: "2026-10",
+    },
+  ];
+
+  const mergedTxs = mergeTransactionsLossless(localTxs, cloudTxs);
+  assert.strictEqual(mergedTxs.length, 3, "Les opérations locales et cloud doivent être combinées sans perte");
+  const carrefourTx = mergedTxs.find(t => t.id === "bourso_2026-10-18_-34.5_carrefour_1");
+  assert.strictEqual(carrefourTx?.type, "Alimentation & Courses", "La catégorisation locale récente ne doit pas être écrasée par une ancienne valeur cloud");
+
+  const mergedState = mergeCloudAndLocalData(
+    {
+      transactions: localTxs,
+      categoryBudgets: { "Alimentation & Courses": 400, "Revenus & Aides": 2000 },
+      fixedIncomeSettings: { salary: 2400, aids: 100, autoApply: true },
+      ignoredSubscriptions: ["Salle Sport"],
+      merchantKnowledge: { Carrefour: { categorie: "Alimentation & Courses" } },
+      monthlyLimitConfig: { type: "amount", value: 1900 },
+    },
+    {
+      transactions: cloudTxs,
+      categoryBudgets: { "Restos & Fast-Food": 200 },
+      fixedIncomeSettings: { salary: 0, aids: 0, autoApply: false },
+      ignoredSubscriptions: ["Ancien Service"],
+      merchantKnowledge: { Netflix: { categorie: "Abonnements & Forfaits", isSubscription: true } },
+    }
+  );
+
+  assert.strictEqual(mergedState.transactions.length, 3);
+  assert.strictEqual(mergedState.categoryBudgets["Alimentation & Courses"], 400);
+  assert.strictEqual(mergedState.categoryBudgets["Restos & Fast-Food"], 200);
+  assert.strictEqual(mergedState.categoryBudgets["Revenus & Aides"], undefined, "Revenus & Aides reste exclu des plafonds");
+  assert.strictEqual(mergedState.fixedIncomeSettings.salary, 2400);
+  assert.strictEqual(mergedState.ignoredSubscriptions.length, 2);
+  assert.ok(mergedState.merchantKnowledge["Carrefour"]);
+  assert.ok(mergedState.merchantKnowledge["Netflix"]);
+});
+
 
 
 

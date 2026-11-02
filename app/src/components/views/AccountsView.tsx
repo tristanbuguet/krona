@@ -75,15 +75,27 @@ export function AccountsView({
 
   // Load custom accounts from localStorage
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("krona_accounts_v1");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setAccounts(parsed);
+    const loadAccounts = () => {
+      try {
+        const saved = localStorage.getItem("krona_accounts_v1");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setAccounts(parsed);
+          }
         }
+      } catch (e) {}
+    };
+    loadAccounts();
+    const handleCloudRestored = (e: any) => {
+      if (Array.isArray(e?.detail?.payload?.accounts) && e.detail.payload.accounts.length > 0) {
+        setAccounts(e.detail.payload.accounts);
+      } else {
+        loadAccounts();
       }
-    } catch (e) {}
+    };
+    window.addEventListener("krona-cloud-data-restored", handleCloudRestored);
+    return () => window.removeEventListener("krona-cloud-data-restored", handleCloudRestored);
   }, []);
 
   const saveAccounts = (newList: AccountInfo[]) => {

@@ -1,10 +1,12 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { LayoutGrid, TrendingUp, Landmark, Sun, Moon, Settings, Bell } from "lucide-react";
+import { LayoutGrid, TrendingUp, Landmark, Sun, Moon, Settings, Bell, User } from "lucide-react";
 import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { useTheme } from "@/components/ThemeProvider";
+import { useAuth } from "@/components/AuthProvider";
+import { AccountPopover, UserAvatar } from "@/components/AccountPopover";
 import { BoursoBankLogo, CreditAgricoleLogo, BankType, BankSelectorPopover } from "@/components/BankSelectorPopover";
 
 export const KronaLogo = ({ className = "w-6 h-6" }: { className?: string }) => (
@@ -35,19 +37,33 @@ const navItems = [
 export interface SidebarProps {
   activeTab?: string;
   onTabChange?: (tab: string) => void;
+  isNotificationOpen?: boolean;
+  isOpen?: boolean;
+  onNotificationToggle?: () => void;
 }
 
 export function Sidebar({ 
   activeTab: propActiveTab,
   onTabChange,
+  isNotificationOpen: propIsNotificationOpen,
+  isOpen: propIsOpen,
+  onNotificationToggle,
 }: SidebarProps = {}) {
   const [internalActiveTab, setInternalActiveTab] = useState("dashboard");
   const activeTab = propActiveTab !== undefined ? propActiveTab : internalActiveTab;
   const { theme, setTheme } = useTheme();
+  const { user, isAuthenticated, syncStatus } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [inboxCount, setInboxCount] = useState(0);
   const [selectedBank, setSelectedBank] = useState<BankType>("bourso");
   const [isBankPopoverOpen, setIsBankPopoverOpen] = useState(false);
+  const [isAccountPopoverOpen, setIsAccountPopoverOpen] = useState(false);
+
+  const [internalIsInboxOpen, setInternalIsInboxOpen] = useState(false);
+  const isNotificationOpenControlled = propIsNotificationOpen !== undefined || propIsOpen !== undefined;
+  const isNotificationOpen = isNotificationOpenControlled
+    ? Boolean(propIsNotificationOpen ?? propIsOpen)
+    : internalIsInboxOpen;
 
   useEffect(() => {
     const syncBank = () => {
@@ -86,15 +102,13 @@ export function Sidebar({
   // Avoid hydration mismatch by only rendering theme toggle after mount
   useEffect(() => setMounted(true), []);
 
-  const [isInboxOpen, setIsInboxOpen] = useState(false);
-
   useEffect(() => {
     const handleInboxCount = (e: any) => {
       setInboxCount(e.detail.count);
     };
     const handleInboxState = (e: any) => {
       if (typeof e.detail?.isOpen === "boolean") {
-        setIsInboxOpen(e.detail.isOpen);
+        setInternalIsInboxOpen(e.detail.isOpen);
       }
     };
     window.addEventListener("update-inbox-count", handleInboxCount);
@@ -245,7 +259,7 @@ export function Sidebar({
           <div className="w-12 h-12 rounded-full opacity-0 shrink-0" />
         )}
 
-        {/* 2. Capsule Dock inférieure (regroupant les 2 outils : Notifications, Paramètres) */}
+        {/* 2. Capsule Dock inférieure (regroupant les 3 outils : Notifications, Paramètres, Compte) */}
         <div 
           role="toolbar"
           aria-label="Outils et réglages"
@@ -256,15 +270,23 @@ export function Sidebar({
             id="sidebar-bell-btn"
             type="button"
             whileTap={{ scale: 0.94 }} 
-            onClick={() => window.dispatchEvent(new CustomEvent("open-inbox"))}
+            onClick={() => {
+              const nextState = !isNotificationOpen;
+              setIsAccountPopoverOpen(false);
+              if (onNotificationToggle) {
+                onNotificationToggle();
+              }
+              setInternalIsInboxOpen(nextState);
+              window.dispatchEvent(new CustomEvent("open-inbox", { detail: { open: nextState } }));
+            }}
             className={clsx(
               "relative w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0",
-              isInboxOpen
-                ? "bg-white/10 text-white"
-                : "bg-transparent text-zinc-400 hover:text-white hover:bg-white/10"
+              isNotificationOpen
+                ? "bg-black/[0.08] dark:bg-white/10 text-zinc-900 dark:text-white"
+                : "bg-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-black/[0.08] dark:hover:bg-white/10"
             )}
             aria-label="Notifications"
-            aria-expanded={isInboxOpen}
+            aria-expanded={isNotificationOpen}
           >
             <Bell size={18} />
             {inboxCount > 0 && (
@@ -276,12 +298,69 @@ export function Sidebar({
           <motion.button 
             type="button"
             whileTap={{ scale: 0.94 }} 
-            onClick={() => window.dispatchEvent(new CustomEvent("open-settings"))}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/5 transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0"
+            onClick={() => {
+              setIsAccountPopoverOpen(false);
+              window.dispatchEvent(new CustomEvent("open-settings"));
+            }}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-black/[0.08] dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0"
             aria-label="Paramètres"
           >
             <Settings size={18} />
           </motion.button>
+
+          {/* Compte Google / Mode Invité (directement en dessous des réglages) */}
+          <div className="relative w-10 h-10 shrink-0 flex items-center justify-center">
+            <motion.button
+              id="sidebar-account-btn"
+              type="button"
+              whileTap={{ scale: 0.94 }}
+              onClick={() => {
+                const next = !isAccountPopoverOpen;
+                setIsAccountPopoverOpen(next);
+                if (next && isNotificationOpen) {
+                  if (onNotificationToggle) onNotificationToggle();
+                  setInternalIsInboxOpen(false);
+                  window.dispatchEvent(new CustomEvent("open-inbox", { detail: { open: false } }));
+                }
+              }}
+              className={clsx(
+                "relative w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0",
+                isAccountPopoverOpen
+                  ? "bg-black/[0.08] dark:bg-white/10 text-zinc-900 dark:text-white"
+                  : "bg-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-black/[0.08] dark:hover:bg-white/10"
+              )}
+              aria-label={isAuthenticated && user ? `Compte Google (${user.name})` : "Compte & Synchronisation"}
+              aria-expanded={isAccountPopoverOpen}
+            >
+              {mounted && isAuthenticated && user ? (
+                <div className="relative flex items-center justify-center">
+                  <UserAvatar
+                    picture={user.picture}
+                    name={user.name}
+                    email={user.email}
+                    size="sm"
+                  />
+                  <span
+                    className={clsx(
+                      "absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background pointer-events-none",
+                      syncStatus === "syncing"
+                        ? "bg-amber-400"
+                        : syncStatus === "error"
+                          ? "bg-rose-500"
+                          : "bg-emerald-500"
+                    )}
+                  />
+                </div>
+              ) : (
+                <User size={18} />
+              )}
+            </motion.button>
+
+            <AccountPopover
+              isOpen={isAccountPopoverOpen}
+              onClose={() => setIsAccountPopoverOpen(false)}
+            />
+          </div>
         </div>
       </div>
     </aside>
