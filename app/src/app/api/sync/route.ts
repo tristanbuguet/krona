@@ -1,29 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
-import { CloudSyncPayload, mergeCloudAndLocalData } from "@/lib/cloudSync";
+import {
+  UserFinancialPayload,
+  mergeCloudAndLocalData,
+  normalizeUserFinancialPayload,
+} from "@/lib/cloudSync";
 
 const DATA_DIR = path.join(process.cwd(), ".krona-cloud");
 const STORE_FILE = path.join(DATA_DIR, "users-cloud-store.json");
 
-function readCloudStore(): Record<string, CloudSyncPayload> {
+function readCloudStore(): Record<string, UserFinancialPayload> {
   try {
     if (!fs.existsSync(STORE_FILE)) {
       return {};
     }
     const raw = fs.readFileSync(STORE_FILE, "utf-8");
-    return JSON.parse(raw) as Record<string, CloudSyncPayload>;
+    return JSON.parse(raw) as Record<string, UserFinancialPayload>;
   } catch {
     return {};
   }
 }
 
-function writeCloudStore(store: Record<string, CloudSyncPayload>): void {
+function writeCloudStore(store: Record<string, UserFinancialPayload>): void {
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
-    fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2), "utf-8");
+    const tmpFile = `${STORE_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(store, null, 2), "utf-8");
+    fs.renameSync(tmpFile, STORE_FILE);
   } catch (err) {
     console.warn("[Krona Cloud API] Écriture fichier ignorée:", err);
   }
@@ -31,18 +37,37 @@ function writeCloudStore(store: Record<string, CloudSyncPayload>): void {
 
 export async function GET(req: NextRequest) {
   try {
-    const userId = req.nextUrl.searchParams.get("userId");
+    const userId = (
+      req.nextUrl.searchParams.get("userId") ||
+      req.headers.get("x-krona-user-id") ||
+      ""
+    ).trim();
+
     if (!userId) {
-      return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Unauthorized: Missing active Google userId session" },
+        { status: 401 }
+      );
     }
 
     const store = readCloudStore();
-    const userPayload = store[userId] || null;
+    const rawUserPayload = store[userId] || null;
+    const normalizedPayload = rawUserPayload
+      ? normalizeUserFinancialPayload(rawUserPayload)
+      : null;
 
     return NextResponse.json(
       {
         userId,
-        payload: userPayload,
+        payload: normalizedPayload,
+        transactions: normalizedPayload?.transactions || [],
+        accounts: normalizedPayload?.accounts || [],
+        settings: normalizedPayload?.settings || null,
+        learningRules: normalizedPayload?.learningRules || {},
+        lastUpdated:
+          normalizedPayload?.lastUpdated ||
+          normalizedPayload?.updatedAt ||
+          new Date().toISOString(),
         syncedAt: new Date().toISOString(),
       },
       { status: 200 }
@@ -58,13 +83,29 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const userId = body?.userId ? String(body.userId) : "";
-    const incomingPayload = body?.payload as Partial<CloudSyncPayload> | undefined;
+    const userId = (
+      body?.userId ||
+      req.headers.get("x-krona-user-id") ||
+      ""
+    )
+      .toString()
+      .trim();
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Unauthorized: Missing active Google userId session" },
+        { status: 401 }
+      );
+    }
+
+    const incomingPayload = body?.payload as
+      | Partial<UserFinancialPayload>
+      | undefined;
     const mode = body?.mode === "overwrite" ? "overwrite" : "merge";
 
-    if (!userId || !incomingPayload) {
+    if (!incomingPayload || typeof incomingPayload !== "object") {
       return NextResponse.json(
-        { error: "Missing userId or payload" },
+        { error: "Missing payload" },
         { status: 400 }
       );
     }
@@ -72,30 +113,9 @@ export async function POST(req: NextRequest) {
     const store = readCloudStore();
     const existingCloud = store[userId] || null;
 
-    const finalPayload: CloudSyncPayload =
+    const finalPayload: UserFinancialPayload =
       mode === "overwrite"
-        ? {
-            transactions: Array.isArray(incomingPayload.transactions)
-              ? incomingPayload.transactions
-              : [],
-            categoryBudgets: incomingPayload.categoryBudgets || {},
-            fixedIncomeSettings: incomingPayload.fixedIncomeSettings || {
-              salary: 0,
-              aids: 0,
-              autoApply: false,
-            },
-            ignoredSubscriptions: incomingPayload.ignoredSubscriptions || [],
-            merchantKnowledge: incomingPayload.merchantKnowledge || {},
-            monthlyLimitConfig: incomingPayload.monthlyLimitConfig || {
-              type: "amount",
-              value: 2200,
-            },
-            monthlySpendingLimit: incomingPayload.monthlySpendingLimit ?? null,
-            accounts: incomingPayload.accounts,
-            selectedBank: incomingPayload.selectedBank || "bourso",
-            selectedMonth: incomingPayload.selectedMonth || null,
-            updatedAt: new Date().toISOString(),
-          }
+        ? normalizeUserFinancialPayload(incomingPayload)
         : mergeCloudAndLocalData(incomingPayload, existingCloud);
 
     store[userId] = finalPayload;
@@ -105,6 +125,11 @@ export async function POST(req: NextRequest) {
       {
         userId,
         payload: finalPayload,
+        transactions: finalPayload.transactions,
+        accounts: finalPayload.accounts,
+        settings: finalPayload.settings,
+        learningRules: finalPayload.learningRules,
+        lastUpdated: finalPayload.lastUpdated,
         syncedAt: finalPayload.updatedAt,
       },
       { status: 200 }

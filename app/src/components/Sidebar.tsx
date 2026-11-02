@@ -7,7 +7,7 @@ import clsx from "clsx";
 import { useTheme } from "@/components/ThemeProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { AccountPopover, UserAvatar } from "@/components/AccountPopover";
-import { BoursoBankLogo, CreditAgricoleLogo, BankType, BankSelectorPopover } from "@/components/BankSelectorPopover";
+import { BoursoBankLogo, CreditAgricoleLogo, CaisseEpargneLogo, BankType, BankSelectorPopover } from "@/components/BankSelectorPopover";
 
 export const KronaLogo = ({ className = "w-6 h-6" }: { className?: string }) => (
   <svg 
@@ -198,6 +198,8 @@ export function Sidebar({
             >
               {selectedBank === "ca" ? (
                 <CreditAgricoleLogo className="w-5 h-4 text-foreground" />
+              ) : selectedBank === "ce" ? (
+                <CaisseEpargneLogo className="w-4.5 h-4.5" />
               ) : (
                 <BoursoBankLogo className="w-4.5 h-4.5 text-foreground" />
               )}
@@ -335,6 +337,7 @@ export function Sidebar({
               {mounted && isAuthenticated && user ? (
                 <div className="relative flex items-center justify-center">
                   <UserAvatar
+                    user={user}
                     picture={user.picture}
                     name={user.name}
                     email={user.email}
