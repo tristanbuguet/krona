@@ -40,6 +40,9 @@ export interface SidebarProps {
   isNotificationOpen?: boolean;
   isOpen?: boolean;
   onNotificationToggle?: () => void;
+  isAccountPopoverOpen?: boolean;
+  onAccountPopoverToggle?: () => void;
+  onAccountPopoverClose?: () => void;
 }
 
 export function Sidebar({ 
@@ -48,6 +51,9 @@ export function Sidebar({
   isNotificationOpen: propIsNotificationOpen,
   isOpen: propIsOpen,
   onNotificationToggle,
+  isAccountPopoverOpen: propIsAccountPopoverOpen,
+  onAccountPopoverToggle,
+  onAccountPopoverClose,
 }: SidebarProps = {}) {
   const [internalActiveTab, setInternalActiveTab] = useState("dashboard");
   const activeTab = propActiveTab !== undefined ? propActiveTab : internalActiveTab;
@@ -57,13 +63,54 @@ export function Sidebar({
   const [inboxCount, setInboxCount] = useState(0);
   const [selectedBank, setSelectedBank] = useState<BankType>("bourso");
   const [isBankPopoverOpen, setIsBankPopoverOpen] = useState(false);
-  const [isAccountPopoverOpen, setIsAccountPopoverOpen] = useState(false);
+  const [internalIsAccountPopoverOpen, setInternalIsAccountPopoverOpen] = useState(false);
+  const isAccountPopoverOpenControlled = propIsAccountPopoverOpen !== undefined;
+  const isAccountPopoverOpen = isAccountPopoverOpenControlled
+    ? Boolean(propIsAccountPopoverOpen)
+    : internalIsAccountPopoverOpen;
 
   const [internalIsInboxOpen, setInternalIsInboxOpen] = useState(false);
   const isNotificationOpenControlled = propIsNotificationOpen !== undefined || propIsOpen !== undefined;
   const isNotificationOpen = isNotificationOpenControlled
     ? Boolean(propIsNotificationOpen ?? propIsOpen)
     : internalIsInboxOpen;
+
+  const toggleAccountPopover = (nextState?: boolean) => {
+    const next = typeof nextState === "boolean" ? nextState : !isAccountPopoverOpen;
+    if (next) {
+      if (onAccountPopoverToggle && !isAccountPopoverOpen) {
+        onAccountPopoverToggle();
+      } else {
+        setInternalIsAccountPopoverOpen(true);
+      }
+      if (isNotificationOpen) {
+        if (onNotificationToggle) onNotificationToggle();
+        setInternalIsInboxOpen(false);
+        window.dispatchEvent(new CustomEvent("open-inbox", { detail: { open: false } }));
+      }
+    } else {
+      if (onAccountPopoverClose) {
+        onAccountPopoverClose();
+      } else if (onAccountPopoverToggle && isAccountPopoverOpen) {
+        onAccountPopoverToggle();
+      } else {
+        setInternalIsAccountPopoverOpen(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleAccountOpen = (e: any) => {
+      const shouldOpen = typeof e.detail?.open === "boolean" ? e.detail.open : true;
+      toggleAccountPopover(shouldOpen);
+    };
+    window.addEventListener("krona-open-account-popover", handleAccountOpen);
+    window.addEventListener("open-account-popover", handleAccountOpen);
+    return () => {
+      window.removeEventListener("krona-open-account-popover", handleAccountOpen);
+      window.removeEventListener("open-account-popover", handleAccountOpen);
+    };
+  }, [isAccountPopoverOpen, onAccountPopoverToggle, onAccountPopoverClose, isNotificationOpen, onNotificationToggle]);
 
   useEffect(() => {
     const syncBank = () => {
@@ -274,7 +321,7 @@ export function Sidebar({
             whileTap={{ scale: 0.94 }} 
             onClick={() => {
               const nextState = !isNotificationOpen;
-              setIsAccountPopoverOpen(false);
+              toggleAccountPopover(false);
               if (onNotificationToggle) {
                 onNotificationToggle();
               }
@@ -301,7 +348,7 @@ export function Sidebar({
             type="button"
             whileTap={{ scale: 0.94 }} 
             onClick={() => {
-              setIsAccountPopoverOpen(false);
+              toggleAccountPopover(false);
               window.dispatchEvent(new CustomEvent("open-settings"));
             }}
             className="w-10 h-10 rounded-full flex items-center justify-center text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-black/[0.08] dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0"
@@ -316,15 +363,7 @@ export function Sidebar({
               id="sidebar-account-btn"
               type="button"
               whileTap={{ scale: 0.94 }}
-              onClick={() => {
-                const next = !isAccountPopoverOpen;
-                setIsAccountPopoverOpen(next);
-                if (next && isNotificationOpen) {
-                  if (onNotificationToggle) onNotificationToggle();
-                  setInternalIsInboxOpen(false);
-                  window.dispatchEvent(new CustomEvent("open-inbox", { detail: { open: false } }));
-                }
-              }}
+              onClick={() => toggleAccountPopover()}
               className={clsx(
                 "relative w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 active:scale-95 shrink-0",
                 isAccountPopoverOpen
@@ -361,7 +400,7 @@ export function Sidebar({
 
             <AccountPopover
               isOpen={isAccountPopoverOpen}
-              onClose={() => setIsAccountPopoverOpen(false)}
+              onClose={() => toggleAccountPopover(false)}
             />
           </div>
         </div>

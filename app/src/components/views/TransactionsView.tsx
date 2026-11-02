@@ -368,15 +368,6 @@ export function TransactionsView({
                               <span className="hidden xl:inline">Abo</span>
                             </span>
                           )}
-                          {isInternalTransferTransaction(tx) && (
-                            <span 
-                              aria-label="Virement interne · Neutre" 
-                              className="px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/[0.06] text-muted-foreground text-[10px] shrink-0 flex items-center gap-1 font-medium"
-                            >
-                              <ArrowRightLeft size={10} />
-                              <span className="hidden xl:inline">Neutre</span>
-                            </span>
-                          )}
                         </div>
                       </td>
 

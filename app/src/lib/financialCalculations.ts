@@ -67,6 +67,7 @@ export function calculateFinancialMetrics({
 
     // RÈGLE MÉTIER STRICTE : Exclusion totale des flux de trésorerie internes et des opérations de régularisation
     if (
+      tx.type === "Virement interne" ||
       isInternal ||
       isRegul ||
       tx.isInternalTransfer ||
@@ -101,6 +102,7 @@ export function calculateFinancialMetrics({
 
       // Double garde-fou absolu pour exclure tout virement interne ou régularisation résiduel
       const isInternalOrRegulGuard = 
+        tx.type === "Virement interne" ||
         isInternal || 
         isRegul || 
         tx.isInternalTransfer || 
@@ -189,9 +191,13 @@ export function calculateFinancialMetrics({
   transactions.forEach((tx) => {
     if (
       tx.amount >= 0 ||
+      tx.type === "Virement interne" ||
       isInternalTransferTransaction(tx) ||
       isRegularisationTransaction(tx) ||
-      tx.excludeFromSpending
+      isInternalTransferCategory(tx.type) ||
+      isRegularisationCategory(tx.type) ||
+      tx.excludeFromSpending ||
+      tx.isInternalTransfer
     ) return;
     const abs = Math.abs(tx.amount);
     const nam = (tx.name || "").toLowerCase();

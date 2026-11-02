@@ -18,6 +18,7 @@ import {
   isRegularisationTransaction,
   INTERNAL_TRANSFER_CATEGORY,
   REGULARISATION_CATEGORY,
+  OFFICIAL_CATEGORIES,
 } from "../src/lib/types";
 import { calculateFinancialMetrics } from "../src/lib/financialCalculations";
 import { formatCurrencyFr, formatEurosFr } from "../src/components/views/TrendsView";
@@ -1284,9 +1285,11 @@ test("Caisse d'Épargne : Détection automatique, parsing rigoureux des métadon
   assert.strictEqual(catCustom.category, "Shopping & Mode", "La règle apprise utilisateur doit avoir priorité sur le mapping natif");
 });
 
-test("Opérations de Régularisation : exclusion stricte des revenus, des dépenses et neutralité du reste à vivre", () => {
-  // 1. Détection automatique et catégorisation par le moteur local
-  assert.strictEqual(REGULARISATION_CATEGORY, "Régularisation");
+test("Opérations de Régularisation et flux neutres : exclusion stricte des revenus, des dépenses et neutralité du reste à vivre", () => {
+  // 1. Détection automatique et fusion dans la catégorie unique « Virement interne »
+  assert.strictEqual(OFFICIAL_CATEGORIES.includes("Régularisation" as any), false, "« Régularisation » ne doit plus être une catégorie officielle distincte");
+  assert.strictEqual(OFFICIAL_CATEGORIES.includes("Virement interne"), true, "« Virement interne » doit être la catégorie unique des flux neutres");
+  assert.strictEqual(REGULARISATION_CATEGORY, "Virement interne");
   assert.strictEqual(isRegularisationCategory("Régularisation"), true);
   assert.strictEqual(isRegularisationCategory("regularisation"), true);
   assert.strictEqual(isRegularisationCategory("REGULARISATION DE COMPTE"), true);
@@ -1294,13 +1297,13 @@ test("Opérations de Régularisation : exclusion stricte des revenus, des dépen
   assert.strictEqual(isRegularisationCategory("Regul"), true);
   assert.strictEqual(isRegularisationCategory("Alimentation & Courses"), false);
 
-  // Catégorisation locale automatique avec libellés réels
+  // Catégorisation locale automatique avec libellés réels -> Virement interne
   const creditRegulResult = categorizeLocally({
     label: "Regularisation De Compte",
     rawLabel: "REGULARISATION DE COMPTE 15/10",
     amount: 100,
   });
-  assert.strictEqual(creditRegulResult.category, "Régularisation");
+  assert.strictEqual(creditRegulResult.category, "Virement interne");
   assert.strictEqual(creditRegulResult.isInternalTransfer, true);
   assert.strictEqual(creditRegulResult.excludeFromSpending, true);
   assert.strictEqual(creditRegulResult.excludeFromIncome, true);
@@ -1310,17 +1313,27 @@ test("Opérations de Régularisation : exclusion stricte des revenus, des dépen
     rawLabel: "AJUSTEMENT SOLDE BANCAIRE",
     amount: -50,
   });
-  assert.strictEqual(debitRegulResult.category, "Régularisation");
+  assert.strictEqual(debitRegulResult.category, "Virement interne");
   assert.strictEqual(debitRegulResult.isInternalTransfer, true);
   assert.strictEqual(debitRegulResult.excludeFromSpending, true);
   assert.strictEqual(debitRegulResult.excludeFromIncome, true);
+
+  const transferCompteResult = categorizeLocally({
+    label: "Virement Compte A Compte",
+    rawLabel: "VIR COMPTE A COMPTE INTERNE",
+    amount: 200,
+  });
+  assert.strictEqual(transferCompteResult.category, "Virement interne");
+  assert.strictEqual(transferCompteResult.isInternalTransfer, true);
+  assert.strictEqual(transferCompteResult.excludeFromSpending, true);
+  assert.strictEqual(transferCompteResult.excludeFromIncome, true);
 
   // 2. Drapeaux d'exclusion et helpers
   const creditTx: Transaction = {
     id: "tx-regul-credit-1",
     name: "Régularisation de compte",
     rawName: "REGULARISATION DE COMPTE",
-    type: "Régularisation",
+    type: "Virement interne",
     amount: 100,
     date: "2026-10-15",
     month: "2026-10",
@@ -1333,7 +1346,7 @@ test("Opérations de Régularisation : exclusion stricte des revenus, des dépen
     id: "tx-regul-debit-1",
     name: "Régularisation débitrice",
     rawName: "REGUL FRAIS BANCAIRE SOLDE",
-    type: "Régularisation",
+    type: "Virement interne",
     amount: -50,
     date: "2026-10-16",
     month: "2026-10",
@@ -1500,6 +1513,26 @@ test("Opérations de Régularisation : exclusion stricte des revenus, des dépen
   assert.strictEqual(metricsAfterInternal.income, baseMetrics.income);
   assert.strictEqual(metricsAfterInternal.expenses, baseMetrics.expenses);
   assert.strictEqual(metricsAfterInternal.disposableIncome, baseMetrics.disposableIncome);
+
+  // 5. Migration des règles apprises utilisateur avec ancienne catégorie « Régularisation »
+  const learnedRegulResult = categorizeLocally({
+    label: "Commerçant Spécial",
+    rawLabel: "COMMERCANT SPECIAL REGUL",
+    amount: 80,
+    cache: {
+      "Commerçant Spécial": {
+        categorie: "Régularisation",
+        isInternalTransfer: true,
+      },
+    },
+  });
+  assert.strictEqual(
+    learnedRegulResult.category,
+    "Virement interne",
+    "Une règle apprise pointant vers « Régularisation » doit être migrée vers « Virement interne »"
+  );
+  assert.strictEqual(learnedRegulResult.excludeFromSpending, true);
+  assert.strictEqual(learnedRegulResult.excludeFromIncome, true);
 });
 
 test("Verrouillage strict : Exclusion absolue de « Vir Regularisation Du Compte Bo... » (+100 €) du calcul des dépenses", () => {

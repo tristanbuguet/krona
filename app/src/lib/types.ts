@@ -48,12 +48,11 @@ export const OFFICIAL_CATEGORIES = [
   "Revenus & Aides",
   "Épargne & Trésorerie",
   "Virement interne",
-  "Régularisation",
   "Autre"
 ] as const;
 
 export const INTERNAL_TRANSFER_CATEGORY = "Virement interne";
-export const REGULARISATION_CATEGORY = "Régularisation";
+export const REGULARISATION_CATEGORY = "Virement interne";
 
 export const isRegularisationCategory = (category?: string): boolean => {
   if (!category) return false;
@@ -239,7 +238,6 @@ export const CATEGORY_COLORS: Record<string, { ring: string; fill: string; dot: 
   "Revenus & Aides": { ring: "#10B981", fill: "bg-emerald-500", dot: "bg-emerald-500", bgSoft: "bg-emerald-500/10", textSoft: "text-emerald-500" },
   "Épargne & Trésorerie": { ring: "#3B82F6", fill: "bg-blue-500", dot: "bg-blue-500", bgSoft: "bg-blue-500/10", textSoft: "text-blue-500" },
   "Virement interne": { ring: "#64748B", fill: "bg-slate-500", dot: "bg-slate-500", bgSoft: "bg-slate-500/10", textSoft: "text-slate-500" },
-  "Régularisation": { ring: "#64748B", fill: "bg-slate-500", dot: "bg-slate-500", bgSoft: "bg-slate-500/10", textSoft: "text-slate-500" },
   "Autre": { ring: "#71717A", fill: "bg-zinc-500", dot: "bg-zinc-500", bgSoft: "bg-zinc-500/10", textSoft: "text-zinc-500" },
 };
 

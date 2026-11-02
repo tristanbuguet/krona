@@ -119,11 +119,27 @@ export function AccountPopover({ isOpen, onClose }: AccountPopoverProps) {
     triggerCloudSync,
   } = useAuth();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [hasLocalData, setHasLocalData] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    try {
+      const stored = localStorage.getItem("financeTransactions_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setHasLocalData(Array.isArray(parsed) && parsed.length > 0);
+      } else {
+        setHasLocalData(false);
+      }
+    } catch {
+      setHasLocalData(false);
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
       const target = event.target as HTMLElement | null;
       if (
         popoverRef.current &&
@@ -143,12 +159,14 @@ export function AccountPopover({ isOpen, onClose }: AccountPopoverProps) {
 
     const timer = setTimeout(() => {
       document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("touchstart", handleClickOutside);
       document.addEventListener("keydown", handleKeyDown);
     }, 10);
 
     return () => {
       clearTimeout(timer);
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isOpen, onClose]);
@@ -188,8 +206,11 @@ export function AccountPopover({ isOpen, onClose }: AccountPopoverProps) {
                     <div className="text-sm font-semibold text-foreground tracking-tight leading-tight truncate font-sans">
                       Synchronisation Cloud
                     </div>
-                    <div className="text-xs text-muted-foreground mt-0.5 truncate font-sans">
-                      Mode local actif · Invité
+                    <div className="flex items-center gap-1.5 mt-0.5 font-sans">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400 shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.4)]" />
+                      <span className="text-xs text-muted-foreground truncate font-sans">
+                        {hasLocalData ? "Mode invité · Données locales" : "Mode invité"}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -197,7 +218,7 @@ export function AccountPopover({ isOpen, onClose }: AccountPopoverProps) {
               </div>
 
               <p className="text-xs text-muted-foreground leading-relaxed px-1 shrink-0 font-sans">
-                Connecte ton compte Google pour sauvegarder et synchroniser automatiquement tes finances sur tous tes appareils, sans rien perdre de tes données locales.
+                Connectez votre compte Google pour synchroniser vos finances et y accéder sur tous vos appareils.
               </p>
 
               <div className="rounded-xl bg-muted/60 border border-border px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground min-h-[36px] shrink-0 font-sans">

@@ -21,6 +21,7 @@ const VALID_CATEGORIES = [
   "Virements proches & Remboursements",
   "Revenus & Aides",
   "Épargne & Trésorerie",
+  "Virement interne",
   "Autre"
 ] as const;
 
@@ -31,6 +32,7 @@ function normalizeCategory(cat: string): string {
   if (OFFICIAL_CATEGORIES.includes(cleaned as any)) return cleaned;
 
   const lower = cleaned.toLowerCase();
+  if (lower.includes("virement interne") || lower.includes("vir interne") || lower.includes("interne") || lower.includes("regul") || lower.includes("ajustement")) return "Virement interne";
   if (lower.includes("aliment") || lower.includes("course") || lower.includes("superm")) return "Alimentation & Courses";
   if (lower.includes("resto") || lower.includes("fast") || lower.includes("snack") || lower.includes("bar") || lower.includes("cafe")) return "Restos & Fast-Food";
   if (lower.includes("sorti") || lower.includes("soire") || lower.includes("loisir") || lower.includes("cinem")) return "Sorties & Soirées";
@@ -108,6 +110,7 @@ Pour chaque opération ci-dessous, identifie le commerçant ou la nature de la d
 - Virements proches & Remboursements
 - Revenus & Aides
 - Épargne & Trésorerie
+- Virement interne
 - Autre
 
 Règles de catégorisation :
@@ -122,6 +125,7 @@ Règles de catégorisation :
 - Virements entre particuliers, Lydia, PayPal entre amis -> "Virements proches & Remboursements"
 - Salaires, indemnités, allocations, CAF -> "Revenus & Aides"
 - Livrets, placements, versements épargne -> "Épargne & Trésorerie"
+- Virements internes de compte à compte, régularisations, ajustements techniques -> "Virement interne"
 - Si indéterminé ou trop générique -> "Autre"
 
 Opérations à catégoriser (avec ID et libellé) :
@@ -193,7 +197,7 @@ Réponds STRICTEMENT sous la forme d'un tableau JSON brut valide, sans balises M
       if (firstBracket !== -1 && lastBracket > firstBracket) {
         try {
           rawArray = JSON.parse(cleanedText.slice(firstBracket, lastBracket + 1));
-        } catch {}
+        } catch { }
       }
     }
 

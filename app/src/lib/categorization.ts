@@ -316,8 +316,11 @@ export function categorizeLocally({
   const combined = `${normLabel} ${normRaw}`;
 
   // 1. RÈGLE APPRISE UTILISATEUR (learningRules / cache local prioritaire)
-  if (cache[label]?.categorie && OFFICIAL_CATEGORIES.includes(cache[label].categorie)) {
-    const cat = cache[label].categorie;
+  if (cache[label]?.categorie && (OFFICIAL_CATEGORIES.includes(cache[label].categorie) || cache[label].categorie === "Régularisation" || isRegularisationCategory(cache[label].categorie))) {
+    let cat = cache[label].categorie;
+    if (cat === "Régularisation" || isRegularisationCategory(cat)) {
+      cat = "Virement interne";
+    }
     const isRegul = isRegularisationCategory(cat);
     const isInternal = isInternalTransferCategory(cat) || isRegul || Boolean(cache[label].isInternalTransfer);
     const isSub = !isInternal && (isSubscriptionCategory(cat) 
@@ -332,7 +335,7 @@ export function categorizeLocally({
     };
   }
 
-  // 2. EXCLUSION BUDGÉTAIRE DES FLUX NEUTRES (Régularisations & Ajustements comptables)
+  // 2. EXCLUSION BUDGÉTAIRE DES FLUX NEUTRES (Virements internes, Régularisations & Ajustements comptables)
   if (
     combined.includes("regularisation") ||
     combined.includes("ajustement") ||
@@ -345,7 +348,7 @@ export function categorizeLocally({
     /\b(regul|reguls)\b/.test(normSub)
   ) {
     return {
-      category: "Régularisation",
+      category: "Virement interne",
       isSubscription: false,
       isInternalTransfer: true,
       excludeFromSpending: true,
@@ -353,21 +356,34 @@ export function categorizeLocally({
     };
   }
 
-  // 2b. EXCLUSION BUDGÉTAIRE DES FLUX NEUTRES (Épargne & Mouvements internes)
+  // 2b. EXCLUSION BUDGÉTAIRE DES FLUX NEUTRES (Virements compte à compte & Mouvements internes)
+  if (
+    combined.includes("virement interne") ||
+    combined.includes("comptes a comptes") ||
+    combined.includes("compte a compte") ||
+    combined.includes("mouvements internes") ||
+    normCat.includes("mouvements internes") ||
+    normCat.includes("comptes a comptes") ||
+    normCat.includes("virement interne") ||
+    normSub.includes("virement interne") ||
+    normSub.includes("compte a compte")
+  ) {
+    return {
+      category: "Virement interne",
+      isSubscription: false,
+      isInternalTransfer: true,
+      excludeFromSpending: true,
+      excludeFromIncome: true,
+    };
+  }
+
+  // 2c. EXCLUSION BUDGÉTAIRE DES FLUX D'ÉPARGNE (Livrets & Placements)
   if (
     combined.includes("livret") ||
     combined.includes("bourso+") ||
     combined.includes("epargne") ||
-    combined.includes("virement interne") ||
-    combined.includes("comptes a comptes") ||
-    combined.includes("mouvements internes") ||
     combined.includes("tristan buguet") ||
-    normCat.includes("mouvements internes") ||
-    normCat.includes("comptes a comptes") ||
-    normCat.includes("virement interne") ||
     normCat.includes("epargne") ||
-    normSub.includes("virement interne") ||
-    normSub.includes("compte a compte") ||
     normSub.includes("epargne") ||
     normSub.includes("livret")
   ) {

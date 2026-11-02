@@ -19,8 +19,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import clsx from "clsx";
 import { useTheme } from "./ThemeProvider";
 import { useAuth } from "./AuthProvider";
-import { GoogleGLogo } from "./AccountPopover";
-import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, RotateCcw, ChevronDown, ChevronRight, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays, ArrowRight, Search, Plus, Cloud } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, RotateCcw, ChevronDown, ChevronRight, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays, ArrowRight, Search, Plus } from "lucide-react";
 import { TrendsView } from "./views/TrendsView";
 import { TransactionsView } from "./views/TransactionsView";
 import { AccountsView } from "./views/AccountsView";
@@ -34,8 +33,7 @@ import {
   isInternalTransferCategory,
   isRegularisationCategory,
   isRegularisationTransaction,
-  INTERNAL_TRANSFER_CATEGORY,
-  REGULARISATION_CATEGORY
+  INTERNAL_TRANSFER_CATEGORY
 } from "@/lib/types";
 
 function parseAndFormatDate(dateStr: string) {
@@ -74,7 +72,6 @@ const OFFICIAL_CATEGORIES = [
   "Revenus & Aides",
   "Épargne & Trésorerie",
   "Virement interne",
-  "Régularisation",
   "Autre"
 ];
 
@@ -91,7 +88,6 @@ const RECATEGORIZATION_CATEGORIES = [
   "Virements proches & Remboursements",
   "Épargne & Trésorerie",
   "Virement interne",
-  "Régularisation",
   "Autre"
 ] as const;
 
@@ -135,7 +131,6 @@ export const CATEGORY_COLORS: Record<string, { ring: string; fill: string; dot: 
   "Revenus & Aides": { ring: "#10B981", fill: "bg-emerald-500", dot: "bg-emerald-500" },
   "Épargne & Trésorerie": { ring: "#3B82F6", fill: "bg-blue-500", dot: "bg-blue-500" },
   "Virement interne": { ring: "#64748B", fill: "bg-slate-500", dot: "bg-slate-500" },
-  "Régularisation": { ring: "#64748B", fill: "bg-slate-500", dot: "bg-slate-500" },
   "Autre": { ring: "#71717A", fill: "bg-zinc-500", dot: "bg-zinc-500" },
 };
 
@@ -146,8 +141,7 @@ const CategoryIcon = ({ type, isSubscription, isInternalTransfer, iconSize = 16 
 
   if (isSubscription || type === "Abonnements & Forfaits") return <Repeat {...iconProps} />;
   if (type === "Revenus & Aides") return <ArrowDownLeft {...iconProps} />;
-  if (isInternalTransfer || isInternalTransferCategory(type) || type === "Virements proches & Remboursements") return <ArrowRightLeft {...iconProps} />;
-  if (isInternalTransfer || isInternalTransferCategory(type) || isRegularisationCategory(type) || type === "Virements proches & Remboursements") return <ArrowRightLeft {...iconProps} />;
+  if (isInternalTransfer || isInternalTransferCategory(type) || isRegularisationCategory(type) || type === "Virement interne" || type === "Virements proches & Remboursements") return <ArrowRightLeft {...iconProps} />;
 
   switch (type) {
     case "Alimentation & Courses": return <ShoppingCart {...iconProps} />;
@@ -202,15 +196,9 @@ const TransactionRow = ({
           <div className="font-semibold text-sm text-foreground truncate">{tx.name}</div>
           {!hideDescription && tx.type && (
             <div className="flex items-center gap-2 mt-0.5">
-              {isInternal ? (
-                <span className="text-[10px] bg-black/5 dark:bg-white/[0.06] text-muted-foreground px-2 py-0.5 rounded-full tracking-wide font-medium">
-                  VIREMENT INTERNE · NEUTRE
-                </span>
-              ) : (
-                <div className="text-xs text-neutral-500 truncate">
-                  {tx.type}
-                </div>
-              )}
+              <div className="text-xs text-neutral-500 truncate">
+                {tx.type}
+              </div>
             </div>
           )}
         </div>
@@ -286,6 +274,7 @@ const CalendarModal = ({
           const isInternal = isInternalTransferTransaction(tx);
           const isRegul = isRegularisationTransaction(tx);
           if (
+            tx.type === "Virement interne" ||
             isInternal ||
             isRegul ||
             tx.isInternalTransfer ||
@@ -457,6 +446,7 @@ interface DashboardProps {
   isOpen?: boolean;
   onNotificationChange?: (isOpen: boolean) => void;
   onNotificationClose?: () => void;
+  onOpenAccountPopover?: () => void;
 }
 
 export function Dashboard({
@@ -466,18 +456,15 @@ export function Dashboard({
   isOpen: propIsOpen,
   onNotificationChange,
   onNotificationClose,
+  onOpenAccountPopover,
 }: DashboardProps = {}) {
   const { theme } = useTheme();
   const { isAuthenticated, user, signInWithGoogle, triggerCloudSync } = useAuth();
   const [isDark, setIsDark] = useState(true);
-  const [showOnboardingBanner, setShowOnboardingBanner] = useState(false);
   const isAuthenticatedRef = useRef(isAuthenticated);
 
   useEffect(() => {
     isAuthenticatedRef.current = isAuthenticated;
-    if (isAuthenticated) {
-      setShowOnboardingBanner(false);
-    }
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -900,6 +887,13 @@ export function Dashboard({
       const cache = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
       let changed = false;
       Object.keys(cache).forEach(k => {
+        if (cache[k]?.categorie === "Régularisation" || isRegularisationCategory(cache[k]?.categorie)) {
+          cache[k].categorie = "Virement interne";
+          cache[k].isInternalTransfer = true;
+          cache[k].excludeFromSpending = true;
+          cache[k].excludeFromIncome = true;
+          changed = true;
+        }
         if (!isSubscriptionCategory(cache[k].categorie) && cache[k].isSubscription) {
           cache[k].isSubscription = false;
           changed = true;
@@ -916,8 +910,15 @@ export function Dashboard({
       let hasMutated = false;
       parsed = parsed.map(tx => {
         const nam = tx.name.toLowerCase();
-        const isRegul = isRegularisationTransaction(tx) || isRegularisationCategory(tx.type);
+        let currentType = tx.type;
+        const isRegul = isRegularisationTransaction(tx) || isRegularisationCategory(tx.type) || tx.type === "Régularisation";
+        if (currentType === "Régularisation" || isRegularisationCategory(currentType)) {
+          currentType = "Virement interne";
+          hasMutated = true;
+        }
+
         const isInternal = isInternalTransferTransaction(tx) || isRegul ||
+          currentType === "Virement interne" ||
           nam.includes("livret") ||
           nam.includes("bourso+") ||
           nam.includes("virement vers") ||
@@ -930,14 +931,22 @@ export function Dashboard({
           nam.includes("regularisation") ||
           nam.includes("ajustement");
 
-        if (isInternal && (!tx.isInternalTransfer || !tx.excludeFromSpending || !tx.excludeFromIncome)) {
+        if (isInternal && (!tx.isInternalTransfer || !tx.excludeFromSpending || !tx.excludeFromIncome || tx.type !== currentType)) {
           hasMutated = true;
           return {
             ...tx,
-            type: tx.type || (isRegul ? "Régularisation" : "Épargne & Trésorerie"),
+            type: currentType || "Virement interne",
             isInternalTransfer: true,
             excludeFromSpending: true,
             excludeFromIncome: true,
+          };
+        }
+
+        if (currentType !== tx.type) {
+          hasMutated = true;
+          return {
+            ...tx,
+            type: currentType,
           };
         }
 
@@ -972,6 +981,7 @@ export function Dashboard({
         delete parsed["Revenus & Aides"];
         delete parsed["Épargne & Trésorerie"];
         delete parsed["Virement interne"];
+        delete parsed["Régularisation"];
         setCategoryBudgets(parsed);
       } catch (e) { }
     }
@@ -1005,15 +1015,25 @@ export function Dashboard({
 
       if (Array.isArray(payload.transactions)) {
         const sanitized = payload.transactions.map((tx: Transaction) => {
-          const isRegul = isRegularisationTransaction(tx) || isRegularisationCategory(tx.type);
-          const isInternal = isInternalTransferTransaction(tx) || isRegul;
-          if (isInternal && (!tx.isInternalTransfer || !tx.excludeFromSpending || !tx.excludeFromIncome)) {
+          let currentType = tx.type;
+          const isRegul = isRegularisationTransaction(tx) || isRegularisationCategory(tx.type) || tx.type === "Régularisation";
+          if (currentType === "Régularisation" || isRegularisationCategory(currentType)) {
+            currentType = "Virement interne";
+          }
+          const isInternal = isInternalTransferTransaction(tx) || isRegul || currentType === "Virement interne";
+          if (isInternal && (!tx.isInternalTransfer || !tx.excludeFromSpending || !tx.excludeFromIncome || tx.type !== currentType)) {
             return {
               ...tx,
-              type: tx.type || (isRegul ? "Régularisation" : "Épargne & Trésorerie"),
+              type: currentType || "Virement interne",
               isInternalTransfer: true,
               excludeFromSpending: true,
               excludeFromIncome: true,
+            };
+          }
+          if (currentType !== tx.type) {
+            return {
+              ...tx,
+              type: currentType,
             };
           }
           return tx;
@@ -1042,6 +1062,7 @@ export function Dashboard({
         delete nextBudgets["Revenus & Aides"];
         delete nextBudgets["Épargne & Trésorerie"];
         delete nextBudgets["Virement interne"];
+        delete nextBudgets["Régularisation"];
         setCategoryBudgets(nextBudgets);
       }
 
@@ -1106,8 +1127,6 @@ export function Dashboard({
           })
         );
       }
-
-      setShowOnboardingBanner(false);
     };
 
     const handleUserSignedOut = () => {
@@ -1127,7 +1146,6 @@ export function Dashboard({
         utilities: undefined,
       });
       setSelectedAccountFilter("all");
-      setShowOnboardingBanner(false);
       setShowSettingsModal(false);
       setShowResetModal(false);
       setShowInbox(false);
@@ -1543,16 +1561,20 @@ export function Dashboard({
       await new Promise(resolve => setTimeout(resolve, 800));
       setImportStep(null);
 
-      // 4. SUGGESTION DE CONNEXION POST-IMPORT (ONBOARDING INVITÉ)
+      // 4. DÉCLENCHEMENT CONTEXTUEL DU POPOVER DE PROFIL (MODE INVITÉ)
       if (!isAuthenticatedRef.current) {
-        try {
-          const isDismissed = localStorage.getItem("krona_onboarding_sync_dismissed") === "true";
-          if (!isDismissed) {
-            setShowOnboardingBanner(true);
+        setTimeout(() => {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("krona-open-account-popover", {
+                detail: { open: true },
+              })
+            );
           }
-        } catch {
-          setShowOnboardingBanner(true);
-        }
+          if (onOpenAccountPopover) {
+            onOpenAccountPopover();
+          }
+        }, 600);
       }
     } catch (e) {
       console.error("[Krona] Erreur lors de l'import :", e);
@@ -1752,15 +1774,16 @@ export function Dashboard({
       const isInternal = isInternalTransferTransaction(tx);
       const isRegul = isRegularisationTransaction(tx);
       const nam = tx.name.toLowerCase();
-      
+
       // RÈGLE MÉTIER STRICTE : Exclusion totale et absolue de tout virement interne ou régularisation
       if (
-        isInternal || 
-        isRegul || 
-        tx.isInternalTransfer || 
-        tx.excludeFromSpending || 
-        tx.excludeFromIncome || 
-        isInternalTransferCategory(tx.type) || 
+        tx.type === "Virement interne" ||
+        isInternal ||
+        isRegul ||
+        tx.isInternalTransfer ||
+        tx.excludeFromSpending ||
+        tx.excludeFromIncome ||
+        isInternalTransferCategory(tx.type) ||
         isRegularisationCategory(tx.type)
       ) {
         if (!isRegul && !isRegularisationCategory(tx.type) && !isRegularisationTransaction(tx)) {
@@ -1772,11 +1795,11 @@ export function Dashboard({
       if (tx.amount < 0) {
         // Normal expenses
         exp += Math.abs(tx.amount);
-        
+
         if (tx.type !== "Revenus & Aides") {
           catMap[tx.type] = (catMap[tx.type] || 0) + Math.abs(tx.amount);
         }
-        
+
         if (isTxSubscription(tx)) {
           subTotal += Math.abs(tx.amount);
         }
@@ -1786,13 +1809,14 @@ export function Dashboard({
         timeMap[label] = (timeMap[label] || 0) + Math.abs(tx.amount);
       } else {
         // Double garde-fou absolu : si un virement ou régularisation parvient ici, il ne doit JAMAIS impacter les dépenses
-        const isInternalOrRegulGuard = 
-          isInternal || 
-          isRegul || 
-          isInternalTransferTransaction(tx) || 
-          isRegularisationTransaction(tx) || 
-          tx.isInternalTransfer || 
-          tx.excludeFromSpending || 
+        const isInternalOrRegulGuard =
+          tx.type === "Virement interne" ||
+          isInternal ||
+          isRegul ||
+          isInternalTransferTransaction(tx) ||
+          isRegularisationTransaction(tx) ||
+          tx.isInternalTransfer ||
+          tx.excludeFromSpending ||
           tx.excludeFromIncome ||
           isInternalTransferCategory(tx.type) ||
           isRegularisationCategory(tx.type);
@@ -1807,8 +1831,8 @@ export function Dashboard({
         const combinedText = `${nam} ${raw}`;
 
         // Aides sociales / organismes publics prioritaires (ne doivent pas être confondues avec un salaire)
-        const isAids = 
-          isAidTransaction(tx) || 
+        const isAids =
+          isAidTransaction(tx) ||
           Boolean(combinedText.match(/caf|crous|france travail|pole emploi|ameli|cpam|aide|allocation/i));
 
         // Remboursements explicites (viennent en déduction des dépenses)
@@ -1821,7 +1845,7 @@ export function Dashboard({
         );
 
         // 2. OU montant créditeur significatif reçu dans la catégorie « Revenus & Aides » (>= 500 € ou >= 50% du salaire de référence)
-        const isSignificantIncome = 
+        const isSignificantIncome =
           tx.type === "Revenus & Aides" &&
           (tx.amount >= 500 || (incomeSettings.salary > 0 && tx.amount >= incomeSettings.salary * 0.5));
 
@@ -1855,7 +1879,7 @@ export function Dashboard({
           if (isAids) hasRealAids = true;
         }
       }
-      });
+    });
 
     exp = Math.round(Math.max(0, exp) * 100) / 100;
     totalRealIncome = Math.round(Math.max(0, totalRealIncome) * 100) / 100;
@@ -2266,13 +2290,13 @@ export function Dashboard({
     let list = filteredTransactions;
 
     if (drawerFilter === "debit") {
-      list = list.filter(tx => tx.amount < 0 && !isInternalTransferTransaction(tx) && !isRegularisationTransaction(tx));
+      list = list.filter(tx => tx.amount < 0 && !isInternalTransferTransaction(tx) && !isRegularisationTransaction(tx) && tx.type !== "Virement interne" && !isInternalTransferCategory(tx.type));
     } else if (drawerFilter === "credit") {
-      list = list.filter(tx => tx.amount > 0 && !isInternalTransferTransaction(tx) && !isRegularisationTransaction(tx));
+      list = list.filter(tx => tx.amount > 0 && !isInternalTransferTransaction(tx) && !isRegularisationTransaction(tx) && tx.type !== "Virement interne" && !isInternalTransferCategory(tx.type));
     } else if (drawerFilter === "sub") {
       list = list.filter(tx => isTxSubscription(tx));
     } else if (drawerFilter === "transfer") {
-      list = list.filter(tx => isInternalTransferTransaction(tx) || isRegularisationTransaction(tx));
+      list = list.filter(tx => isInternalTransferTransaction(tx) || isRegularisationTransaction(tx) || tx.type === "Virement interne" || isInternalTransferCategory(tx.type));
     }
 
     if (drawerSearch.trim()) {
@@ -2302,17 +2326,18 @@ export function Dashboard({
     displayedDrawerTx.forEach(tx => {
       const isInternal = isInternalTransferTransaction(tx);
       const isRegul = isRegularisationTransaction(tx);
-      const isInternalOrRegulGuard = 
-        isInternal || 
-        isRegul || 
-        tx.isInternalTransfer || 
-        tx.excludeFromSpending || 
+      const isInternalOrRegulGuard =
+        tx.type === "Virement interne" ||
+        isInternal ||
+        isRegul ||
+        tx.isInternalTransfer ||
+        tx.excludeFromSpending ||
         tx.excludeFromIncome ||
         isInternalTransferCategory(tx.type) ||
         isRegularisationCategory(tx.type);
 
       if (isInternalOrRegulGuard) {
-        if (drawerFilter === "transfer" && !isRegul && !isRegularisationCategory(tx.type) && !isRegularisationTransaction(tx)) {
+        if (drawerFilter === "transfer") {
           deb += Math.abs(tx.amount);
         }
         return;
@@ -2558,56 +2583,6 @@ export function Dashboard({
             </button>
           </PageHeader>
         )}
-
-        {/* Bandeau de suggestion de connexion post-import (Onboarding invité) */}
-        <AnimatePresence initial={false}>
-          {showOnboardingBanner && !isAuthenticated && hasRealData && (
-            <motion.div
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-              className="mb-4 shrink-0 rounded-2xl bg-card border border-border px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs font-sans"
-            >
-              <div className="flex items-start sm:items-center gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-xl bg-muted border border-border flex items-center justify-center text-foreground shrink-0 mt-0.5 sm:mt-0">
-                  <Cloud size={15} />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-foreground tracking-tight leading-snug">
-                    Sauvegardez vos données
-                  </div>
-                  <div className="text-xs text-muted-foreground leading-relaxed mt-0.5">
-                    Connectez votre compte Google pour synchroniser vos finances et y accéder sur tous vos appareils.
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                <button
-                  type="button"
-                  onClick={() => signInWithGoogle()}
-                  className="h-8 px-3.5 rounded-full bg-foreground text-background hover:opacity-90 transition-opacity flex items-center gap-2 text-xs font-medium cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 shrink-0"
-                >
-                  <span className="w-4 h-4 rounded-full bg-white flex items-center justify-center shrink-0">
-                    <GoogleGLogo className="w-3 h-3" />
-                  </span>
-                  <span>Continuer avec Google</span>
-                </button>
-
-                <CloseButton
-                  aria-label="Continuer en mode local"
-                  onClick={() => {
-                    setShowOnboardingBanner(false);
-                    try {
-                      localStorage.setItem("krona_onboarding_sync_dismissed", "true");
-                    } catch { }
-                  }}
-                />
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {activeTab === "transactions" ? (
           <TransactionsView

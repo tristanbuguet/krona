@@ -1,4 +1,4 @@
-import { Transaction, FixedIncomeSettings, AccountInfo } from "./types";
+import { Transaction, FixedIncomeSettings, AccountInfo, isRegularisationCategory } from "./types";
 
 export interface GoogleUserProfile {
   id: string;
@@ -50,7 +50,13 @@ export interface UserFinancialSettings {
 
 export type LearningRuleMap = Record<
   string,
-  { categorie: string; isSubscription?: boolean }
+  {
+    categorie: string;
+    isSubscription?: boolean;
+    isInternalTransfer?: boolean;
+    excludeFromSpending?: boolean;
+    excludeFromIncome?: boolean;
+  }
 >;
 
 /**
@@ -125,7 +131,19 @@ export function mergeCloudAndLocalData(
 ): UserFinancialPayload {
   const localTxs = Array.isArray(local.transactions) ? local.transactions : [];
   const cloudTxs = cloud && Array.isArray(cloud.transactions) ? cloud.transactions : [];
-  const mergedTransactions = mergeTransactionsLossless(localTxs, cloudTxs);
+  const rawMergedTransactions = mergeTransactionsLossless(localTxs, cloudTxs);
+  const mergedTransactions = rawMergedTransactions.map((tx) => {
+    if (tx.type === "Régularisation" || isRegularisationCategory(tx.type)) {
+      return {
+        ...tx,
+        type: "Virement interne",
+        isInternalTransfer: true,
+        excludeFromSpending: true,
+        excludeFromIncome: true,
+      };
+    }
+    return tx;
+  });
 
   const cloudBudgets =
     cloud?.settings?.categoryBudgets || cloud?.categoryBudgets || {};
@@ -138,6 +156,7 @@ export function mergeCloudAndLocalData(
   delete mergedBudgets["Revenus & Aides"];
   delete mergedBudgets["Épargne & Trésorerie"];
   delete mergedBudgets["Virement interne"];
+  delete mergedBudgets["Régularisation"];
 
   const localIncome = local.settings?.incomeSettings || local.fixedIncomeSettings;
   const cloudIncome = cloud?.settings?.incomeSettings || cloud?.fixedIncomeSettings;
@@ -167,6 +186,14 @@ export function mergeCloudAndLocalData(
     ...cloudRules,
     ...localRules,
   };
+  Object.keys(mergedKnowledge).forEach((k) => {
+    if (mergedKnowledge[k]?.categorie === "Régularisation" || isRegularisationCategory(mergedKnowledge[k]?.categorie)) {
+      mergedKnowledge[k].categorie = "Virement interne";
+      mergedKnowledge[k].isInternalTransfer = true;
+      mergedKnowledge[k].excludeFromSpending = true;
+      mergedKnowledge[k].excludeFromIncome = true;
+    }
+  });
 
   const localLimitConfig =
     local.settings?.monthlyLimitConfig || local.monthlyLimitConfig;
