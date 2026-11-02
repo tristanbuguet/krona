@@ -8,7 +8,9 @@ export type Transaction = {
   isSubscription?: boolean;
   isRecurring?: boolean;
   isInternalTransfer?: boolean;
-  account?: "BoursoBank" | "Crédit Agricole" | string;
+  excludeFromSpending?: boolean;
+  excludeFromIncome?: boolean;
+  account?: "BoursoBank" | "Crédit Agricole" | "Caisse d'Épargne" | string;
   rawName?: string;
 };
 
@@ -25,7 +27,7 @@ export type FixedIncomeSettings = {
 export type AccountInfo = {
   id: string;
   name: string;
-  bank: "BoursoBank" | "Crédit Agricole" | "Autre";
+  bank: "BoursoBank" | "Crédit Agricole" | "Caisse d'Épargne" | "Autre";
   type: "Compte courant" | "Livret d'épargne" | "Carte bancaire";
   accountNumber?: string;
   initialBalance?: number;
@@ -45,8 +47,123 @@ export const OFFICIAL_CATEGORIES = [
   "Virements proches & Remboursements",
   "Revenus & Aides",
   "Épargne & Trésorerie",
+  "Virement interne",
+  "Régularisation",
   "Autre"
 ] as const;
+
+export const INTERNAL_TRANSFER_CATEGORY = "Virement interne";
+export const REGULARISATION_CATEGORY = "Régularisation";
+
+export const isRegularisationCategory = (category?: string): boolean => {
+  if (!category) return false;
+  const c = category
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  return (
+    c === "regularisation" ||
+    c === "regularisations" ||
+    c === "regul" ||
+    c === "reguls" ||
+    c === "ajustement" ||
+    c === "ajustements" ||
+    c === "ajustement comptable" ||
+    c === "ajustements comptables" ||
+    c === "regularisation & ajustement" ||
+    c === "regularisation de compte" ||
+    c === "regularisation de solde" ||
+    c === "ajustement de solde" ||
+    c === "ajustement de compte" ||
+    c.includes("regularisation") ||
+    c.includes("ajustement")
+  );
+};
+
+export const isRegularisationTransaction = (
+  tx: {
+    name?: string;
+    type?: string;
+    rawName?: string;
+    excludeFromIncome?: boolean;
+    excludeFromSpending?: boolean;
+    isInternalTransfer?: boolean;
+  }
+): boolean => {
+  if (isRegularisationCategory(tx.type)) return true;
+  const nam = (tx.name || "").toLowerCase();
+  const raw = (tx.rawName || "").toLowerCase();
+  const combined = `${nam} ${raw}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return Boolean(
+    combined.match(/\b(regularisation|regul|reguls|ajustement|ajustements)\b/i) ||
+    combined.includes("regularisation") ||
+    combined.includes("ajustement") ||
+    combined.includes("regul ") ||
+    combined.startsWith("regul") ||
+    combined.includes(" vir regul")
+  );
+};
+
+export const isInternalTransferCategory = (category?: string): boolean => {
+  if (!category) return false;
+  if (isRegularisationCategory(category)) return true;
+  const c = category
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  return (
+    c === "virement interne" ||
+    c === "virements internes" ||
+    c === "epargne & tresorerie" ||
+    c === "epargne interne" ||
+    c === "virement compte a compte" ||
+    c === "comptes a comptes" ||
+    c === "mouvements internes" ||
+    c === "transfert interne" ||
+    c === "transferts internes" ||
+    c.includes("virement interne") ||
+    c.includes("compte a compte") ||
+    c.includes("mouvements internes") ||
+    c.includes("transfert interne")
+  );
+};
+
+export const isInternalTransferTransaction = (
+  tx: {
+    name?: string;
+    type?: string;
+    rawName?: string;
+    isInternalTransfer?: boolean;
+    excludeFromSpending?: boolean;
+    excludeFromIncome?: boolean;
+  }
+): boolean => {
+  if (Boolean(tx.isInternalTransfer || tx.excludeFromSpending || tx.excludeFromIncome)) return true;
+  if (isInternalTransferCategory(tx.type)) return true;
+  if (isRegularisationCategory(tx.type)) return true;
+  if (isRegularisationTransaction(tx)) return true;
+
+  // Détection exhaustive par mot-clé pour parer aux données non enrichies
+  const nam = (tx.name || "").toLowerCase();
+  const raw = (tx.rawName || "").toLowerCase();
+  const combined = `${nam} ${raw}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  return Boolean(
+    combined.includes("livret") ||
+    combined.includes("bourso+") ||
+    combined.includes("virement vers") ||
+    combined.includes("virement depuis") ||
+    combined.includes("epargne") ||
+    combined.includes("virement interne") ||
+    combined.includes("comptes a comptes") ||
+    combined.includes("compte a compte") ||
+    combined.includes("mouvements internes") ||
+    combined.includes("transfert interne") ||
+    combined.match(/\b(vir interne|vir compte|vir vers|vir depuis|vir regul|regul|regularisation|ajustement)\b/i)
+  );
+};
 
 export const isSubscriptionCategory = (category?: string): boolean => {
   if (!category) return false;
@@ -62,13 +179,16 @@ export const isSubscriptionCategory = (category?: string): boolean => {
 };
 
 export const isSalaryTransaction = (
-  tx: { name: string; amount: number; type?: string; rawName?: string },
+  tx: { name: string; amount: number; type?: string; rawName?: string; isInternalTransfer?: boolean; excludeFromSpending?: boolean; excludeFromIncome?: boolean },
   referenceSalary = 0
 ): boolean => {
-  if (tx.amount <= 0) return false;
+  if (tx.amount <= 0 || isInternalTransferTransaction(tx) || isRegularisationTransaction(tx) || tx.excludeFromIncome) return false;
   const nam = (tx.name || "").toLowerCase();
   const raw = (tx.rawName || "").toLowerCase();
-  const combined = `${nam} ${raw}`;
+  const combined = `${nam} ${raw}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  // Les régularisations ne sont jamais des salaires
+  if (combined.match(/\b(regularisation|regul|reguls|ajustement|ajustements)\b/i)) return false;
 
   // Les aides sociales ou remboursements ne sont pas des salaires
   const isAids = Boolean(combined.match(/caf|crous|france travail|pole emploi|ameli|cpam|aide|allocation/i));
@@ -91,14 +211,18 @@ export const isSalaryTransaction = (
 };
 
 export const isAidTransaction = (
-  tx: { name: string; amount: number; type?: string; rawName?: string }
+  tx: { name: string; amount: number; type?: string; rawName?: string; isInternalTransfer?: boolean; excludeFromSpending?: boolean; excludeFromIncome?: boolean }
 ): boolean => {
-  if (tx.amount <= 0) return false;
+  if (tx.amount <= 0 || isInternalTransferTransaction(tx) || isRegularisationTransaction(tx) || tx.excludeFromIncome) return false;
   const nam = (tx.name || "").toLowerCase();
   const raw = (tx.rawName || "").toLowerCase();
+  const combined = `${nam} ${raw}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  // Les régularisations ne sont jamais des aides
+  if (combined.match(/\b(regularisation|regul|reguls|ajustement|ajustements)\b/i)) return false;
+
   return Boolean(
-    nam.match(/caf|crous|france travail|pole emploi|ameli|cpam|aide|allocation/i) ||
-    raw.match(/caf|crous|france travail|pole emploi|ameli|cpam|aide|allocation/i)
+    combined.match(/caf|crous|france travail|pole emploi|ameli|cpam|aide|allocation/i)
   );
 };
 
@@ -114,6 +238,8 @@ export const CATEGORY_COLORS: Record<string, { ring: string; fill: string; dot: 
   "Virements proches & Remboursements": { ring: "#8B5CF6", fill: "bg-purple-500", dot: "bg-purple-500", bgSoft: "bg-purple-500/10", textSoft: "text-purple-500" },
   "Revenus & Aides": { ring: "#10B981", fill: "bg-emerald-500", dot: "bg-emerald-500", bgSoft: "bg-emerald-500/10", textSoft: "text-emerald-500" },
   "Épargne & Trésorerie": { ring: "#3B82F6", fill: "bg-blue-500", dot: "bg-blue-500", bgSoft: "bg-blue-500/10", textSoft: "text-blue-500" },
+  "Virement interne": { ring: "#64748B", fill: "bg-slate-500", dot: "bg-slate-500", bgSoft: "bg-slate-500/10", textSoft: "text-slate-500" },
+  "Régularisation": { ring: "#64748B", fill: "bg-slate-500", dot: "bg-slate-500", bgSoft: "bg-slate-500/10", textSoft: "text-slate-500" },
   "Autre": { ring: "#71717A", fill: "bg-zinc-500", dot: "bg-zinc-500", bgSoft: "bg-zinc-500/10", textSoft: "text-zinc-500" },
 };
 
@@ -134,59 +260,5 @@ export const formatAmount = (val: number, showSign = true) => {
   return `0,00 €`;
 };
 
-// Rich multi-month sample transactions for demo mode (Aug, Sep, Oct 2026)
-export const initialDemoTransactions: Transaction[] = [
-  // --- OCTOBRE 2026 (Mois en cours) ---
-  { id: "demo-oct-1", name: "Employeur · Salaire", type: "Revenus & Aides", amount: 3200.00, date: "2026-10-01", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-2", name: "Netflix", type: "Abonnements & Forfaits", amount: -15.99, date: "2026-10-02", month: "2026-10", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-oct-3", name: "Loyer", type: "Logement & Maison", amount: -950.00, date: "2026-10-02", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-4", name: "Carrefour Market", type: "Alimentation & Courses", amount: -84.20, date: "2026-10-03", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-5", name: "Uber", type: "Transports", amount: -12.50, date: "2026-10-04", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-6", name: "Spotify", type: "Abonnements & Forfaits", amount: -10.99, date: "2026-10-05", month: "2026-10", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-oct-7", name: "Boulangerie Artisanale", type: "Alimentation & Courses", amount: -4.50, date: "2026-10-05", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-8", name: "Orange Fibre", type: "Abonnements & Forfaits", amount: -39.99, date: "2026-10-06", month: "2026-10", isSubscription: true, account: "Crédit Agricole" },
-  { id: "demo-oct-9", name: "Pharmacie Principale", type: "Santé & Soins", amount: -14.20, date: "2026-10-08", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-10", name: "Restaurant Le Sud", type: "Restos & Fast-Food", amount: -45.00, date: "2026-10-09", month: "2026-10", account: "Crédit Agricole" },
-  { id: "demo-oct-11", name: "Monoprix", type: "Alimentation & Courses", amount: -32.10, date: "2026-10-10", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-12", name: "Amazon", type: "Shopping & Mode", amount: -29.90, date: "2026-10-12", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-13", name: "Basic Fit", type: "Abonnements & Forfaits", amount: -29.99, date: "2026-10-14", month: "2026-10", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-oct-14", name: "Navigo Pass RATP", type: "Transports", amount: -84.10, date: "2026-10-15", month: "2026-10", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-oct-15", name: "Franprix", type: "Alimentation & Courses", amount: -18.40, date: "2026-10-17", month: "2026-10", account: "Crédit Agricole" },
-  { id: "demo-oct-16", name: "Uber Eats", type: "Restos & Fast-Food", amount: -22.50, date: "2026-10-18", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-17", name: "Cinéma Gaumont", type: "Sorties & Soirées", amount: -28.00, date: "2026-10-20", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-18", name: "Virement Livret A", type: "Épargne & Trésorerie", amount: -350.00, date: "2026-10-22", month: "2026-10", isInternalTransfer: true, account: "BoursoBank" },
-  { id: "demo-oct-19", name: "Leclerc Drive", type: "Alimentation & Courses", amount: -115.30, date: "2026-10-24", month: "2026-10", account: "Crédit Agricole" },
-  { id: "demo-oct-20", name: "Remboursement Sécu", type: "Santé & Soins", amount: 18.50, date: "2026-10-26", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-21", name: "Asos", type: "Shopping & Mode", amount: -65.00, date: "2026-10-27", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-22", name: "Starbucks", type: "Restos & Fast-Food", amount: -6.50, date: "2026-10-28", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-23", name: "Boulangerie Artisanale", type: "Alimentation & Courses", amount: -3.20, date: "2026-10-29", month: "2026-10", account: "BoursoBank" },
-  { id: "demo-oct-24", name: "Uber", type: "Transports", amount: -18.00, date: "2026-10-30", month: "2026-10", account: "BoursoBank" },
-
-  // --- SEPTEMBRE 2026 ---
-  { id: "demo-sep-1", name: "Employeur · Salaire", type: "Revenus & Aides", amount: 3200.00, date: "2026-09-01", month: "2026-09", account: "BoursoBank" },
-  { id: "demo-sep-2", name: "Netflix", type: "Abonnements & Forfaits", amount: -15.99, date: "2026-09-02", month: "2026-09", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-sep-3", name: "Loyer", type: "Logement & Maison", amount: -950.00, date: "2026-09-02", month: "2026-09", account: "BoursoBank" },
-  { id: "demo-sep-4", name: "Carrefour Market", type: "Alimentation & Courses", amount: -92.40, date: "2026-09-04", month: "2026-09", account: "BoursoBank" },
-  { id: "demo-sep-5", name: "Spotify", type: "Abonnements & Forfaits", amount: -10.99, date: "2026-09-05", month: "2026-09", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-sep-6", name: "Orange Fibre", type: "Abonnements & Forfaits", amount: -39.99, date: "2026-09-06", month: "2026-09", isSubscription: true, account: "Crédit Agricole" },
-  { id: "demo-sep-7", name: "Basic Fit", type: "Abonnements & Forfaits", amount: -29.99, date: "2026-09-14", month: "2026-09", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-sep-8", name: "Navigo Pass RATP", type: "Transports", amount: -84.10, date: "2026-09-15", month: "2026-09", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-sep-9", name: "Zara", type: "Shopping & Mode", amount: -112.50, date: "2026-09-16", month: "2026-09", account: "BoursoBank" },
-  { id: "demo-sep-10", name: "Leclerc Drive", type: "Alimentation & Courses", amount: -128.00, date: "2026-09-19", month: "2026-09", account: "Crédit Agricole" },
-  { id: "demo-sep-11", name: "Restaurant Italien", type: "Restos & Fast-Food", amount: -58.00, date: "2026-09-21", month: "2026-09", account: "BoursoBank" },
-  { id: "demo-sep-12", name: "Virement Livret A", type: "Épargne & Trésorerie", amount: -400.00, date: "2026-09-25", month: "2026-09", isInternalTransfer: true, account: "BoursoBank" },
-  { id: "demo-sep-13", name: "Pharmacie", type: "Santé & Soins", amount: -22.30, date: "2026-09-28", month: "2026-09", account: "BoursoBank" },
-
-  // --- AOÛT 2026 ---
-  { id: "demo-aou-1", name: "Employeur · Salaire", type: "Revenus & Aides", amount: 3200.00, date: "2026-08-01", month: "2026-08", account: "BoursoBank" },
-  { id: "demo-aou-2", name: "Netflix", type: "Abonnements & Forfaits", amount: -15.99, date: "2026-08-02", month: "2026-08", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-aou-3", name: "Loyer", type: "Logement & Maison", amount: -950.00, date: "2026-08-02", month: "2026-08", account: "BoursoBank" },
-  { id: "demo-aou-4", name: "SNCF Connect", type: "Transports", amount: -145.00, date: "2026-08-05", month: "2026-08", account: "BoursoBank" },
-  { id: "demo-aou-5", name: "Spotify", type: "Abonnements & Forfaits", amount: -10.99, date: "2026-08-05", month: "2026-08", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-aou-6", name: "Orange Fibre", type: "Abonnements & Forfaits", amount: -39.99, date: "2026-08-06", month: "2026-08", isSubscription: true, account: "Crédit Agricole" },
-  { id: "demo-aou-7", name: "Carrefour Market", type: "Alimentation & Courses", amount: -76.80, date: "2026-08-10", month: "2026-08", account: "BoursoBank" },
-  { id: "demo-aou-8", name: "Basic Fit", type: "Abonnements & Forfaits", amount: -29.99, date: "2026-08-14", month: "2026-08", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-aou-9", name: "Navigo Pass RATP", type: "Transports", amount: -84.10, date: "2026-08-15", month: "2026-08", isSubscription: true, account: "BoursoBank" },
-  { id: "demo-aou-10", name: "Restaurant Plage", type: "Restos & Fast-Food", amount: -72.00, date: "2026-08-18", month: "2026-08", account: "Crédit Agricole" },
-  { id: "demo-aou-11", name: "Virement Livret A", type: "Épargne & Trésorerie", amount: -500.00, date: "2026-08-25", month: "2026-08", isInternalTransfer: true, account: "BoursoBank" }
-];
+// Liste initiale vide : aucune transaction de démonstration codée en dur
+export const initialDemoTransactions: Transaction[] = [];

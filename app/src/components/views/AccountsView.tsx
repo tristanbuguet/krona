@@ -18,9 +18,9 @@ import {
   Edit2,
   ArrowRight
 } from "lucide-react";
-import { BoursoBankLogo, CreditAgricoleLogo } from "../BankSelectorPopover";
+import { BoursoBankLogo, CreditAgricoleLogo, CaisseEpargneLogo } from "../BankSelectorPopover";
 import { CloseButton } from "../ui/CloseButton";
-import { Transaction, AccountInfo, formatAmount, formatMonthLabel } from "@/lib/types";
+import { Transaction, AccountInfo, formatAmount, formatMonthLabel, isInternalTransferTransaction, isRegularisationTransaction, isRegularisationCategory } from "@/lib/types";
 import { PageHeader } from "../ui/PageHeader";
 
 interface AccountsViewProps {
@@ -29,46 +29,19 @@ interface AccountsViewProps {
   onNavigateTransactions?: (bank?: string) => void;
 }
 
-const DEFAULT_ACCOUNTS: AccountInfo[] = [
-  {
-    id: "bourso-main",
-    name: "Compte courant BoursoBank",
-    bank: "BoursoBank",
-    type: "Compte courant",
-    accountNumber: "•••• 4821",
-    initialBalance: 1500,
-  },
-  {
-    id: "ca-main",
-    name: "Compte Crédit Agricole",
-    bank: "Crédit Agricole",
-    type: "Compte courant",
-    accountNumber: "•••• 8912",
-    initialBalance: 650,
-  },
-  {
-    id: "bourso-savings",
-    name: "Livret d'Épargne Bourso+",
-    bank: "BoursoBank",
-    type: "Livret d'épargne",
-    accountNumber: "•••• 3301",
-    initialBalance: 5200,
-  }
-];
-
 export function AccountsView({
   transactions,
   onTriggerUpload,
   onNavigateTransactions,
 }: AccountsViewProps) {
-  const [accounts, setAccounts] = useState<AccountInfo[]>(DEFAULT_ACCOUNTS);
+  const [accounts, setAccounts] = useState<AccountInfo[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<AccountInfo | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Form state
   const [formName, setFormName] = useState("");
-  const [formBank, setFormBank] = useState<"BoursoBank" | "Crédit Agricole" | "Autre">("BoursoBank");
+  const [formBank, setFormBank] = useState<"BoursoBank" | "Crédit Agricole" | "Caisse d'Épargne" | "Autre">("BoursoBank");
   const [formType, setFormType] = useState<"Compte courant" | "Livret d'épargne" | "Carte bancaire">("Compte courant");
   const [formNumber, setFormNumber] = useState("");
   const [formBalance, setFormBalance] = useState<string>("0");
@@ -80,27 +53,47 @@ export function AccountsView({
         const saved = localStorage.getItem("krona_accounts_v1");
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
+          if (Array.isArray(parsed)) {
             setAccounts(parsed);
+            return;
           }
         }
-      } catch (e) {}
+        setAccounts([]);
+      } catch (e) {
+        setAccounts([]);
+      }
     };
     loadAccounts();
     const handleCloudRestored = (e: any) => {
-      if (Array.isArray(e?.detail?.payload?.accounts) && e.detail.payload.accounts.length > 0) {
+      if (Array.isArray(e?.detail?.payload?.accounts)) {
         setAccounts(e.detail.payload.accounts);
       } else {
         loadAccounts();
       }
     };
+    const handleSignedOutOrReset = () => {
+      setAccounts([]);
+    };
     window.addEventListener("krona-cloud-data-restored", handleCloudRestored);
-    return () => window.removeEventListener("krona-cloud-data-restored", handleCloudRestored);
+    window.addEventListener("krona-user-signed-out", handleSignedOutOrReset);
+    window.addEventListener("krona-data-reset", handleSignedOutOrReset);
+    return () => {
+      window.removeEventListener("krona-cloud-data-restored", handleCloudRestored);
+      window.removeEventListener("krona-user-signed-out", handleSignedOutOrReset);
+      window.removeEventListener("krona-data-reset", handleSignedOutOrReset);
+    };
   }, []);
 
   const saveAccounts = (newList: AccountInfo[]) => {
     setAccounts(newList);
-    localStorage.setItem("krona_accounts_v1", JSON.stringify(newList));
+    try {
+      if (newList.length === 0) {
+        localStorage.removeItem("krona_accounts_v1");
+      } else {
+        localStorage.setItem("krona_accounts_v1", JSON.stringify(newList));
+      }
+      window.dispatchEvent(new CustomEvent("krona-local-data-mutated", { detail: { mode: "overwrite" } }));
+    } catch (e) {}
   };
 
   // Compute metrics for each account from actual transactions
@@ -115,14 +108,18 @@ export function AccountsView({
       const accTx = transactions.filter(t => {
         const isBourso = !t.account || t.account.toLowerCase().includes("bourso");
         const isCA = Boolean(t.account && t.account.toLowerCase().includes("agricole"));
+        const isCE = Boolean(t.account && (t.account.toLowerCase().includes("epargne") || t.account.toLowerCase().includes("caisse")));
 
         if (acc.bank.toLowerCase().includes("agricole")) {
           if (!isCA) return false;
+        } else if (acc.bank.toLowerCase().includes("epargne") || acc.bank.toLowerCase().includes("caisse")) {
+          if (!isCE) return false;
         } else {
-          if (!isBourso) return false;
+          if (!isBourso && (isCA || isCE)) return false;
         }
 
-        const isSavingsTx = t.type === "Épargne & Trésorerie" || Boolean(t.isInternalTransfer);
+        const isRegul = isRegularisationTransaction(t) || isRegularisationCategory(t.type);
+        const isSavingsTx = isInternalTransferTransaction(t) && !isRegul;
         if (isSavingsAcc) {
           return isSavingsTx;
         }
@@ -222,7 +219,11 @@ export function AccountsView({
   };
 
   const handleTriggerUploadForBank = (bank: string) => {
-    const bankKey = bank.toLowerCase().includes("agricole") ? "ca" : "bourso";
+    const bankKey = bank.toLowerCase().includes("agricole")
+      ? "ca"
+      : bank.toLowerCase().includes("epargne") || bank.toLowerCase().includes("caisse")
+      ? "ce"
+      : "bourso";
     localStorage.setItem("krona_selected_bank", bankKey);
     if (onTriggerUpload) {
       onTriggerUpload(bankKey);
@@ -264,7 +265,38 @@ export function AccountsView({
 
       {/* Scrollable Content Container */}
       <div className="flex-1 overflow-y-auto pr-2 space-y-6 no-scrollbar min-h-0">
-
+      {accounts.length === 0 ? (
+        <div className="bg-card border border-border rounded-2xl p-10 sm:p-14 shadow-sm flex flex-col items-center justify-center text-center">
+          <div className="w-12 h-12 rounded-full bg-neutral-100 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-4 text-muted-foreground">
+            <Landmark size={20} />
+          </div>
+          <h3 className="text-base font-semibold text-foreground mb-1 font-sans">
+            Aucun compte configuré
+          </h3>
+          <p className="text-sm text-muted-foreground max-w-md mb-6 font-sans leading-relaxed">
+            Importez votre premier relevé bancaire CSV ou rattachez un compte manuellement pour suivre vos soldes et mouvements.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => handleTriggerUploadForBank("bourso")}
+              className="h-10 px-5 rounded-full bg-foreground text-background text-xs sm:text-sm font-medium hover:opacity-90 active:scale-95 transition-all flex items-center gap-2 cursor-pointer font-sans"
+            >
+              <UploadCloud size={15} />
+              <span>Importer un relevé CSV</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenAdd}
+              className="h-10 px-5 rounded-full bg-black/5 dark:bg-white/[0.06] hover:bg-black/10 dark:hover:bg-white/[0.1] border border-border text-xs sm:text-sm font-medium text-foreground flex items-center gap-2 transition-all active:scale-95 cursor-pointer font-sans"
+            >
+              <Plus size={15} />
+              <span>Ajouter un compte</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Total Consolidated Wealth Card (p-6, Space Grotesk tabular-nums) */}
       <div className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shrink-0 transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
         <div>
@@ -300,6 +332,7 @@ export function AccountsView({
         {accountsData.map((acc) => {
           const isBourso = acc.bank === "BoursoBank";
           const isCA = acc.bank === "Crédit Agricole";
+          const isCE = acc.bank === "Caisse d'Épargne";
 
           return (
             <div
@@ -315,6 +348,8 @@ export function AccountsView({
                         <BoursoBankLogo className="w-4.5 h-4.5 text-foreground" />
                       ) : isCA ? (
                         <CreditAgricoleLogo className="w-5 h-4 text-foreground" />
+                      ) : isCE ? (
+                        <CaisseEpargneLogo className="w-4.5 h-4.5" />
                       ) : (
                         <Landmark size={20} className="text-foreground" />
                       )}
@@ -398,6 +433,8 @@ export function AccountsView({
           );
         })}
       </div>
+        </>
+      )}
       </div>
 
       {/* Add / Edit Account Modal */}
@@ -452,6 +489,7 @@ export function AccountsView({
                     >
                       <option value="BoursoBank">BoursoBank</option>
                       <option value="Crédit Agricole">Crédit Agricole</option>
+                      <option value="Caisse d'Épargne">Caisse d'Épargne</option>
                       <option value="Autre">Autre banque</option>
                     </select>
                   </div>

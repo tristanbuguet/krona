@@ -23,7 +23,9 @@ import {
   CATEGORY_COLORS, 
   formatAmount, 
   formatMonthLabel,
-  isSubscriptionCategory
+  isSubscriptionCategory,
+  isInternalTransferTransaction,
+  isInternalTransferCategory
 } from "@/lib/types";
 import { PageHeader } from "../ui/PageHeader";
 
@@ -94,12 +96,12 @@ export function TransactionsView({
       }
 
       // Type filter
-      if (selectedType === "debit" && tx.amount >= 0) return false;
-      if (selectedType === "credit" && tx.amount <= 0) return false;
+      if (selectedType === "debit" && (tx.amount >= 0 || isInternalTransferTransaction(tx))) return false;
+      if (selectedType === "credit" && (tx.amount <= 0 || isInternalTransferTransaction(tx))) return false;
       if (selectedType === "subs") {
         if (!checkIsSubscription(tx)) return false;
       }
-      if (selectedType === "transfer" && !tx.isInternalTransfer && tx.type !== "Épargne & Trésorerie") return false;
+      if (selectedType === "transfer" && !isInternalTransferTransaction(tx)) return false;
 
       // Category filter
       if (selectedCategory !== "all" && tx.type !== selectedCategory) return false;
@@ -119,6 +121,8 @@ export function TransactionsView({
     let totalDebit = 0;
     let totalCredit = 0;
     filteredTransactions.forEach(t => {
+      const isInternal = isInternalTransferTransaction(t);
+      if (isInternal && selectedType !== "transfer") return;
       if (t.amount > 0) totalCredit += t.amount;
       else totalDebit += Math.abs(t.amount);
     });
@@ -128,7 +132,7 @@ export function TransactionsView({
       totalCredit: Math.round(totalCredit * 100) / 100,
       net: Math.round((totalCredit - totalDebit) * 100) / 100,
     };
-  }, [filteredTransactions]);
+  }, [filteredTransactions, selectedType]);
 
   const handleCategoryChange = (txId: string, merchantName: string, newCat: string) => {
     onRecategorize(txId, merchantName, newCat);
@@ -364,13 +368,13 @@ export function TransactionsView({
                               <span className="hidden xl:inline">Abo</span>
                             </span>
                           )}
-                          {tx.isInternalTransfer && (
+                          {isInternalTransferTransaction(tx) && (
                             <span 
-                              aria-label="Virement interne / Épargne" 
-                              className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] shrink-0 flex items-center gap-0.5"
+                              aria-label="Virement interne · Neutre" 
+                              className="px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/[0.06] text-muted-foreground text-[10px] shrink-0 flex items-center gap-1 font-medium"
                             >
                               <ArrowRightLeft size={10} />
-                              <span className="hidden xl:inline">Virement</span>
+                              <span className="hidden xl:inline">Neutre</span>
                             </span>
                           )}
                         </div>
@@ -415,7 +419,9 @@ export function TransactionsView({
                       {/* 5. Amount */}
                       <td className="py-3 px-6 text-right whitespace-nowrap">
                         <span className={`font-semibold tabular-nums text-xs sm:text-sm ${
-                          isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"
+                          isInternalTransferTransaction(tx)
+                            ? "text-muted-foreground"
+                            : isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"
                         }`}>
                           {formatAmount(tx.amount)}
                         </span>

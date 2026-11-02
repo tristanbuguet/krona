@@ -40,7 +40,11 @@ import {
   CATEGORY_COLORS, 
   formatMonthLabel,
   isSalaryTransaction,
-  isAidTransaction
+  isAidTransaction,
+  isInternalTransferTransaction,
+  isInternalTransferCategory,
+  isRegularisationTransaction,
+  isRegularisationCategory
 } from "@/lib/types";
 import { PageHeader } from "../ui/PageHeader";
 import { Card } from "../ui/Card";
@@ -82,7 +86,18 @@ function checkIsIncomeTx(tx: Transaction, salaryRef = 0): {
   isAids: boolean;
   isRefund: boolean;
 } {
-  if (tx.amount <= 0) {
+  const isInternal = isInternalTransferTransaction(tx);
+  const isRegul = isRegularisationTransaction(tx);
+  const isInternalOrRegulGuard =
+    isInternal ||
+    isRegul ||
+    tx.isInternalTransfer ||
+    tx.excludeFromSpending ||
+    tx.excludeFromIncome ||
+    isInternalTransferCategory(tx.type) ||
+    isRegularisationCategory(tx.type);
+
+  if (tx.amount <= 0 || isInternalOrRegulGuard) {
     return { isIncome: false, isSalary: false, isAids: false, isRefund: false };
   }
   const combinedText = `${tx.name} ${tx.rawName || ""}`.toLowerCase();
@@ -108,7 +123,7 @@ function checkIsIncomeTx(tx: Transaction, salaryRef = 0): {
   );
 
   const isIncome = isSalary || isAids || tx.type === "Revenus & Aides";
-  const isRefund = !isIncome;
+  const isRefund = !isIncome && !isInternalOrRegulGuard;
 
   return { isIncome, isSalary, isAids, isRefund };
 }
@@ -120,7 +135,7 @@ function CategoryIcon({ type, iconSize = 16 }: { type: string; iconSize?: number
 
   if (type === "Abonnements & Forfaits") return <Repeat {...iconProps} />;
   if (type === "Revenus & Aides") return <ArrowDownLeft {...iconProps} />;
-  if (type === "Épargne & Trésorerie" || type === "Virements proches & Remboursements") return <ArrowRightLeft {...iconProps} />;
+  if (isInternalTransferCategory(type) || type === "Virements proches & Remboursements") return <ArrowRightLeft {...iconProps} />;
 
   switch (type) {
     case "Alimentation & Courses": return <ShoppingCart {...iconProps} />;
@@ -279,9 +294,18 @@ export function TrendsView({
       const m = tx.month;
       if (!dataMap[m]) return;
 
-      const isInternal = tx.type === "Épargne & Trésorerie" || tx.isInternalTransfer;
-      if (isInternal) {
-        // Internal transfers are never counted as operational revenues or expenses
+      const isInternal = isInternalTransferTransaction(tx);
+      const isRegul = isRegularisationTransaction(tx);
+      if (
+        isInternal ||
+        isRegul ||
+        tx.isInternalTransfer ||
+        tx.excludeFromSpending ||
+        tx.excludeFromIncome ||
+        isInternalTransferCategory(tx.type) ||
+        isRegularisationCategory(tx.type)
+      ) {
+        // Flux internes et régularisations : strictement exclus des revenus et dépenses
         return;
       }
 
@@ -435,7 +459,7 @@ export function TrendsView({
     // Collect all spending categories
     const categoriesSet = new Set<string>();
     horizonTransactions.forEach(t => {
-      if (t.type !== "Épargne & Trésorerie" && !t.isInternalTransfer && t.type !== "Revenus & Aides") {
+      if (!isInternalTransferTransaction(t) && t.type !== "Revenus & Aides") {
         categoriesSet.add(t.type);
       }
     });
@@ -443,7 +467,7 @@ export function TrendsView({
     const results = Array.from(categoriesSet).map(cat => {
       // Latest month total net
       const latestTxs = horizonTransactions.filter(
-        t => t.month === latestMonth && t.type === cat && !t.isInternalTransfer && t.type !== "Épargne & Trésorerie"
+        t => t.month === latestMonth && t.type === cat && !isInternalTransferTransaction(t)
       );
       let latestVal = 0;
       latestTxs.forEach(t => {
@@ -460,7 +484,7 @@ export function TrendsView({
       let priorValTotal = 0;
       if (priorMonths.length > 0) {
         const priorTxs = horizonTransactions.filter(
-          t => priorMonths.includes(t.month) && t.type === cat && !t.isInternalTransfer && t.type !== "Épargne & Trésorerie"
+          t => priorMonths.includes(t.month) && t.type === cat && !isInternalTransferTransaction(t)
         );
         priorTxs.forEach(t => {
           const { isIncome } = checkIsIncomeTx(t, incomeSettings.salary);
