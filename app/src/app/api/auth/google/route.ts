@@ -116,9 +116,11 @@ export async function POST(req: NextRequest) {
       { error: "Paramètre accessToken ou credential manquant." },
       { status: 400 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Erreur de validation Google OAuth.";
     return NextResponse.json(
-      { error: err?.message || "Erreur de validation Google OAuth." },
+      { error: message },
       { status: 500 }
     );
   }

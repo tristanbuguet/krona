@@ -3,14 +3,14 @@
 import React, { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import clsx from "clsx";
-import { 
-  TrendingUp, 
-  Wallet, 
-  ArrowDownLeft, 
-  ShieldCheck, 
-  Repeat, 
-  Activity, 
-  AlertCircle, 
+import {
+  TrendingUp,
+  Wallet,
+  ArrowDownLeft,
+  ShieldCheck,
+  Repeat,
+  Activity,
+  AlertCircle,
   PieChart,
   BarChart3,
   ShoppingCart,
@@ -23,21 +23,21 @@ import {
   Star,
   ArrowRightLeft
 } from "lucide-react";
-import { 
-  ResponsiveContainer, 
+import {
+  ResponsiveContainer,
   ComposedChart,
-  Bar, 
+  Bar,
   Line,
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
+  XAxis,
+  YAxis,
+  CartesianGrid,
   Tooltip,
   ReferenceLine
 } from "recharts";
-import { 
-  Transaction, 
-  FixedIncomeSettings, 
-  CATEGORY_COLORS, 
+import {
+  Transaction,
+  FixedIncomeSettings,
+  CATEGORY_COLORS,
   formatMonthLabel,
   isSalaryTransaction,
   isAidTransaction,
@@ -102,8 +102,8 @@ function checkIsIncomeTx(tx: Transaction, salaryRef = 0): {
   }
   const combinedText = `${tx.name} ${tx.rawName || ""}`.toLowerCase();
 
-  const isAids = 
-    isAidTransaction(tx) || 
+  const isAids =
+    isAidTransaction(tx) ||
     Boolean(combinedText.match(/caf|crous|france travail|pole emploi|ameli|cpam|aide|allocation/i));
 
   const isRefundLabel = Boolean(combinedText.match(/remboursement|avoir/i));
@@ -112,7 +112,7 @@ function checkIsIncomeTx(tx: Transaction, salaryRef = 0): {
     combinedText.match(/salaire|paie|paye|virement sepa|vir sepa|remuneration|rémunération|appointement|appointements|galeries|employeur/i)
   );
 
-  const isSignificantIncome = 
+  const isSignificantIncome =
     tx.type === "Revenus & Aides" &&
     (tx.amount >= 500 || (salaryRef > 0 && tx.amount >= salaryRef * 0.5));
 
@@ -174,12 +174,12 @@ function CustomChartTooltip({ active, payload }: any) {
   const data = payload[0]?.payload;
   if (!data) return null;
 
-  const monthSavingsRate = data.income > 0 
-    ? Math.round((data.savings / data.income) * 100) 
+  const monthSavingsRate = data.income > 0
+    ? Math.round((data.savings / data.income) * 100)
     : 0;
 
   return (
-    <div className="bg-card border border-border rounded-2xl p-3 shadow-xl min-w-[200px] text-xs font-sans select-none">
+    <div className="bg-card/95 backdrop-blur-2xl border border-border rounded-2xl p-3 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] min-w-[200px] text-xs font-sans select-none">
       <div className="font-semibold text-foreground mb-2 pb-1.5 border-b border-border">
         {data.label}
       </div>
@@ -240,7 +240,7 @@ export function TrendsView({
   // Filter months according to selected horizon
   const selectedMonths = useMemo(() => {
     if (allMonthsDesc.length === 0) return [];
-    
+
     if (horizon === "3m") {
       return allMonthsDesc.slice(0, 3);
     }
@@ -330,9 +330,9 @@ export function TrendsView({
 
         // Detection of fixed incompressible charges (rent, loans, subscriptions, essential utilities)
         const nam = `${tx.name} ${tx.rawName || ""}`.toLowerCase();
-        const isFixed = 
-          tx.type === "Logement & Maison" || 
-          tx.type === "Abonnements & Forfaits" || 
+        const isFixed =
+          tx.type === "Logement & Maison" ||
+          tx.type === "Abonnements & Forfaits" ||
           tx.isSubscription ||
           nam.includes("loyer") ||
           nam.includes("assurance") ||
@@ -397,11 +397,11 @@ export function TrendsView({
   }, [chronologicalMonths, horizonTransactions, incomeSettings]);
 
   // Macro KPIs
-  const { 
-    totalSavings, 
-    avgSavingsRate, 
-    avgDiscretionaryExpenses, 
-    avgMonthlyIncome, 
+  const {
+    totalSavings,
+    avgSavingsRate,
+    avgDiscretionaryExpenses,
+    avgMonthlyIncome,
     avgMonthlyExpenses,
     avgMonthlySavings,
     discretionaryRatio,
@@ -499,8 +499,8 @@ export function TrendsView({
 
       const avgPrior = priorMonths.length > 0 ? (priorValTotal / priorMonths.length) : latestVal;
       const diffAmount = latestVal - avgPrior;
-      const diffPercent = avgPrior > 0 
-        ? Math.round((diffAmount / avgPrior) * 100) 
+      const diffPercent = avgPrior > 0
+        ? Math.round((diffAmount / avgPrior) * 100)
         : (latestVal > 0 ? 100 : 0);
 
       // Smart variation badge without redundant arrows
@@ -652,8 +652,8 @@ export function TrendsView({
                   <span className="truncate">Sur {selectedMonths.length} {selectedMonths.length > 1 ? "mois analysés" : "mois analysé"}</span>
                   <span className={clsx(
                     "tabular-nums shrink-0 ml-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium",
-                    avgMonthlySavings >= 0 
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-500" 
+                    avgMonthlySavings >= 0
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-500"
                       : "bg-rose-500/10 text-rose-500"
                   )}>
                     {formatEurosFr(avgMonthlySavings, true)} / mois
@@ -748,64 +748,64 @@ export function TrendsView({
 
           <div className="flex-1 w-full min-h-0">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart 
-                data={monthlyData} 
+              <ComposedChart
+                data={monthlyData}
                 margin={{ top: 12, right: 16, left: -10, bottom: 4 }}
                 barCategoryGap="25%"
                 barGap={6}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(120, 120, 120, 0.12)" />
-                <XAxis 
-                  dataKey="label" 
-                  axisLine={false} 
-                  tickLine={false} 
+                <XAxis
+                  dataKey="label"
+                  axisLine={false}
+                  tickLine={false}
                   height={28}
-                  tick={<CustomXAxisTick />} 
+                  tick={<CustomXAxisTick />}
                 />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
                   tick={{ fill: "#888888", fontSize: 11, fontFamily: "var(--font-space-grotesk)" }}
                   tickFormatter={(val) => `${val.toLocaleString("fr-FR")} €`}
                 />
-                <Tooltip 
-                  content={<CustomChartTooltip />} 
-                  cursor={{ fill: 'rgba(255, 255, 255, 0.03)', radius: 12 }} 
+                <Tooltip
+                  content={<CustomChartTooltip />}
+                  cursor={{ fill: 'rgba(255, 255, 255, 0.03)', radius: 12 }}
                 />
-                <ReferenceLine 
-                  y={avgMonthlyExpenses} 
-                  stroke="rgba(255, 255, 255, 0.12)" 
-                  strokeDasharray="3 3" 
+                <ReferenceLine
+                  y={avgMonthlyExpenses}
+                  stroke="rgba(255, 255, 255, 0.12)"
+                  strokeDasharray="3 3"
                 />
-                <Bar 
-                  dataKey="income" 
-                  name="Revenus" 
-                  fill="#10B981" 
-                  radius={[6, 6, 0, 0]} 
-                  maxBarSize={36} 
+                <Bar
+                  dataKey="income"
+                  name="Revenus"
+                  fill="#10B981"
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={36}
                   barSize={32}
                   isAnimationActive={true}
                   animationDuration={500}
                   animationEasing="ease-out"
                 />
-                <Bar 
-                  dataKey="expenses" 
-                  name="Dépenses nettes" 
-                  fill="#71717A" 
-                  radius={[6, 6, 0, 0]} 
-                  maxBarSize={36} 
+                <Bar
+                  dataKey="expenses"
+                  name="Dépenses nettes"
+                  fill="#71717A"
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={36}
                   barSize={32}
                   isAnimationActive={true}
                   animationDuration={500}
                   animationEasing="ease-out"
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="savings" 
-                  name="Épargne nette" 
-                  stroke="#3B82F6" 
-                  strokeWidth={2.5} 
-                  dot={{ r: 4, fill: "#3B82F6", strokeWidth: 2, stroke: "#ffffff" }} 
+                <Line
+                  type="monotone"
+                  dataKey="savings"
+                  name="Épargne nette"
+                  stroke="#3B82F6"
+                  strokeWidth={2.5}
+                  dot={{ r: 4, fill: "#3B82F6", strokeWidth: 2, stroke: "#ffffff" }}
                   activeDot={{ r: 6, fill: "#3B82F6", strokeWidth: 2, stroke: "#ffffff" }}
                   isAnimationActive={true}
                   animationDuration={500}
@@ -836,7 +836,7 @@ export function TrendsView({
                   <div key={item.category} className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <div 
+                        <div
                           className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border border-border/80"
                           style={{ backgroundColor: `${catColor.ring}18` }}
                         >
@@ -861,8 +861,8 @@ export function TrendsView({
                           item.isIncrease
                             ? "bg-rose-500/10 text-rose-500 dark:text-rose-400"
                             : item.isNeutral
-                            ? "bg-zinc-500/10 text-zinc-400"
-                            : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-500"
+                              ? "bg-zinc-500/10 text-zinc-400"
+                              : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-500"
                         )}>
                           {item.badgeText}
                         </span>
@@ -871,7 +871,7 @@ export function TrendsView({
 
                     {/* Fine minimalist progress bar */}
                     <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
-                      <div 
+                      <div
                         className={clsx(
                           "h-full rounded-full transition-all duration-500 ease-out",
                           item.isIncrease ? "bg-amber-500/80" : "bg-emerald-500/80"
@@ -905,21 +905,21 @@ export function TrendsView({
             {/* 1. Global Multi-Segment Gauge (without duplicate text below) */}
             <div className="h-2.5 rounded-full overflow-hidden flex gap-0.5 bg-white/[0.04] p-0.5 shrink-0 mb-2">
               {budgetStructure.widthFixed > 0 && (
-                <div 
+                <div
                   className="h-full bg-indigo-500 rounded-l-full transition-all duration-500 ease-out"
                   style={{ width: `${budgetStructure.widthFixed}%` }}
                   title={`Fixes : ${budgetStructure.fixedShare}%`}
                 />
               )}
               {budgetStructure.widthVariable > 0 && (
-                <div 
+                <div
                   className="h-full bg-amber-500 transition-all duration-500 ease-out"
                   style={{ width: `${budgetStructure.widthVariable}%` }}
                   title={`Variables : ${budgetStructure.variableShare}%`}
                 />
               )}
               {budgetStructure.widthSavings > 0 && (
-                <div 
+                <div
                   className="h-full bg-emerald-500 rounded-r-full transition-all duration-500 ease-out"
                   style={{ width: `${budgetStructure.widthSavings}%` }}
                   title={`Épargne : ${budgetStructure.savingsShare}%`}

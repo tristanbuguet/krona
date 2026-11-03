@@ -85,8 +85,9 @@ export function MonthlyLimitCard({
 
     loadFromStorage();
 
-    const handleCloudRestored = (e: any) => {
-      const payload = e?.detail?.payload;
+    const handleCloudRestored = (e: Event) => {
+      const customEv = e as CustomEvent<{ payload?: { settings?: { monthlyLimitConfig?: { type: "amount" | "percent"; value: number } }; monthlyLimitConfig?: { type: "amount" | "percent"; value: number } } }>;
+      const payload = customEv?.detail?.payload;
       const cfg = payload?.settings?.monthlyLimitConfig || payload?.monthlyLimitConfig;
       if (
         cfg &&

@@ -35,6 +35,7 @@ import {
   isRegularisationTransaction,
   INTERNAL_TRANSFER_CATEGORY
 } from "@/lib/types";
+import { UserFinancialPayload } from "@/lib/cloudSync";
 
 function parseAndFormatDate(dateStr: string) {
   let parsedDate = new Date(dateStr);
@@ -862,15 +863,21 @@ export function Dashboard({
   // Settings, Inbox & Navigation Listeners
   useEffect(() => {
     const handleOpenSettings = () => setShowSettingsModal(true);
-    const handleOpenInbox = (e?: any) => {
+    const handleOpenInbox = (e?: Event) => {
       updateBellPosition();
-      if (e?.detail && typeof e.detail.open === "boolean") {
-        setShowInbox(e.detail.open);
+      const customEv = e as CustomEvent<{ open?: boolean }> | undefined;
+      if (customEv?.detail && typeof customEv.detail.open === "boolean") {
+        setShowInbox(customEv.detail.open);
       } else {
         setShowInbox(prev => !prev);
       }
     };
-    const handleNav = (e: any) => setActiveTab(e.detail.tab);
+    const handleNav = (e: Event) => {
+      const customEv = e as CustomEvent<{ tab: "dashboard" | "trends" | "accounts" | "subscriptions" }>;
+      if (customEv?.detail?.tab) {
+        setActiveTab(customEv.detail.tab);
+      }
+    };
     window.addEventListener("open-settings", handleOpenSettings);
     window.addEventListener("open-inbox", handleOpenInbox);
     window.addEventListener("navigate-tab", handleNav);
@@ -1009,8 +1016,9 @@ export function Dashboard({
 
     setIsDataLoaded(true);
 
-    const handleCloudRestored = (e: any) => {
-      const payload = e?.detail?.payload;
+    const handleCloudRestored = (e: Event) => {
+      const customEv = e as CustomEvent<{ payload?: Partial<UserFinancialPayload>; data?: Partial<UserFinancialPayload> }>;
+      const payload = customEv?.detail?.payload || customEv?.detail?.data;
       if (!payload) return;
 
       if (Array.isArray(payload.transactions)) {

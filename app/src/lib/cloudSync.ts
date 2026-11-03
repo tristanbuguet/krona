@@ -68,6 +68,8 @@ export interface UserFinancialPayload {
   settings: UserFinancialSettings;
   learningRules: LearningRuleMap;
   lastUpdated: string;
+  monthlyCap?: number | null;
+  incomeSettings?: FixedIncomeSettings;
   // Champs de compatibilité directe à la racine
   categoryBudgets: Record<string, number>;
   fixedIncomeSettings: FixedIncomeSettings;
@@ -158,8 +160,14 @@ export function mergeCloudAndLocalData(
   delete mergedBudgets["Virement interne"];
   delete mergedBudgets["Régularisation"];
 
-  const localIncome = local.settings?.incomeSettings || local.fixedIncomeSettings;
-  const cloudIncome = cloud?.settings?.incomeSettings || cloud?.fixedIncomeSettings;
+  const localIncome =
+    local.settings?.incomeSettings ||
+    local.fixedIncomeSettings ||
+    local.incomeSettings;
+  const cloudIncome =
+    cloud?.settings?.incomeSettings ||
+    cloud?.fixedIncomeSettings ||
+    cloud?.incomeSettings;
   const hasLocalIncome =
     localIncome &&
     (localIncome.salary > 0 ||
@@ -208,13 +216,17 @@ export function mergeCloudAndLocalData(
       ? local.settings.monthlyCap
       : local.monthlySpendingLimit !== undefined && local.monthlySpendingLimit !== null
         ? local.monthlySpendingLimit
-        : null;
+        : local.monthlyCap !== undefined && local.monthlyCap !== null
+          ? local.monthlyCap
+          : null;
   const cloudCap =
     cloud?.settings?.monthlyCap !== undefined && cloud?.settings?.monthlyCap !== null
       ? cloud.settings.monthlyCap
       : cloud?.monthlySpendingLimit !== undefined && cloud?.monthlySpendingLimit !== null
         ? cloud.monthlySpendingLimit
-        : null;
+        : cloud?.monthlyCap !== undefined && cloud?.monthlyCap !== null
+          ? cloud.monthlyCap
+          : null;
 
   const mergedSpendingLimit =
     localCap !== null
@@ -267,6 +279,8 @@ export function mergeCloudAndLocalData(
     },
     learningRules: mergedKnowledge,
     lastUpdated: nowIso,
+    monthlyCap: mergedSpendingLimit,
+    incomeSettings: mergedIncomeSettings,
     // Champs racine rétrocompatibles
     categoryBudgets: mergedBudgets,
     fixedIncomeSettings: mergedIncomeSettings,
@@ -344,25 +358,29 @@ export function readLocalFinancialData(): Partial<UserFinancialPayload> {
   const selectedMonth = localStorage.getItem("krona_selected_month");
   const nowIso = new Date().toISOString();
 
+  const fallbackLimitConfig = { type: "amount" as const, value: 0 };
+
   return {
     transactions,
     accounts,
+    learningRules: merchantKnowledge,
+    monthlyCap: resolvedMonthlyCap,
+    incomeSettings: fixedIncomeSettings,
     settings: {
       monthlyCap: resolvedMonthlyCap,
-      monthlyLimitConfig: monthlyLimitConfig as any,
+      monthlyLimitConfig: monthlyLimitConfig ?? fallbackLimitConfig,
       incomeSettings: fixedIncomeSettings,
       categoryBudgets,
       ignoredSubscriptions,
       selectedBank,
       selectedMonth,
     },
-    learningRules: merchantKnowledge,
     lastUpdated: nowIso,
     categoryBudgets,
     fixedIncomeSettings,
     ignoredSubscriptions,
     merchantKnowledge,
-    monthlyLimitConfig,
+    monthlyLimitConfig: monthlyLimitConfig ?? fallbackLimitConfig,
     monthlySpendingLimit: resolvedMonthlyCap,
     selectedBank,
     selectedMonth,

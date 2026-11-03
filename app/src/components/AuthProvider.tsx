@@ -13,6 +13,7 @@ import {
   SyncStatus,
   CloudSyncPayload,
   mergeCloudAndLocalData,
+  normalizeUserFinancialPayload,
   readLocalFinancialData,
   writeLocalFinancialData,
   clearLocalFinancialData,
@@ -39,16 +40,55 @@ const CLOUD_FALLBACK_PREFIX = "krona_cloud_backup_";
 const DEFAULT_CLIENT_ID =
   "364266284096-8fflm97j1n422q7omq3uggrr5uf9ou8f.apps.googleusercontent.com";
 
+interface GoogleTokenResponse {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+}
+
+interface GoogleTokenClientConfig {
+  client_id: string;
+  scope: string;
+  prompt?: string;
+  callback: (response: GoogleTokenResponse) => void | Promise<void>;
+  error_callback?: (error: unknown) => void;
+}
+
+interface GoogleTokenClient {
+  requestAccessToken: () => void;
+}
+
+interface GoogleOAuth2Namespace {
+  initTokenClient: (config: GoogleTokenClientConfig) => GoogleTokenClient;
+}
+
+interface GoogleAccountsNamespace {
+  oauth2?: GoogleOAuth2Namespace;
+  id?: {
+    disableAutoSelect: () => void;
+  };
+}
+
+interface GoogleGlobalObject {
+  accounts?: GoogleAccountsNamespace;
+}
+
+declare global {
+  interface Window {
+    google?: GoogleGlobalObject;
+  }
+}
+
 function loadGoogleIdentityScript(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
-  if ((window as any).google?.accounts?.oauth2) return Promise.resolve();
+  if (window.google?.accounts?.oauth2) return Promise.resolve();
 
   return new Promise((resolve, reject) => {
     const existing = document.querySelector(
       'script[src="https://accounts.google.com/gsi/client"]'
     ) as HTMLScriptElement | null;
     if (existing) {
-      if ((window as any).google?.accounts?.oauth2) {
+      if (window.google?.accounts?.oauth2) {
         resolve();
       } else {
         existing.addEventListener("load", () => resolve(), { once: true });
@@ -165,58 +205,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   method: "GET",
                   headers: {
                     "x-krona-user-id": activeUser.id,
+                    "x-user-email": activeUser.email,
                   },
                 }
               );
               if (getRes.ok) {
-                const getData = await getRes.json();
-                if (getData?.payload) {
-                  serverCloudPayload = getData.payload as CloudSyncPayload;
-                }
+                const getData = (await getRes.json()) as {
+                  success?: boolean;
+                  data?: Partial<CloudSyncPayload> | null;
+                  payload?: Partial<CloudSyncPayload> | null;
+                };
+                serverCloudPayload = getData?.data ?? getData?.payload ?? null;
               }
             } catch {}
 
             // 2. Fusion non destructive et sauvegarde via POST /api/sync
+            const candidatePayload = mergeCloudAndLocalData(
+              localData,
+              serverCloudPayload || localBackupCloud
+            );
+
             const res = await fetch("/api/sync", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 "x-krona-user-id": activeUser.id,
+                "x-user-email": activeUser.email,
               },
               body: JSON.stringify({
                 userId: activeUser.id,
-                payload: mergeCloudAndLocalData(
-                  localData,
-                  serverCloudPayload || localBackupCloud
-                ),
+                email: activeUser.email,
+                data: candidatePayload,
+                payload: candidatePayload,
                 mode: "merge",
               }),
             });
 
             if (res.ok) {
-              const data = await res.json();
-              if (data?.payload) {
-                syncedPayload = data.payload as CloudSyncPayload;
+              const data = (await res.json()) as {
+                success?: boolean;
+                data?: CloudSyncPayload;
+                payload?: CloudSyncPayload;
+              };
+              if (data?.data || data?.payload) {
+                syncedPayload = (data.data || data.payload) as CloudSyncPayload;
               }
             }
           } else {
+            const candidatePayload = normalizeUserFinancialPayload(localData);
             const res = await fetch("/api/sync", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 "x-krona-user-id": activeUser.id,
+                "x-user-email": activeUser.email,
               },
               body: JSON.stringify({
                 userId: activeUser.id,
-                payload: localData,
+                email: activeUser.email,
+                data: candidatePayload,
+                payload: candidatePayload,
                 mode: "overwrite",
               }),
             });
 
             if (res.ok) {
-              const data = await res.json();
-              if (data?.payload) {
-                syncedPayload = data.payload as CloudSyncPayload;
+              const data = (await res.json()) as {
+                success?: boolean;
+                data?: CloudSyncPayload;
+                payload?: CloudSyncPayload;
+              };
+              if (data?.data || data?.payload) {
+                syncedPayload = (data.data || data.payload) as CloudSyncPayload;
               }
             }
           }
@@ -253,7 +313,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (notifyComponents && typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("krona-cloud-data-restored", {
-              detail: { payload: syncedPayload },
+              detail: { payload: syncedPayload, data: syncedPayload },
             })
           );
         }
@@ -365,13 +425,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         originalSetItem.apply(this, [key, value]);
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const isQuotaExceeded =
+          Boolean(err && typeof err === "object" && (
+            ("name" in err && (err as { name: unknown }).name === "QuotaExceededError") ||
+            ("code" in err && (err as { code: unknown }).code === 22) ||
+            ("number" in err && (err as { number: unknown }).number === -2147024882)
+          ));
+
         // En cas de dépassement de quota (QuotaExceededError), tenter de purger les anciennes sauvegardes de secours
-        if (
-          err?.name === "QuotaExceededError" ||
-          err?.code === 22 ||
-          err?.number === -2147024882
-        ) {
+        if (isQuotaExceeded) {
           try {
             // Supprimer les clés de miroir de secours volumineuses du localStorage
             for (let i = 0; i < window.localStorage.length; i++) {
@@ -420,9 +483,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    const handleCustomSyncEvent = (e: any) => {
-      const requestedMode = e?.detail?.mode === "merge" ? "merge" : "overwrite";
-      const immediate = Boolean(e?.detail?.immediate);
+    const handleCustomSyncEvent = (e: Event) => {
+      const customEv = e as CustomEvent<{ mode?: "merge" | "overwrite"; immediate?: boolean }>;
+      const requestedMode = customEv?.detail?.mode === "merge" ? "merge" : "overwrite";
+      const immediate = Boolean(customEv?.detail?.immediate);
       scheduleBackgroundSync(requestedMode, immediate ? 100 : 800);
     };
     window.addEventListener("krona-local-data-mutated", handleCustomSyncEvent);
@@ -473,7 +537,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         await loadGoogleIdentityScript();
-        const oauth2 = (window as any).google?.accounts?.oauth2;
+        const oauth2 = window.google?.accounts?.oauth2;
         if (!oauth2) {
           setAuthError("Le SDK Google Identity Services n'a pas pu être initialisé.");
           return;
@@ -484,7 +548,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             client_id: activeClientId,
             scope: "openid email profile",
             prompt: "select_account",
-            callback: async (tokenResponse: any) => {
+            callback: async (tokenResponse: GoogleTokenResponse) => {
               if (tokenResponse?.error) {
                 reject(
                   new Error(
@@ -507,9 +571,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 });
 
                 if (apiRes.ok) {
-                  const data = await apiRes.json();
+                  const data = (await apiRes.json()) as { user?: GoogleUserProfile };
                   if (data?.user) {
-                    resolve(data.user as GoogleUserProfile);
+                    resolve(data.user);
                     return;
                   }
                 }
@@ -525,7 +589,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 if (!res.ok) {
                   throw new Error("Impossible de récupérer le profil Google.");
                 }
-                const info = await res.json();
+                const info = (await res.json()) as {
+                  sub?: string;
+                  id?: string;
+                  email?: string;
+                  name?: string;
+                  given_name?: string;
+                  family_name?: string;
+                  picture?: string;
+                };
                 const pic = info.picture ? String(info.picture) : undefined;
                 resolve({
                   id: String(info.sub || info.id || info.email),
@@ -546,12 +618,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 reject(err);
               }
             },
-            error_callback: (err: any) => {
-              reject(
-                new Error(
-                  err?.message || "Connexion Google annulée ou fermée."
-                )
-              );
+            error_callback: (err: unknown) => {
+              const message =
+                err && typeof err === "object" && "message" in err
+                  ? String((err as { message: unknown }).message)
+                  : "Connexion Google annulée ou fermée.";
+              reject(new Error(message));
             },
           });
 
@@ -568,10 +640,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         await performSync(oauthUser, "merge", true);
-      } catch (err: any) {
-        setAuthError(
-          err?.message || "La connexion avec Google n'a pas pu aboutir."
-        );
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "La connexion avec Google n'a pas pu aboutir.";
+        setAuthError(message);
         setSyncStatus("idle");
       }
     },
@@ -592,8 +666,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       localStorage.removeItem(AUTH_STORAGE_KEY);
       clearLocalFinancialData();
-      if (typeof window !== "undefined" && (window as any).google?.accounts?.id) {
-        (window as any).google.accounts.id.disableAutoSelect();
+      if (typeof window !== "undefined" && window.google?.accounts?.id) {
+        window.google.accounts.id.disableAutoSelect();
       }
     } catch {
     } finally {

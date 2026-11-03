@@ -497,7 +497,7 @@ export function ExpensesCurveChart({
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.12 }}
             style={tooltipStyle}
-            className="absolute pointer-events-none z-20 px-4 py-3 w-max min-w-[180px] rounded-xl bg-card/95 border border-border shadow-xl backdrop-blur-md flex flex-col whitespace-nowrap"
+            className="absolute pointer-events-none z-20 px-4 py-3 w-max min-w-[180px] rounded-2xl bg-card/95 border border-border shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] backdrop-blur-2xl flex flex-col whitespace-nowrap"
           >
             {/* Date du jour */}
             <div className="text-xs font-medium text-muted-foreground font-sans truncate whitespace-nowrap">

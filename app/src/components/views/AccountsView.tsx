@@ -2,16 +2,16 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Landmark, 
-  Wallet, 
-  CreditCard, 
-  Plus, 
-  UploadCloud, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  Check, 
-  X, 
+import {
+  Landmark,
+  Wallet,
+  CreditCard,
+  Plus,
+  UploadCloud,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Check,
+  X,
   Calendar,
   Activity,
   Trash2,
@@ -64,9 +64,10 @@ export function AccountsView({
       }
     };
     loadAccounts();
-    const handleCloudRestored = (e: any) => {
-      if (Array.isArray(e?.detail?.payload?.accounts)) {
-        setAccounts(e.detail.payload.accounts);
+    const handleCloudRestored = (e: Event) => {
+      const customEv = e as CustomEvent<{ payload?: { accounts?: AccountInfo[] } }>;
+      if (Array.isArray(customEv?.detail?.payload?.accounts)) {
+        setAccounts(customEv.detail.payload.accounts);
       } else {
         loadAccounts();
       }
@@ -93,16 +94,16 @@ export function AccountsView({
         localStorage.setItem("krona_accounts_v1", JSON.stringify(newList));
       }
       window.dispatchEvent(new CustomEvent("krona-local-data-mutated", { detail: { mode: "overwrite" } }));
-    } catch (e) {}
+    } catch (e) { }
   };
 
   // Compute metrics for each account from actual transactions
   const accountsData = useMemo(() => {
     return accounts.map(acc => {
       // Find matching transactions by bank and account type
-      const isSavingsAcc = acc.type === "Livret d'épargne" || 
-        acc.id.includes("savings") || 
-        acc.name.toLowerCase().includes("livret") || 
+      const isSavingsAcc = acc.type === "Livret d'épargne" ||
+        acc.id.includes("savings") ||
+        acc.name.toLowerCase().includes("livret") ||
         acc.name.toLowerCase().includes("épargne");
 
       const accTx = transactions.filter(t => {
@@ -222,8 +223,8 @@ export function AccountsView({
     const bankKey = bank.toLowerCase().includes("agricole")
       ? "ca"
       : bank.toLowerCase().includes("epargne") || bank.toLowerCase().includes("caisse")
-      ? "ce"
-      : "bourso";
+        ? "ce"
+        : "bourso";
     localStorage.setItem("krona_selected_bank", bankKey);
     if (onTriggerUpload) {
       onTriggerUpload(bankKey);
@@ -265,176 +266,175 @@ export function AccountsView({
 
       {/* Scrollable Content Container */}
       <div className="flex-1 overflow-y-auto pr-2 space-y-6 no-scrollbar min-h-0">
-      {accounts.length === 0 ? (
-        <div className="bg-card border border-border rounded-2xl p-10 sm:p-14 shadow-sm flex flex-col items-center justify-center text-center">
-          <div className="w-12 h-12 rounded-full bg-neutral-100 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-4 text-muted-foreground">
-            <Landmark size={20} />
-          </div>
-          <h3 className="text-base font-semibold text-foreground mb-1 font-sans">
-            Aucun compte configuré
-          </h3>
-          <p className="text-sm text-muted-foreground max-w-md mb-6 font-sans leading-relaxed">
-            Importez votre premier relevé bancaire CSV ou rattachez un compte manuellement pour suivre vos soldes et mouvements.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => handleTriggerUploadForBank("bourso")}
-              className="h-10 px-5 rounded-full bg-foreground text-background text-xs sm:text-sm font-medium hover:opacity-90 active:scale-95 transition-all flex items-center gap-2 cursor-pointer font-sans"
-            >
-              <UploadCloud size={15} />
-              <span>Importer un relevé CSV</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleOpenAdd}
-              className="h-10 px-5 rounded-full bg-black/5 dark:bg-white/[0.06] hover:bg-black/10 dark:hover:bg-white/[0.1] border border-border text-xs sm:text-sm font-medium text-foreground flex items-center gap-2 transition-all active:scale-95 cursor-pointer font-sans"
-            >
-              <Plus size={15} />
-              <span>Ajouter un compte</span>
-            </button>
-          </div>
-        </div>
-      ) : (
-        <>
-      {/* Total Consolidated Wealth Card (p-6, Space Grotesk tabular-nums) */}
-      <div className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shrink-0 transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
-        <div>
-          <span className="text-xs sm:text-sm font-medium text-muted-foreground font-sans block mb-1">
-            Solde total consolidé (Tous comptes)
-          </span>
-          <div className="text-3xl sm:text-4xl font-bold tracking-tight text-foreground tabular-nums font-sans">
-            {formatAmount(totalWealth, false)}
-          </div>
-          <p className="text-xs text-muted-foreground font-sans mt-1">
-            Cumul des soldes déclarés et des mouvements de relevés
-          </p>
-        </div>
-
-        <div className="flex items-center gap-6 sm:border-l sm:border-border sm:pl-6">
-          <div>
-            <div className="text-xs text-muted-foreground font-sans mb-1">Comptes actifs</div>
-            <div className="text-xl font-bold text-foreground tabular-nums font-sans">
-              {accounts.length}
+        {accounts.length === 0 ? (
+          <div className="bg-card border border-border rounded-2xl p-10 sm:p-14 shadow-sm flex flex-col items-center justify-center text-center">
+            <div className="w-12 h-12 rounded-full bg-neutral-100 dark:bg-white/[0.04] border border-border flex items-center justify-center mb-4 text-muted-foreground">
+              <Landmark size={20} />
+            </div>
+            <h3 className="text-base font-semibold text-foreground mb-1 font-sans">
+              Aucun compte configuré
+            </h3>
+            <p className="text-sm text-muted-foreground max-w-md mb-6 font-sans leading-relaxed">
+              Importez votre premier relevé bancaire CSV ou rattachez un compte manuellement pour suivre vos soldes et mouvements.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => handleTriggerUploadForBank("bourso")}
+                className="h-10 px-5 rounded-full bg-foreground text-background text-xs sm:text-sm font-medium hover:opacity-90 active:scale-95 transition-all flex items-center gap-2 cursor-pointer font-sans"
+              >
+                <UploadCloud size={15} />
+                <span>Importer un relevé CSV</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenAdd}
+                className="h-10 px-5 rounded-full bg-black/5 dark:bg-white/[0.06] hover:bg-black/10 dark:hover:bg-white/[0.1] border border-border text-xs sm:text-sm font-medium text-foreground flex items-center gap-2 transition-all active:scale-95 cursor-pointer font-sans"
+              >
+                <Plus size={15} />
+                <span>Ajouter un compte</span>
+              </button>
             </div>
           </div>
-          <div>
-            <div className="text-xs text-muted-foreground font-sans mb-1">Mouvements tracés</div>
-            <div className="text-xl font-bold text-foreground tabular-nums font-sans">
-              {transactions.length} ops
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Modular Accounts Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {accountsData.map((acc) => {
-          const isBourso = acc.bank === "BoursoBank";
-          const isCA = acc.bank === "Crédit Agricole";
-          const isCE = acc.bank === "Caisse d'Épargne";
-
-          return (
-            <div
-              key={acc.id}
-              className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-foreground/20 transition-all group"
-            >
-              {/* Account Header */}
+        ) : (
+          <>
+            {/* Total Consolidated Wealth Card (p-6, Space Grotesk tabular-nums) */}
+            <div className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shrink-0 transition-all hover:bg-black/[0.01] dark:hover:bg-white/[0.02]">
               <div>
-                <div className="flex items-start justify-between gap-3 mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center shrink-0">
-                      {isBourso ? (
-                        <BoursoBankLogo className="w-4.5 h-4.5 text-foreground" />
-                      ) : isCA ? (
-                        <CreditAgricoleLogo className="w-5 h-4 text-foreground" />
-                      ) : isCE ? (
-                        <CaisseEpargneLogo className="w-4.5 h-4.5" />
-                      ) : (
-                        <Landmark size={20} className="text-foreground" />
-                      )}
-                    </div>
+                <span className="text-xs sm:text-sm font-medium text-muted-foreground font-sans block mb-1">
+                  Solde total consolidé (Tous comptes)
+                </span>
+                <div className="text-3xl sm:text-4xl font-bold tracking-tight text-foreground tabular-nums font-sans">
+                  {formatAmount(totalWealth, false)}
+                </div>
+                <p className="text-xs text-muted-foreground font-sans mt-1">
+                  Cumul des soldes déclarés et des mouvements de relevés
+                </p>
+              </div>
+
+              <div className="flex items-center gap-6 sm:border-l sm:border-border sm:pl-6">
+                <div>
+                  <div className="text-xs text-muted-foreground font-sans mb-1">Comptes actifs</div>
+                  <div className="text-xl font-bold text-foreground tabular-nums font-sans">
+                    {accounts.length}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground font-sans mb-1">Mouvements tracés</div>
+                  <div className="text-xl font-bold text-foreground tabular-nums font-sans">
+                    {transactions.length} ops
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modular Accounts Cards Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {accountsData.map((acc) => {
+                const isBourso = acc.bank === "BoursoBank";
+                const isCA = acc.bank === "Crédit Agricole";
+                const isCE = acc.bank === "Caisse d'Épargne";
+
+                return (
+                  <div
+                    key={acc.id}
+                    className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col justify-between hover:border-foreground/20 transition-all group"
+                  >
+                    {/* Account Header */}
                     <div>
-                      <h3 className="font-bold text-base text-foreground font-sans truncate">
-                        {acc.name}
-                      </h3>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground font-sans">
-                        <span>{acc.type}</span>
-                        {acc.accountNumber && <span>· {acc.accountNumber}</span>}
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-black/5 dark:bg-white/[0.04] border border-border flex items-center justify-center shrink-0">
+                            {isBourso ? (
+                              <BoursoBankLogo className="w-4.5 h-4.5 text-foreground" />
+                            ) : isCA ? (
+                              <CreditAgricoleLogo className="w-5 h-4 text-foreground" />
+                            ) : isCE ? (
+                              <CaisseEpargneLogo className="w-4.5 h-4.5" />
+                            ) : (
+                              <Landmark size={20} className="text-foreground" />
+                            )}
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-base text-foreground font-sans truncate">
+                              {acc.name}
+                            </h3>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground font-sans">
+                              <span>{acc.type}</span>
+                              {acc.accountNumber && <span>· {acc.accountNumber}</span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(acc)}
+                          className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
+                          aria-label="Modifier ce compte"
+                        >
+                          <Edit2 size={14} />
+                        </button>
                       </div>
-                    </div>
-                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleOpenEdit(acc)}
-                    className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
-                    aria-label="Modifier ce compte"
-                  >
-                    <Edit2 size={14} />
-                  </button>
-                </div>
+                      {/* Account Balance */}
+                      <div className="mb-4">
+                        <div className="text-xs text-muted-foreground font-sans mb-1">Solde estimé</div>
+                        <div className={`text-2xl sm:text-3xl font-bold tracking-tight tabular-nums font-sans ${acc.computedBalance >= 0 ? "text-foreground" : "text-rose-500"
+                          }`}>
+                          {formatAmount(acc.computedBalance, false)}
+                        </div>
+                      </div>
 
-                {/* Account Balance */}
-                <div className="mb-4">
-                  <div className="text-xs text-muted-foreground font-sans mb-1">Solde estimé</div>
-                  <div className={`text-2xl sm:text-3xl font-bold tracking-tight tabular-nums font-sans ${
-                    acc.computedBalance >= 0 ? "text-foreground" : "text-rose-500"
-                  }`}>
-                    {formatAmount(acc.computedBalance, false)}
-                  </div>
-                </div>
-
-                {/* Meta stats */}
-                <div className="flex items-center justify-between text-xs text-muted-foreground font-sans py-2.5 border-y border-border/50 mb-4">
-                  <button
-                    type="button"
-                    onClick={() => onNavigateTransactions && onNavigateTransactions(acc.bank)}
-                    className="hover:underline flex items-center gap-1 cursor-pointer text-left hover:text-foreground transition-colors group/link"
-                  >
-                    <span>Volume : <strong className="text-foreground tabular-nums">{acc.txCount}</strong> opérations</span>
-                    <ArrowRight size={11} className="opacity-60 group-hover/link:opacity-100 transition-opacity" />
-                  </button>
-                  <span>
-                    {acc.lastTxDate ? `Dernier relevé : ${acc.lastTxDate}` : "Aucun relevé"}
-                  </span>
-                </div>
-
-                {/* Recent Transactions Preview */}
-                {acc.recentTx.length > 0 && (
-                  <div className="space-y-2 mb-4">
-                    <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-sans">
-                      Derniers mouvements
-                    </span>
-                    {acc.recentTx.map((tx) => (
-                      <div key={tx.id} className="flex items-center justify-between text-xs font-sans">
-                        <span className="text-muted-foreground truncate max-w-[160px]">{tx.name}</span>
-                        <span className={`tabular-nums font-medium ${tx.amount > 0 ? "text-emerald-600 dark:text-emerald-500" : "text-foreground"}`}>
-                          {formatAmount(tx.amount)}
+                      {/* Meta stats */}
+                      <div className="flex items-center justify-between text-xs text-muted-foreground font-sans py-2.5 border-y border-border/50 mb-4">
+                        <button
+                          type="button"
+                          onClick={() => onNavigateTransactions && onNavigateTransactions(acc.bank)}
+                          className="hover:underline flex items-center gap-1 cursor-pointer text-left hover:text-foreground transition-colors group/link"
+                        >
+                          <span>Volume : <strong className="text-foreground tabular-nums">{acc.txCount}</strong> opérations</span>
+                          <ArrowRight size={11} className="opacity-60 group-hover/link:opacity-100 transition-opacity" />
+                        </button>
+                        <span>
+                          {acc.lastTxDate ? `Dernier relevé : ${acc.lastTxDate}` : "Aucun relevé"}
                         </span>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
 
-              {/* Action Button: Import CSV for this account */}
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={() => handleTriggerUploadForBank(acc.bank)}
-                  className="w-full h-10 rounded-full bg-black/5 dark:bg-white/[0.06] hover:bg-black/10 dark:hover:bg-white/[0.1] border border-black/[0.06] dark:border-border text-xs font-medium text-foreground flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer font-sans"
-                >
-                  <UploadCloud size={15} />
-                  <span>Importer un relevé {acc.bank}</span>
-                </button>
-              </div>
+                      {/* Recent Transactions Preview */}
+                      {acc.recentTx.length > 0 && (
+                        <div className="space-y-2 mb-4">
+                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-sans">
+                            Derniers mouvements
+                          </span>
+                          {acc.recentTx.map((tx) => (
+                            <div key={tx.id} className="flex items-center justify-between text-xs font-sans">
+                              <span className="text-muted-foreground truncate max-w-[160px]">{tx.name}</span>
+                              <span className={`tabular-nums font-medium ${tx.amount > 0 ? "text-emerald-600 dark:text-emerald-500" : "text-foreground"}`}>
+                                {formatAmount(tx.amount)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action Button: Import CSV for this account */}
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleTriggerUploadForBank(acc.bank)}
+                        className="w-full h-10 rounded-full bg-black/5 dark:bg-white/[0.06] hover:bg-black/10 dark:hover:bg-white/[0.1] border border-black/[0.06] dark:border-border text-xs font-medium text-foreground flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer font-sans"
+                      >
+                        <UploadCloud size={15} />
+                        <span>Importer un relevé {acc.bank}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-      </div>
-        </>
-      )}
+          </>
+        )}
       </div>
 
       {/* Add / Edit Account Modal */}
@@ -453,7 +453,7 @@ export function AccountsView({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               transition={{ type: "spring", stiffness: 350, damping: 28 }}
-              className="relative z-10 w-full max-w-md bg-card border border-border dark:border-white/[0.08] rounded-3xl p-6 shadow-2xl flex flex-col font-sans"
+              className="relative z-10 w-full max-w-md bg-card/95 backdrop-blur-2xl border border-border rounded-2xl p-6 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] flex flex-col font-sans"
             >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold tracking-tight text-foreground">
