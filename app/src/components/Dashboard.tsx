@@ -834,8 +834,8 @@ export function Dashboard({
 
   const [customSpendingLimit, setCustomSpendingLimit] = useState<number | null>(null);
   const [monthlyLimitConfig, setMonthlyLimitConfig] = useState<MonthlyLimitConfig>({
-    type: "amount",
-    value: 0,
+    type: "percent",
+    value: 30,
   });
 
   useEffect(() => {
@@ -845,11 +845,13 @@ export function Dashboard({
         const parsed = JSON.parse(savedConfig);
         if (
           parsed &&
-          (parsed.type === "amount" || parsed.type === "percent") &&
           typeof parsed.value === "number" &&
-          parsed.value > 0
+          parsed.value >= 0
         ) {
-          setMonthlyLimitConfig(parsed);
+          setMonthlyLimitConfig({
+            type: "percent",
+            value: Math.min(100, Math.max(0, parsed.value)),
+          });
         }
       }
       const saved = localStorage.getItem("krona_monthly_spending_limit");
@@ -1103,12 +1105,13 @@ export function Dashboard({
         payload.settings?.monthlyLimitConfig || payload.monthlyLimitConfig;
       if (
         restoredLimitConfig &&
-        (restoredLimitConfig.type === "amount" ||
-          restoredLimitConfig.type === "percent") &&
         typeof restoredLimitConfig.value === "number" &&
-        restoredLimitConfig.value > 0
+        restoredLimitConfig.value >= 0
       ) {
-        setMonthlyLimitConfig(restoredLimitConfig);
+        setMonthlyLimitConfig({
+          type: "percent",
+          value: Math.min(100, Math.max(0, restoredLimitConfig.value)),
+        });
       }
 
       const restoredCap =
@@ -2391,14 +2394,16 @@ export function Dashboard({
   const effectiveReferenceIncome = baseIncome > 0 ? baseIncome : 0;
 
   const handleUpdateLimitConfig = (newCfg: MonthlyLimitConfig) => {
-    setMonthlyLimitConfig(newCfg);
-    const computedSpending =
-      newCfg.type === "percent"
-        ? Math.max(0, Math.round(effectiveReferenceIncome * (1 - newCfg.value / 100)))
-        : newCfg.value;
+    const pctValue = Math.min(100, Math.max(0, newCfg.value));
+    const validatedCfg: MonthlyLimitConfig = {
+      type: "percent",
+      value: pctValue,
+    };
+    setMonthlyLimitConfig(validatedCfg);
+    const computedSpending = Math.max(0, Math.round(effectiveReferenceIncome * (1 - pctValue / 100)));
     setCustomSpendingLimit(computedSpending);
     try {
-      localStorage.setItem("krona_monthly_limit_config", JSON.stringify(newCfg));
+      localStorage.setItem("krona_monthly_limit_config", JSON.stringify(validatedCfg));
       localStorage.setItem("krona_monthly_spending_limit", computedSpending.toString());
       if (typeof window !== "undefined") {
         window.dispatchEvent(
@@ -3194,13 +3199,6 @@ export function Dashboard({
                       customLimit={customSpendingLimit}
                       limitConfig={monthlyLimitConfig}
                       onLimitConfigChange={handleUpdateLimitConfig}
-                      onLimitChange={(limit) => {
-                        handleUpdateLimitConfig(
-                          monthlyLimitConfig.type === "percent"
-                            ? monthlyLimitConfig
-                            : { type: "amount", value: limit }
-                        );
-                      }}
                       selectedMonth={selectedMonth || undefined}
                       onOpenBudgetSettings={() => {
                         setSettingsTab("budgets_data");
@@ -3683,113 +3681,56 @@ export function Dashboard({
                     </div>
                   ) : settingsTab === "budgets_data" ? (
                     <div className="max-w-2xl mx-auto w-full space-y-6">
-                      {/* Contrôle du Plafond Mensuel Global */}
+                      {/* Contrôle du Plafond Mensuel Global (Composant de ligne aligné sur Revenus & Fixes) */}
                       <div>
                         <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.06em] px-3 mb-2 flex items-center gap-1.5 font-sans">
                           Plafond mensuel global
                         </h4>
-                        <div className="rounded-2xl bg-card border border-border p-4 sm:p-5 space-y-4">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="rounded-2xl bg-card border border-border overflow-hidden divide-y divide-border">
+                          {/* Ligne unique structurée à l'identique de Revenus & Fixes */}
+                          <div className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
                             <div>
-                              <div className="text-sm font-medium text-foreground font-sans tracking-tight">Type de calcul du plafond</div>
-                              <div className="text-xs text-muted-foreground font-sans mt-0.5 leading-relaxed">
-                                Montant fixe absolu ou pourcentage de réserve à préserver
-                              </div>
+                              <div className="text-sm font-medium text-foreground font-sans tracking-tight">Réserve à conserver</div>
+                              <div className="text-xs text-muted-foreground font-sans mt-0.5 leading-relaxed">Quote-part des revenus préservée en épargne</div>
                             </div>
 
-                            {/* Segmented Control Pill with Sliding Spring */}
-                            <div className="inline-flex items-center rounded-full bg-muted/60 p-1 border border-border relative shadow-inner shrink-0 self-start sm:self-auto overflow-hidden">
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateLimitConfig({ type: "amount", value: monthlyLimitConfig.type === "amount" ? monthlyLimitConfig.value : 1500 })}
-                                className="relative px-3 py-1 rounded-full text-xs font-medium transition-all active:scale-[0.97] cursor-pointer whitespace-nowrap select-none focus-visible:outline-none"
-                              >
-                                {monthlyLimitConfig.type === "amount" && (
-                                  <motion.div
-                                    layoutId="appleLimitTypePill"
-                                    transition={{ type: "spring", bounce: 0.12, duration: 0.35 }}
-                                    className="absolute inset-0 rounded-full bg-white text-black shadow-sm"
-                                  />
-                                )}
-                                <span className={`relative z-10 ${monthlyLimitConfig.type === "amount" ? "text-black font-medium" : "text-zinc-400 hover:text-white"}`}>
-                                  Montant en €
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateLimitConfig({ type: "percent", value: monthlyLimitConfig.type === "percent" ? monthlyLimitConfig.value : 30 })}
-                                className="relative px-3 py-1 rounded-full text-xs font-medium transition-all active:scale-[0.97] cursor-pointer whitespace-nowrap select-none focus-visible:outline-none"
-                              >
-                                {monthlyLimitConfig.type === "percent" && (
-                                  <motion.div
-                                    layoutId="appleLimitTypePill"
-                                    transition={{ type: "spring", bounce: 0.12, duration: 0.35 }}
-                                    className="absolute inset-0 rounded-full bg-white text-black shadow-sm"
-                                  />
-                                )}
-                                <span className={`relative z-10 ${monthlyLimitConfig.type === "percent" ? "text-black font-medium" : "text-zinc-400 hover:text-white"}`}>
-                                  Pourcentage (%)
-                                </span>
-                              </button>
+                            <div className="relative w-36 sm:w-40 shrink-0 self-end sm:self-auto">
+                              <input
+                                id="reserve-percent-input"
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="1"
+                                value={monthlyLimitConfig.type === "percent" ? (monthlyLimitConfig.value ?? "") : 30}
+                                onChange={e => {
+                                  const rawVal = e.target.value;
+                                  const parsedVal = rawVal === "" ? 0 : Math.min(100, Math.max(0, parseFloat(rawVal) || 0));
+                                  handleUpdateLimitConfig({ type: "percent", value: parsedVal });
+                                }}
+                                placeholder="30"
+                                className="w-full pl-3 pr-7 py-1.5 rounded-xl bg-background border border-border focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 text-right text-sm font-medium text-foreground tabular-nums font-sans transition-all focus:outline-none placeholder:text-muted-foreground"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs font-sans pointer-events-none select-none">%</span>
                             </div>
                           </div>
 
-                          {/* Input & Apple Callout Preview */}
-                          {monthlyLimitConfig.type === "amount" ? (
-                            <div className="space-y-3 pt-1">
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                <label className="text-xs font-medium text-foreground font-sans">
-                                  Enveloppe de dépenses autorisée
-                                </label>
-                                <div className="relative w-36 sm:w-40">
-                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs font-sans">€</span>
-                                  <input
-                                    type="number"
-                                    value={monthlyLimitConfig.value || ""}
-                                    onChange={e => handleUpdateLimitConfig({ type: "amount", value: Math.max(0, parseFloat(e.target.value) || 0) })}
-                                    placeholder="0,00"
-                                    className="w-full pl-7 pr-3 py-1.5 rounded-xl bg-background border border-border focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 text-right text-sm font-medium text-foreground tabular-nums font-sans transition-all focus:outline-none placeholder:text-muted-foreground"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Apple Informational Callout */}
-                              <div className="rounded-xl bg-muted/50 border border-border p-3 text-xs text-muted-foreground font-sans flex items-center gap-2.5">
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                                <div className="leading-relaxed">
-                                  Limite : <span className="font-semibold text-foreground">{monthlyLimitConfig.value.toLocaleString("fr-FR")} €</span> · Reste visé : <span className="font-semibold text-foreground">{Math.max(0, effectiveReferenceIncome - monthlyLimitConfig.value).toLocaleString("fr-FR")} €</span> ({effectiveReferenceIncome > 0 ? Math.round((Math.max(0, effectiveReferenceIncome - monthlyLimitConfig.value) / effectiveReferenceIncome) * 100) : 0}% de vos revenus)
-                                </div>
+                          {/* Ligne de synthèse (Aperçu) */}
+                          <div className="p-3.5 sm:p-4 bg-muted/20">
+                            <div className="rounded-xl bg-muted/50 border border-border p-3 text-xs text-muted-foreground font-sans flex items-center gap-2.5">
+                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                              <div className="leading-relaxed">
+                                {effectiveReferenceIncome > 0 ? (
+                                  <>
+                                    Reste à vivre visé : <span className="font-semibold text-foreground tabular-nums">{Math.round(effectiveReferenceIncome * ((monthlyLimitConfig.type === "percent" ? monthlyLimitConfig.value : 30) / 100)).toLocaleString("fr-FR")} € ({monthlyLimitConfig.type === "percent" ? monthlyLimitConfig.value : 30}%)</span> · Plafond de dépenses autorisé : <span className="font-semibold text-foreground tabular-nums">{Math.max(0, Math.round(effectiveReferenceIncome * (1 - (monthlyLimitConfig.type === "percent" ? monthlyLimitConfig.value : 30) / 100))).toLocaleString("fr-FR")} € ({Math.max(0, 100 - (monthlyLimitConfig.type === "percent" ? monthlyLimitConfig.value : 30))}%)</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    Objectif : préserver <span className="font-semibold text-foreground tabular-nums">{monthlyLimitConfig.type === "percent" ? monthlyLimitConfig.value : 30}%</span> de vos revenus · Configurez vos revenus dans l&apos;onglet « Revenus & Charges » pour afficher les montants en euros.
+                                  </>
+                                )}
                               </div>
                             </div>
-                          ) : (
-                            <div className="space-y-3 pt-1">
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                <label className="text-xs font-medium text-foreground font-sans">
-                                  Réserve à conserver (% du revenu)
-                                </label>
-                                <div className="relative w-36 sm:w-40">
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    max="99"
-                                    value={monthlyLimitConfig.value || ""}
-                                    onChange={e => handleUpdateLimitConfig({ type: "percent", value: Math.min(99, Math.max(1, parseFloat(e.target.value) || 0)) })}
-                                    placeholder="30"
-                                    className="w-full pl-3 pr-7 py-1.5 rounded-xl bg-background border border-border focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 text-right text-sm font-medium text-foreground tabular-nums font-sans transition-all focus:outline-none placeholder:text-muted-foreground"
-                                  />
-                                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs font-sans">%</span>
-                                </div>
-                              </div>
-
-                              {/* Apple Informational Callout */}
-                              <div className="rounded-xl bg-muted/50 border border-border p-3 text-xs text-muted-foreground font-sans flex items-center gap-2.5">
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                                <div className="leading-relaxed">
-                                  Reste à vivre : <span className="font-semibold text-foreground">{Math.round(effectiveReferenceIncome * (monthlyLimitConfig.value / 100)).toLocaleString("fr-FR")} € ({monthlyLimitConfig.value}%)</span> · Limite de dépenses : <span className="font-semibold text-foreground">{Math.max(0, Math.round(effectiveReferenceIncome * (1 - monthlyLimitConfig.value / 100))).toLocaleString("fr-FR")} €</span>
-                                </div>
-                              </div>
-                            </div>
-                          )}
+                          </div>
                         </div>
                       </div>
 

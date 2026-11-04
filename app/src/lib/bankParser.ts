@@ -1,5 +1,5 @@
 import { parseBoursoBankCSV, BoursoNormalizedTransaction, parseDateToIso } from "./boursoParser";
-import { parseCreditAgricoleCSV, CANormalizedTransaction } from "./creditAgricoleParser";
+import { parseCreditAgricoleCSV, CANormalizedTransaction, cleanCALabel, detectCADelimiter } from "./creditAgricoleParser";
 import { parseCaisseEpargneCSV, CENormalizedTransaction } from "./caisseEpargneParser";
 import { parseLCLCSV, LCLNormalizedTransaction, RawTransaction, BankParser, lclParser } from "./lclParser";
 import { cleanMerchantName, normalizeText } from "./categorization";
@@ -23,6 +23,8 @@ export interface NormalizedTransaction {
 export { 
   parseBoursoBankCSV, 
   parseCreditAgricoleCSV, 
+  cleanCALabel,
+  detectCADelimiter,
   parseCaisseEpargneCSV, 
   parseLCLCSV,
   lclParser,
@@ -202,13 +204,13 @@ export async function parseBankCsvFile(
   // BoursoBank exporte en UTF-8
   // LCL gère UTF-8 et Windows-1252 / ISO-8859-1
   let content = "";
-  if (targetBank === "lcl") {
+  if (targetBank === "lcl" || targetBank === "ca") {
     content = await readFileAsText(file, "UTF-8");
     if (content.includes("\uFFFD")) {
       content = await readFileAsText(file, "windows-1252");
     }
   } else {
-    const encoding = (targetBank === "ca" || targetBank === "ce") ? "windows-1252" : "UTF-8";
+    const encoding = targetBank === "ce" ? "windows-1252" : "UTF-8";
     content = await readFileAsText(file, encoding);
   }
 

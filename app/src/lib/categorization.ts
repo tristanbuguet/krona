@@ -40,13 +40,16 @@ export function cleanMerchantName(rawLabel: string): string {
 
   // Nettoyage itératif des préfixes et mentions techniques usuelles
   const prefixRegexes = [
-    /^(PAIEMENT\s+PAR\s+CARTE|PAIEMENT\s+CARTE|PAIEMENT\s+CB|ACHAT\s+CB|CB\*)(\s+\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?)?\s+/i,
-    /^(CARTE\s+X\d{4}\s+\d{2}\/\d{2}|CARTE\s+X\d{4}|CARTE\s+\d{2}\/\d{2}(\/\d{2,4})?)\s+/i,
-    /^(VIR(EMENT)?\s+)?(SEPA\s+)?(RECU|EMIS|INST(ANTANE)?)(\s+(DE|POUR|VERS|EN\s+VOTRE\s+FAVEUR\s+(DE\s+)?))?\s+/i,
+    /^(PAIEMENT\s+PAR\s+CARTE|PAIEMENT\s+CARTE|PAIEMENT\s+CB|ACHAT\s+CB|ACHAT\s+CARTE|CB\*)(\s+(DU\s+)?\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?)?(\s+\d{1,2}[hH:]\d{2})?\s+/i,
+    /^(CARTE\s+(DU\s+)?(X\d{4}\s+\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?|X\d{4}|(N[°O]?|NUM[EÉ]RO)\s*\d+\s+\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?|(N[°O]?|NUM[EÉ]RO)\s*\d+|\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?))\s+/i,
+    /^CARTE(?:\s+(?:DU|DE))?(?:\s+(?:N[°O]?|NUM[EÉ]RO)\s*\d+)?(?:\s+X\d{4})?(?:\s+\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)?(?:\s+\d{1,2}[hH:]\d{2})?\s+/i,
+    /^CB\s+(?:\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\s+)?/i,
+    /^(VIR(EMENT)?\s+)?(SEPA\s+)?(RECU|EMIS|INST(ANTAN[EÉ])?)(\s+(DE|POUR|VERS|EN\s+VOTRE\s+FAVEUR\s+(DE\s+)?))?\s+/i,
     /^(VIR(EMENT)?\s+SEPA|VIR(EMENT)?\s+EN\s+VOTRE\s+FAVEUR(\s+DE)?|VIR(EMENT)?\s+RECU(\s+DE)?|VIR(EMENT)?\s+EMIS(\s+(POUR|VERS))?|VIR(EMENT)?\s+(DE|VERS))\s+/i,
     /^(PRLV\s+SEPA\s+(DE\s+)?|PRLV\s+DE\s+|PRLV\s+|PRELEVEMENT\s+SEPA\s+(DE\s+)?|PRELEVEMENT\s+DE\s+|PRELEVEMENT\s+)/i,
-    /^(RETRAIT\s+DAB|RETRAIT\s+AU\s+DISTRIBUTEUR|RETRAIT|DAB)(\s+\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?)?\s+/i,
+    /^(RETRAIT\s+DAB|RETRAIT\s+AU\s+DISTRIBUTEUR|RETRAIT|DAB)(\s+(DU\s+)?\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?)?\s+/i,
     /^(COTIS(ATION)?(\s+MENSUELLE)?|COMMISSION|FRAIS\s+BANCAIRES?)\s+/i,
+    /^(DU|DE|VERS|POUR)\s+/i,
   ];
 
   let changed = true;
@@ -61,6 +64,9 @@ export function cleanMerchantName(rawLabel: string): string {
       }
     }
   }
+
+  // Nettoyage des heures éventuelles (14H30, 14:30)
+  name = name.replace(/(?:^|\s+)\d{1,2}[Hh:]\d{2}(?:[:\.]\d{2})?(?:\s+|$)/g, " ");
 
   // Nettoyage des dates intermédiaires ou en début de ligne comme "04/10" ou "04/10/2026"
   name = name.replace(/(?:^|\s+)\d{1,2}[\/\-\.]\d{1,2}(?:[\/\-\.]\d{2,4})?(?:\s+|$)/g, " ");
@@ -316,16 +322,26 @@ export function categorizeLocally({
   const combined = `${normLabel} ${normRaw}`;
 
   // 1. RÈGLE APPRISE UTILISATEUR (learningRules / cache local prioritaire)
-  if (cache[label]?.categorie && (OFFICIAL_CATEGORIES.includes(cache[label].categorie) || cache[label].categorie === "Régularisation" || isRegularisationCategory(cache[label].categorie))) {
-    let cat = cache[label].categorie;
+  const cachedRule =
+    cache[label] ||
+    cache[normLabel] ||
+    (rawLabel ? cache[rawLabel] : undefined) ||
+    (rawLabel ? cache[normRaw] : undefined);
+  if (
+    cachedRule?.categorie &&
+    (OFFICIAL_CATEGORIES.includes(cachedRule.categorie) ||
+      cachedRule.categorie === "Régularisation" ||
+      isRegularisationCategory(cachedRule.categorie))
+  ) {
+    let cat = cachedRule.categorie;
     if (cat === "Régularisation" || isRegularisationCategory(cat)) {
       cat = "Virement interne";
     }
     const isRegul = isRegularisationCategory(cat);
-    const isInternal = isInternalTransferCategory(cat) || isRegul || Boolean(cache[label].isInternalTransfer);
+    const isInternal = isInternalTransferCategory(cat) || isRegul || Boolean(cachedRule.isInternalTransfer);
     const isSub = !isInternal && (isSubscriptionCategory(cat) 
-      ? cache[label].isSubscription !== false 
-      : Boolean(cache[label].isSubscription && cat === "Transports"));
+      ? cachedRule.isSubscription !== false 
+      : Boolean(cachedRule.isSubscription && cat === "Transports"));
     return {
       category: cat,
       isSubscription: isSub,

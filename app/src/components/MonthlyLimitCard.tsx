@@ -116,7 +116,7 @@ export function MonthlyLimitCard({
   }, []);
 
   const resolvedDefaultLimit = customLimit && customLimit > 0 ? customLimit : (monthlyLimit && monthlyLimit > 0 ? monthlyLimit : 0);
-  const activeConfig: MonthlyLimitConfig = propLimitConfig || userSavedConfig || { type: "amount", value: resolvedDefaultLimit };
+  const activeConfig: MonthlyLimitConfig = propLimitConfig || userSavedConfig || { type: "percent", value: 30 };
   const effectiveIncome = income > 0 ? income : (monthlyLimit || 0);
 
   // Calcul du budget dépensable max et du solde restant cible
@@ -134,7 +134,7 @@ export function MonthlyLimitCard({
           ? Math.round((effectiveTargetRemaining / effectiveIncome) * 100)
           : 0;
   } else if (activeConfig.type === "percent") {
-    effectiveTargetPercent = Math.min(99, Math.max(1, activeConfig.value));
+    effectiveTargetPercent = Math.min(100, Math.max(0, activeConfig.value));
     effectiveTargetRemaining = Math.round(effectiveIncome * (effectiveTargetPercent / 100));
     effectiveMaxSpending = Math.max(0, effectiveIncome - effectiveTargetRemaining);
   } else {
