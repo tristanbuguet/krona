@@ -102,6 +102,13 @@ export function SubscriptionManager({
     setIgnoredList(updated);
     try {
       localStorage.setItem("krona_ignored_subscriptions", JSON.stringify(updated));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("krona-local-data-mutated", {
+            detail: { mode: "overwrite", immediate: true },
+          })
+        );
+      }
     } catch (err) {}
     onIgnore(merchant);
   };
@@ -113,6 +120,13 @@ export function SubscriptionManager({
     setIgnoredList(updated);
     try {
       localStorage.setItem("krona_ignored_subscriptions", JSON.stringify(updated));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("krona-local-data-mutated", {
+            detail: { mode: "overwrite", immediate: true },
+          })
+        );
+      }
     } catch (err) {}
     onRestore?.(merchant);
   };

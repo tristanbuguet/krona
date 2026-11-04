@@ -34,7 +34,11 @@ export function CSVUploader({
 
   const { getInputProps, open } = useDropzone({
     onDrop,
-    accept: { "text/csv": [".csv"] },
+    accept: { 
+      "text/csv": [".csv"],
+      "text/tab-separated-values": [".tsv"],
+      "text/plain": [".tsv", ".txt", ".csv"]
+    },
     multiple: false,
     noClick: true,
     noKeyboard: true,

@@ -394,12 +394,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!userRef.current || isInternalWriteRef.current) {
         return;
       }
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
       if (isSyncingInProgressRef.current) {
         pendingSyncAfterCurrentRef.current = mode;
         return;
       }
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current);
+      if (delayMs <= 0) {
+        performSync(userRef.current, mode, false);
+        return;
       }
       syncTimeoutRef.current = setTimeout(() => {
         if (userRef.current && !isInternalWriteRef.current) {
@@ -487,7 +492,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const customEv = e as CustomEvent<{ mode?: "merge" | "overwrite"; immediate?: boolean }>;
       const requestedMode = customEv?.detail?.mode === "merge" ? "merge" : "overwrite";
       const immediate = Boolean(customEv?.detail?.immediate);
-      scheduleBackgroundSync(requestedMode, immediate ? 100 : 800);
+      scheduleBackgroundSync(requestedMode, immediate ? 0 : 800);
     };
     window.addEventListener("krona-local-data-mutated", handleCustomSyncEvent);
 

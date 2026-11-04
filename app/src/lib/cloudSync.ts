@@ -56,6 +56,7 @@ export type LearningRuleMap = Record<
     isInternalTransfer?: boolean;
     excludeFromSpending?: boolean;
     excludeFromIncome?: boolean;
+    updatedAt?: string;
   }
 >;
 
@@ -111,10 +112,19 @@ export function mergeTransactionsLossless(
     }
   }
 
-  // 2. Fusionner les transactions locales (priorité aux modifications locales récentes ou ajouts locaux)
+  // 2. Fusionner les transactions locales (priorité aux modifications plus récentes ou nouveaux ajouts locaux)
   for (const tx of localTxs) {
     if (tx && tx.id) {
-      byId.set(tx.id, tx);
+      const existingCloud = byId.get(tx.id);
+      if (!existingCloud) {
+        byId.set(tx.id, tx);
+      } else {
+        const localTime = tx.updatedAt ? new Date(tx.updatedAt).getTime() : 0;
+        const cloudTime = existingCloud.updatedAt ? new Date(existingCloud.updatedAt).getTime() : 0;
+        if (localTime >= cloudTime) {
+          byId.set(tx.id, tx);
+        }
+      }
     }
   }
 
@@ -190,10 +200,21 @@ export function mergeCloudAndLocalData(
 
   const cloudRules = cloud?.learningRules || cloud?.merchantKnowledge || {};
   const localRules = local.learningRules || local.merchantKnowledge || {};
-  const mergedKnowledge: LearningRuleMap = {
-    ...cloudRules,
-    ...localRules,
-  };
+  const allRuleKeys = new Set([...Object.keys(cloudRules), ...Object.keys(localRules)]);
+  const mergedKnowledge: LearningRuleMap = {};
+  for (const k of allRuleKeys) {
+    const cRule = cloudRules[k];
+    const lRule = localRules[k];
+    if (cRule && !lRule) {
+      mergedKnowledge[k] = { ...cRule };
+    } else if (lRule && !cRule) {
+      mergedKnowledge[k] = { ...lRule };
+    } else if (cRule && lRule) {
+      const cTime = cRule.updatedAt ? new Date(cRule.updatedAt).getTime() : 0;
+      const lTime = lRule.updatedAt ? new Date(lRule.updatedAt).getTime() : 0;
+      mergedKnowledge[k] = lTime >= cTime ? { ...lRule } : { ...cRule };
+    }
+  }
   Object.keys(mergedKnowledge).forEach((k) => {
     if (mergedKnowledge[k]?.categorie === "Régularisation" || isRegularisationCategory(mergedKnowledge[k]?.categorie)) {
       mergedKnowledge[k].categorie = "Virement interne";
@@ -237,7 +258,7 @@ export function mergeCloudAndLocalData(
           ? mergedLimitConfig.value
           : null;
 
-  // Fusion des comptes par ID
+  // Fusion des comptes par ID avec résolution par horodatage
   const localAccounts = Array.isArray(local.accounts) ? local.accounts : [];
   const cloudAccounts = cloud && Array.isArray(cloud.accounts) ? cloud.accounts : [];
   const accMap = new Map<string, AccountInfo>();
@@ -245,7 +266,18 @@ export function mergeCloudAndLocalData(
     if (a && a.id) accMap.set(a.id, a);
   });
   localAccounts.forEach((a) => {
-    if (a && a.id) accMap.set(a.id, a);
+    if (a && a.id) {
+      const existing = accMap.get(a.id);
+      if (!existing) {
+        accMap.set(a.id, a);
+      } else {
+        const localTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const cloudTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+        if (localTime >= cloudTime) {
+          accMap.set(a.id, a);
+        }
+      }
+    }
   });
   const mergedAccounts = Array.from(accMap.values());
 

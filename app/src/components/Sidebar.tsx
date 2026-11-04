@@ -7,7 +7,7 @@ import clsx from "clsx";
 import { useTheme } from "@/components/ThemeProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { AccountPopover, UserAvatar } from "@/components/AccountPopover";
-import { BoursoBankLogo, CreditAgricoleLogo, CaisseEpargneLogo, BankType, BankSelectorPopover } from "@/components/BankSelectorPopover";
+import { BoursoBankLogo, CreditAgricoleLogo, CaisseEpargneLogo, LCLLogo, BankType, BankSelectorPopover } from "@/components/BankSelectorPopover";
 
 export const KronaLogo = ({ className = "w-6 h-6" }: { className?: string }) => (
   <svg 
@@ -116,7 +116,7 @@ export function Sidebar({
     const syncBank = () => {
       try {
         const saved = (localStorage.getItem("krona_selected_bank") || "bourso") as BankType;
-        if (saved === "ca" || saved === "bourso") {
+        if (saved === "ca" || saved === "bourso" || saved === "ce" || saved === "lcl") {
           setSelectedBank(saved);
         }
       } catch {}
@@ -124,7 +124,8 @@ export function Sidebar({
     syncBank();
     const handleBankChange = (e: any) => {
       if (e.detail?.bank) {
-        setSelectedBank(e.detail.bank === "ca" ? "ca" : "bourso");
+        const b = e.detail.bank;
+        setSelectedBank(b === "ca" || b === "ce" || b === "lcl" ? b : "bourso");
       } else {
         syncBank();
       }
@@ -247,6 +248,8 @@ export function Sidebar({
                 <CreditAgricoleLogo className="w-5 h-4 text-foreground" />
               ) : selectedBank === "ce" ? (
                 <CaisseEpargneLogo className="w-4.5 h-4.5" />
+              ) : selectedBank === "lcl" ? (
+                <LCLLogo className="w-4.5 h-4.5" />
               ) : (
                 <BoursoBankLogo className="w-4.5 h-4.5 text-foreground" />
               )}

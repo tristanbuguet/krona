@@ -6,7 +6,7 @@ import { CSVUploader } from "./CSVUploader";
 import { CsvAnalysisModal, ImportStep } from "./CsvAnalysisModal";
 import { NormalizedTransaction, parseBoursoBankRows } from "@/lib/bankParser";
 import { cleanMerchantName, categorizeLocally, normalizeText } from "@/lib/categorization";
-import { BoursoBankLogo, CreditAgricoleLogo, CaisseEpargneLogo } from "./BankSelectorPopover";
+import { BoursoBankLogo, CreditAgricoleLogo, CaisseEpargneLogo, LCLLogo } from "./BankSelectorPopover";
 import { CloseButton } from "./ui/CloseButton";
 import { PageHeader } from "./ui/PageHeader";
 import { Card } from "./ui/Card";
@@ -1135,6 +1135,15 @@ export function Dashboard({
           })
         );
       }
+
+      const restoredRules = payload.learningRules || payload.merchantKnowledge;
+      if (restoredRules && typeof restoredRules === "object") {
+        try {
+          const currentRules = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
+          const mergedRules = { ...currentRules, ...restoredRules };
+          localStorage.setItem('krona_merchant_knowledge', JSON.stringify(mergedRules));
+        } catch (e) {}
+      }
     };
 
     const handleUserSignedOut = () => {
@@ -1191,17 +1200,27 @@ export function Dashboard({
 
   const confirmReset = () => {
     if (!selectedMonth || selectedMonth === "Tout" || selectedMonth === "all") return;
-    let remainingMonths: string[] = [];
-    setTransactions(prev => {
-      const updated = prev.filter(tx => tx.month !== selectedMonth);
-      remainingMonths = Array.from(new Set(updated.map(tx => tx.month))).sort().reverse();
+    const targetMonth = selectedMonth;
+    const updated = transactions.filter(tx => tx.month !== targetMonth);
+    const remainingMonths = Array.from(new Set(updated.map(tx => tx.month))).sort().reverse();
+    setTransactions(updated);
+    try {
       if (updated.length === 0) {
         localStorage.removeItem('financeTransactions_v1');
       } else {
         localStorage.setItem('financeTransactions_v1', JSON.stringify(updated));
       }
-      return updated;
-    });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("krona-local-data-mutated", {
+            detail: { mode: "overwrite", immediate: true },
+          })
+        );
+      }
+    } catch (e) { }
+
+    triggerCloudSync("overwrite").catch(() => {});
+
     if (remainingMonths.length >= 1) {
       handleMonthChange(remainingMonths[0], false);
     } else {
@@ -1399,7 +1418,7 @@ export function Dashboard({
         const occ = (occurrenceMap.get(baseKey) || 0) + 1;
         occurrenceMap.set(baseKey, occ);
 
-        const prefix = item.account === "Crédit Agricole" ? "ca" : item.account === "Caisse d'Épargne" ? "ce" : "bourso";
+        const prefix = item.account === "Crédit Agricole" ? "ca" : item.account === "Caisse d'Épargne" ? "ce" : item.account === "LCL" ? "lcl" : "bourso";
         const rawId = item.id || `${prefix}_${baseKey}_${occ}`;
 
         return {
@@ -1478,7 +1497,7 @@ export function Dashboard({
 
       // Persistance de l'établissement actif
       const firstAcc = normalizedItems[0]?.account || (data as any)[0]?.account;
-      const detectedBank = firstAcc === "Crédit Agricole" ? "ca" : firstAcc === "Caisse d'Épargne" ? "ce" : "bourso";
+      const detectedBank = firstAcc === "Crédit Agricole" ? "ca" : firstAcc === "Caisse d'Épargne" ? "ce" : firstAcc === "LCL" ? "lcl" : "bourso";
       localStorage.setItem("krona_selected_bank", detectedBank);
       window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: detectedBank } }));
 
@@ -1566,6 +1585,7 @@ export function Dashboard({
           })
         );
       }
+      triggerCloudSync("merge").catch(() => {});
       await new Promise(resolve => setTimeout(resolve, 800));
       setImportStep(null);
 
@@ -1597,9 +1617,17 @@ export function Dashboard({
       const updated = [...prev, merchantName];
       try {
         localStorage.setItem('krona_ignored_subscriptions', JSON.stringify(updated));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("krona-local-data-mutated", {
+              detail: { mode: "overwrite", immediate: true },
+            })
+          );
+        }
       } catch (e) { }
       return updated;
     });
+    triggerCloudSync("overwrite").catch(() => {});
   };
 
   const handleRestoreSubscription = (merchantName: string) => {
@@ -1607,9 +1635,17 @@ export function Dashboard({
       const updated = prev.filter(m => m !== merchantName);
       try {
         localStorage.setItem('krona_ignored_subscriptions', JSON.stringify(updated));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("krona-local-data-mutated", {
+              detail: { mode: "overwrite", immediate: true },
+            })
+          );
+        }
       } catch (e) { }
       return updated;
     });
+    triggerCloudSync("overwrite").catch(() => {});
   };
 
   const activeSubscriptionMerchants = useMemo(() => {
@@ -1641,8 +1677,15 @@ export function Dashboard({
     setIncomeSettings(sanitized);
     try {
       localStorage.setItem('fixedIncomeSettings', JSON.stringify(sanitized));
-      window.dispatchEvent(new CustomEvent("krona-local-data-mutated", { detail: { mode: "overwrite" } }));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("krona-local-data-mutated", {
+            detail: { mode: "overwrite", immediate: true },
+          })
+        );
+      }
     } catch (e) { }
+    triggerCloudSync("overwrite").catch(() => {});
   };
 
   const handleSaveBudget = (cat: string, val: number) => {
@@ -1653,10 +1696,17 @@ export function Dashboard({
       else next[cat] = Math.max(0, Math.round(val));
       try {
         localStorage.setItem('categoryBudgets', JSON.stringify(next));
-        window.dispatchEvent(new CustomEvent("krona-local-data-mutated", { detail: { mode: "overwrite" } }));
       } catch (e) { }
       return next;
     });
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("krona-local-data-mutated", {
+          detail: { mode: "overwrite", immediate: true },
+        })
+      );
+    }
+    triggerCloudSync("overwrite").catch(() => {});
   };
 
   const filteredTransactions = useMemo(() => {
@@ -1704,6 +1754,7 @@ export function Dashboard({
     const isRegul = isRegularisationCategory(newType);
     const isInternal = isInternalTransferCategory(newType) || isRegul;
     const isSub = !isInternal && isSubscriptionCategory(newType);
+    const nowIso = new Date().toISOString();
 
     try {
       const cache = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
@@ -1714,6 +1765,7 @@ export function Dashboard({
         isInternalTransfer: isInternal,
         excludeFromSpending: isInternal,
         excludeFromIncome: isInternal || isRegul,
+        updatedAt: nowIso,
       };
       localStorage.setItem('krona_merchant_knowledge', JSON.stringify(cache));
     } catch (e) { }
@@ -1739,20 +1791,139 @@ export function Dashboard({
             isInternalTransfer: isInternal,
             excludeFromSpending: isInternal,
             excludeFromIncome: isInternal || isRegul,
+            updatedAt: nowIso,
           };
         }
         return t;
       });
       try {
         localStorage.setItem('financeTransactions_v1', JSON.stringify(updated));
-        window.dispatchEvent(new CustomEvent("krona-local-data-mutated", { detail: { mode: "overwrite" } }));
       } catch (e) { }
       return updated;
     });
 
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("krona-local-data-mutated", {
+          detail: { mode: "overwrite", immediate: true },
+        })
+      );
+    }
+    triggerCloudSync("overwrite").catch(() => {});
+
     setToastMessage({
       text: `Catégorie mise à jour · ${merchantName} → ${newType}`,
       visible: true
+    });
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleDeleteTransaction = (txId: string) => {
+    setTransactions(prev => {
+      const updated = prev.filter(t => t.id !== txId);
+      try {
+        if (updated.length === 0) {
+          localStorage.removeItem('financeTransactions_v1');
+        } else {
+          localStorage.setItem('financeTransactions_v1', JSON.stringify(updated));
+        }
+      } catch (e) { }
+      return updated;
+    });
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("krona-local-data-mutated", {
+          detail: { mode: "overwrite", immediate: true },
+        })
+      );
+    }
+    triggerCloudSync("overwrite").catch(() => {});
+
+    setToastMessage({
+      text: "Opération supprimée avec succès",
+      visible: true,
+    });
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleUpdateTransaction = (updatedTx: Transaction) => {
+    const nowIso = new Date().toISOString();
+    const isRegul = isRegularisationCategory(updatedTx.type);
+    const isInternal = isInternalTransferCategory(updatedTx.type) || isRegul;
+    const isSub = !isInternal && isSubscriptionCategory(updatedTx.type);
+
+    const txToSave: Transaction = {
+      ...updatedTx,
+      isSubscription: isSub,
+      isRecurring: isSub,
+      isInternalTransfer: isInternal,
+      excludeFromSpending: isInternal,
+      excludeFromIncome: isInternal || isRegul,
+      updatedAt: nowIso,
+    };
+
+    setTransactions(prev => {
+      const updated = prev.map(t => (t.id === txToSave.id ? txToSave : t));
+      try {
+        localStorage.setItem('financeTransactions_v1', JSON.stringify(updated));
+      } catch (e) { }
+      return updated;
+    });
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("krona-local-data-mutated", {
+          detail: { mode: "overwrite", immediate: true },
+        })
+      );
+    }
+    triggerCloudSync("overwrite").catch(() => {});
+
+    setToastMessage({
+      text: `Opération mise à jour · ${txToSave.name}`,
+      visible: true,
+    });
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleAddTransaction = (newTx: Transaction) => {
+    const nowIso = new Date().toISOString();
+    const isRegul = isRegularisationCategory(newTx.type);
+    const isInternal = isInternalTransferCategory(newTx.type) || isRegul;
+    const isSub = !isInternal && isSubscriptionCategory(newTx.type);
+
+    const txToSave: Transaction = {
+      ...newTx,
+      id: newTx.id || `manual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      isSubscription: isSub,
+      isRecurring: isSub,
+      isInternalTransfer: isInternal,
+      excludeFromSpending: isInternal,
+      excludeFromIncome: isInternal || isRegul,
+      updatedAt: nowIso,
+    };
+
+    setTransactions(prev => {
+      const updated = [txToSave, ...prev];
+      try {
+        localStorage.setItem('financeTransactions_v1', JSON.stringify(updated));
+      } catch (e) { }
+      return updated;
+    });
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("krona-local-data-mutated", {
+          detail: { mode: "overwrite", immediate: true },
+        })
+      );
+    }
+    triggerCloudSync("overwrite").catch(() => {});
+
+    setToastMessage({
+      text: `Opération ajoutée · ${txToSave.name}`,
+      visible: true,
     });
     setTimeout(() => setToastMessage(null), 3000);
   };
@@ -2229,8 +2400,15 @@ export function Dashboard({
     try {
       localStorage.setItem("krona_monthly_limit_config", JSON.stringify(newCfg));
       localStorage.setItem("krona_monthly_spending_limit", computedSpending.toString());
-      window.dispatchEvent(new CustomEvent("krona-local-data-mutated", { detail: { mode: "overwrite" } }));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("krona-local-data-mutated", {
+            detail: { mode: "overwrite", immediate: true },
+          })
+        );
+      }
     } catch (err) { }
+    triggerCloudSync("overwrite").catch(() => {});
   };
 
   const effectiveMonthlyLimit = useMemo(() => {
@@ -2569,6 +2747,31 @@ export function Dashboard({
                         </div>
                         <ChevronRight size={15} className="text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all shrink-0 ml-auto" />
                       </button>
+
+                      {/* Option 4 : LCL */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsImportMenuOpen(false);
+                          localStorage.setItem("krona_selected_bank", "lcl");
+                          window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: "lcl" } }));
+                          window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: "lcl" } }));
+                        }}
+                        className="w-full flex items-center gap-3 p-2.5 bg-neutral-50 dark:bg-white/[0.03] rounded-2xl border border-border hover:bg-neutral-100 dark:hover:bg-white/[0.06] hover:border-foreground/20 active:scale-[0.98] transition-all text-left group cursor-pointer"
+                      >
+                        <div className="w-8.5 h-8.5 rounded-xl bg-card border border-border flex items-center justify-center text-foreground shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                          <LCLLogo className="w-4.5 h-4.5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-foreground tracking-tight font-sans">
+                            LCL
+                          </div>
+                          <div className="text-xs text-muted-foreground font-sans truncate mt-0.5">
+                            Relevé de compte CSV / TSV
+                          </div>
+                        </div>
+                        <ChevronRight size={15} className="text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all shrink-0 ml-auto" />
+                      </button>
                     </div>
                   </motion.div>
                 )}
@@ -2601,6 +2804,9 @@ export function Dashboard({
             ignoredSubscriptions={ignoredSubscriptions}
             initialAccount={selectedAccountFilter}
             onSelectAccount={setSelectedAccountFilter}
+            onDeleteTransaction={handleDeleteTransaction}
+            onUpdateTransaction={handleUpdateTransaction}
+            onAddTransaction={handleAddTransaction}
           />
         ) : activeTab === "trends" ? (
           <TrendsView
@@ -2613,7 +2819,8 @@ export function Dashboard({
           <AccountsView
             transactions={activeTransactions}
             onTriggerUpload={(bank) => {
-              const bankKey = bank.toLowerCase().includes("agricole") ? "ca" : "bourso";
+              const b = bank.toLowerCase();
+              const bankKey = b.includes("agricole") ? "ca" : b.includes("epargne") ? "ce" : b.includes("lcl") ? "lcl" : "bourso";
               localStorage.setItem("krona_selected_bank", bankKey);
               window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: bankKey } }));
             }}
@@ -2988,8 +3195,11 @@ export function Dashboard({
                       limitConfig={monthlyLimitConfig}
                       onLimitConfigChange={handleUpdateLimitConfig}
                       onLimitChange={(limit) => {
-                        setCustomSpendingLimit(limit);
-                        setMonthlyLimitConfig(prev => prev.type === "percent" ? prev : { type: "amount", value: limit });
+                        handleUpdateLimitConfig(
+                          monthlyLimitConfig.type === "percent"
+                            ? monthlyLimitConfig
+                            : { type: "amount", value: limit }
+                        );
                       }}
                       selectedMonth={selectedMonth || undefined}
                       onOpenBudgetSettings={() => {
@@ -3635,7 +3845,15 @@ export function Dashboard({
                               type="button"
                               onClick={() => {
                                 try {
-                                  localStorage.removeItem("krona_merchant_knowledge");
+                                  localStorage.setItem("krona_merchant_knowledge", "{}");
+                                  if (typeof window !== "undefined") {
+                                    window.dispatchEvent(
+                                      new CustomEvent("krona-local-data-mutated", {
+                                        detail: { mode: "overwrite", immediate: true },
+                                      })
+                                    );
+                                  }
+                                  triggerCloudSync("overwrite").catch(() => {});
                                   setToastMessage({ text: "Règles apprises réinitialisées avec succès", visible: true });
                                   setTimeout(() => setToastMessage(null), 3000);
                                 } catch (e) { }

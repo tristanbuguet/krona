@@ -18,7 +18,7 @@ import {
   Edit2,
   ArrowRight
 } from "lucide-react";
-import { BoursoBankLogo, CreditAgricoleLogo, CaisseEpargneLogo } from "../BankSelectorPopover";
+import { BoursoBankLogo, CreditAgricoleLogo, CaisseEpargneLogo, LCLLogo } from "../BankSelectorPopover";
 import { CloseButton } from "../ui/CloseButton";
 import { Transaction, AccountInfo, formatAmount, formatMonthLabel, isInternalTransferTransaction, isRegularisationTransaction, isRegularisationCategory } from "@/lib/types";
 import { PageHeader } from "../ui/PageHeader";
@@ -41,10 +41,11 @@ export function AccountsView({
 
   // Form state
   const [formName, setFormName] = useState("");
-  const [formBank, setFormBank] = useState<"BoursoBank" | "Crédit Agricole" | "Caisse d'Épargne" | "Autre">("BoursoBank");
+  const [formBank, setFormBank] = useState<"BoursoBank" | "Crédit Agricole" | "Caisse d'Épargne" | "LCL" | "Autre">("BoursoBank");
   const [formType, setFormType] = useState<"Compte courant" | "Livret d'épargne" | "Carte bancaire">("Compte courant");
   const [formNumber, setFormNumber] = useState("");
   const [formBalance, setFormBalance] = useState<string>("0");
+  const [formIsHidden, setFormIsHidden] = useState<boolean>(false);
 
   // Load custom accounts from localStorage
   useEffect(() => {
@@ -93,7 +94,13 @@ export function AccountsView({
       } else {
         localStorage.setItem("krona_accounts_v1", JSON.stringify(newList));
       }
-      window.dispatchEvent(new CustomEvent("krona-local-data-mutated", { detail: { mode: "overwrite" } }));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("krona-local-data-mutated", {
+            detail: { mode: "overwrite", immediate: true },
+          })
+        );
+      }
     } catch (e) { }
   };
 
@@ -152,9 +159,11 @@ export function AccountsView({
     });
   }, [accounts, transactions]);
 
-  // Total consolidated wealth
+  // Total consolidated wealth (excluding hidden accounts)
   const totalWealth = useMemo(() => {
-    return accountsData.reduce((sum, acc) => sum + acc.computedBalance, 0);
+    return accountsData
+      .filter(acc => !acc.isHidden)
+      .reduce((sum, acc) => sum + acc.computedBalance, 0);
   }, [accountsData]);
 
   const handleOpenAdd = () => {
@@ -164,6 +173,7 @@ export function AccountsView({
     setFormType("Compte courant");
     setFormNumber("");
     setFormBalance("0");
+    setFormIsHidden(false);
     setShowAddModal(true);
   };
 
@@ -174,12 +184,14 @@ export function AccountsView({
     setFormType(acc.type);
     setFormNumber(acc.accountNumber || "");
     setFormBalance((acc.initialBalance || 0).toString());
+    setFormIsHidden(Boolean(acc.isHidden));
     setShowAddModal(true);
   };
 
   const handleSaveAccount = (e: React.FormEvent) => {
     e.preventDefault();
     const balanceNum = parseFloat(formBalance.replace(",", ".")) || 0;
+    const nowIso = new Date().toISOString();
 
     if (editingAccount) {
       const updated = accounts.map(a => a.id === editingAccount.id ? {
@@ -189,6 +201,8 @@ export function AccountsView({
         type: formType,
         accountNumber: formNumber || a.accountNumber,
         initialBalance: balanceNum,
+        isHidden: formIsHidden,
+        updatedAt: nowIso,
       } : a);
       saveAccounts(updated);
       setToastMessage(`Compte "${formName}" mis à jour`);
@@ -200,6 +214,8 @@ export function AccountsView({
         type: formType,
         accountNumber: formNumber ? `•••• ${formNumber.slice(-4)}` : "•••• 0000",
         initialBalance: balanceNum,
+        isHidden: formIsHidden,
+        updatedAt: nowIso,
       };
       saveAccounts([...accounts, newAcc]);
       setToastMessage(`Compte "${newAcc.name}" ajouté avec succès`);
@@ -334,6 +350,7 @@ export function AccountsView({
                 const isBourso = acc.bank === "BoursoBank";
                 const isCA = acc.bank === "Crédit Agricole";
                 const isCE = acc.bank === "Caisse d'Épargne";
+                const isLCL = acc.bank === "LCL";
 
                 return (
                   <div
@@ -351,6 +368,8 @@ export function AccountsView({
                               <CreditAgricoleLogo className="w-5 h-4 text-foreground" />
                             ) : isCE ? (
                               <CaisseEpargneLogo className="w-4.5 h-4.5" />
+                            ) : isLCL ? (
+                              <LCLLogo className="w-4.5 h-4.5" />
                             ) : (
                               <Landmark size={20} className="text-foreground" />
                             )}
@@ -490,6 +509,7 @@ export function AccountsView({
                       <option value="BoursoBank">BoursoBank</option>
                       <option value="Crédit Agricole">Crédit Agricole</option>
                       <option value="Caisse d'Épargne">Caisse d'Épargne</option>
+                      <option value="LCL">LCL</option>
                       <option value="Autre">Autre banque</option>
                     </select>
                   </div>
@@ -537,6 +557,19 @@ export function AccountsView({
                       className="w-full h-10 px-3.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-border text-sm text-foreground outline-none focus:border-foreground/30 transition-all tabular-nums"
                     />
                   </div>
+                </div>
+
+                <div className="flex items-center justify-between p-3 rounded-xl bg-black/[0.02] dark:bg-white/[0.03] border border-border">
+                  <div>
+                    <div className="text-xs font-semibold text-foreground">Masquer ce compte</div>
+                    <div className="text-[11px] text-muted-foreground">Exclure de la vue d&apos;ensemble et des totaux</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={formIsHidden}
+                    onChange={(e) => setFormIsHidden(e.target.checked)}
+                    className="w-4 h-4 rounded border-border text-foreground accent-foreground cursor-pointer"
+                  />
                 </div>
 
                 <div className="flex items-center justify-between pt-4 border-t border-border">

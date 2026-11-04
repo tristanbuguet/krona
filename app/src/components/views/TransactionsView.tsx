@@ -15,8 +15,12 @@ import {
   CreditCard,
   ArrowDownLeft,
   ArrowUpRight,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Plus,
+  Trash2,
+  Edit2
 } from "lucide-react";
+import clsx from "clsx";
 import { 
   Transaction, 
   OFFICIAL_CATEGORIES, 
@@ -28,6 +32,7 @@ import {
   isInternalTransferCategory
 } from "@/lib/types";
 import { PageHeader } from "../ui/PageHeader";
+import { CloseButton } from "../ui/CloseButton";
 
 interface TransactionsViewProps {
   transactions: Transaction[];
@@ -37,6 +42,9 @@ interface TransactionsViewProps {
   ignoredSubscriptions?: string[];
   initialAccount?: string;
   onSelectAccount?: (account: string) => void;
+  onDeleteTransaction?: (txId: string) => void;
+  onUpdateTransaction?: (tx: Transaction) => void;
+  onAddTransaction?: (tx: Transaction) => void;
 }
 
 export function TransactionsView({
@@ -46,6 +54,9 @@ export function TransactionsView({
   ignoredSubscriptions = [],
   initialAccount = "all",
   onSelectAccount,
+  onDeleteTransaction,
+  onUpdateTransaction,
+  onAddTransaction,
 }: TransactionsViewProps) {
   const [search, setSearch] = useState("");
   const [selectedType, setSelectedType] = useState<"all" | "debit" | "credit" | "subs" | "transfer">("all");
@@ -53,6 +64,18 @@ export function TransactionsView({
   const [selectedAccount, setSelectedAccount] = useState<string>(initialAccount || "all");
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [editingTxId, setEditingTxId] = useState<string | null>(null);
+
+  // Modal Ajout / Modification Transaction
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+
+  // Form states
+  const [formDate, setFormDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [formName, setFormName] = useState("");
+  const [formCategory, setFormCategory] = useState<string>("Alimentation & Courses");
+  const [formAmount, setFormAmount] = useState<string>("");
+  const [formIsCredit, setFormIsCredit] = useState<boolean>(false);
+  const [formAccount, setFormAccount] = useState<string>("BoursoBank");
 
   // Synchronise le filtre de compte externe
   useEffect(() => {
@@ -141,6 +164,81 @@ export function TransactionsView({
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  const handleOpenAdd = () => {
+    setEditingTx(null);
+    setFormDate(new Date().toISOString().slice(0, 10));
+    setFormName("");
+    setFormCategory("Alimentation & Courses");
+    setFormAmount("");
+    setFormIsCredit(false);
+    setFormAccount(accounts[0] || "BoursoBank");
+    setShowAddModal(true);
+  };
+
+  const handleOpenEdit = (tx: Transaction) => {
+    setEditingTx(tx);
+    setFormDate(tx.date || new Date().toISOString().slice(0, 10));
+    setFormName(tx.name);
+    setFormCategory(tx.type);
+    setFormAmount(Math.abs(tx.amount).toString());
+    setFormIsCredit(tx.amount > 0);
+    setFormAccount(tx.account || accounts[0] || "BoursoBank");
+    setShowAddModal(true);
+  };
+
+  const handleSaveTransaction = (e: React.FormEvent) => {
+    e.preventDefault();
+    const rawAmt = parseFloat(formAmount.replace(",", ".")) || 0;
+    const absAmt = Math.abs(rawAmt);
+    const finalAmt = formIsCredit ? absAmt : -absAmt;
+    const txMonth = formDate.slice(0, 7);
+
+    if (editingTx) {
+      const updated: Transaction = {
+        ...editingTx,
+        date: formDate,
+        month: txMonth,
+        name: formName.trim() || editingTx.name,
+        amount: finalAmt,
+        type: formCategory,
+        account: formAccount,
+      };
+      if (onUpdateTransaction) {
+        onUpdateTransaction(updated);
+      } else {
+        onRecategorize(updated.id, updated.name, updated.type);
+      }
+      setToastMessage(`Opération "${updated.name}" modifiée`);
+    } else {
+      const newTx: Transaction = {
+        id: `manual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        date: formDate,
+        month: txMonth,
+        name: formName.trim() || "Nouvelle opération",
+        amount: finalAmt,
+        type: formCategory,
+        account: formAccount,
+      };
+      if (onAddTransaction) {
+        onAddTransaction(newTx);
+      }
+      setToastMessage(`Opération "${newTx.name}" ajoutée`);
+    }
+    setShowAddModal(false);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleDelete = (tx: Transaction, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm(`Supprimer l'opération "${tx.name}" (${formatAmount(tx.amount)}) ?`)) {
+      if (onDeleteTransaction) {
+        onDeleteTransaction(tx.id);
+      }
+      setToastMessage(`Opération "${tx.name}" supprimée`);
+      setTimeout(() => setToastMessage(null), 3000);
+    }
+  };
+
   const exportFilteredCSV = () => {
     const headers = ["Date", "Marchand", "Catégorie", "Compte", "Montant"];
     const rows = filteredTransactions.map(t => [
@@ -185,15 +283,28 @@ export function TransactionsView({
 
       {/* Top Header & Actions */}
       <PageHeader title="Transactions">
-        <button
-          type="button"
-          onClick={exportFilteredCSV}
-          className="h-9 px-3.5 rounded-full bg-card hover:bg-black/5 dark:hover:bg-white/[0.1] border border-border text-xs font-medium text-foreground flex items-center gap-2 transition-all active:scale-95 cursor-pointer font-sans shadow-xs"
-          aria-label="Exporter en CSV"
-        >
-          <Download size={14} />
-          <span>Exporter CSV</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {onAddTransaction && (
+            <button
+              type="button"
+              onClick={handleOpenAdd}
+              className="h-9 px-3.5 rounded-full bg-foreground text-background text-xs sm:text-sm font-medium flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all shadow-xs cursor-pointer font-sans"
+              aria-label="Ajouter une opération"
+            >
+              <Plus size={14} />
+              <span>Ajouter une opération</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={exportFilteredCSV}
+            className="h-9 px-3.5 rounded-full bg-card hover:bg-black/5 dark:hover:bg-white/[0.1] border border-border text-xs font-medium text-foreground flex items-center gap-2 transition-all active:scale-95 cursor-pointer font-sans shadow-xs"
+            aria-label="Exporter en CSV"
+          >
+            <Download size={14} />
+            <span>Exporter CSV</span>
+          </button>
+        </div>
       </PageHeader>
 
       {/* Encapsulated Main Card */}
@@ -326,12 +437,13 @@ export function TransactionsView({
                 <th className="py-3 px-6 font-semibold w-48 sm:w-56">Catégorie</th>
                 <th className="hidden sm:table-cell py-3 px-6 font-semibold w-32">Compte</th>
                 <th className="py-3 px-6 font-semibold text-right w-32">Montant</th>
+                <th className="py-3 px-4 font-semibold text-right w-20">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60 font-sans text-xs sm:text-sm">
               {displayedTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-16 text-center text-muted-foreground font-sans">
+                  <td colSpan={6} className="py-16 text-center text-muted-foreground font-sans">
                     <SlidersHorizontal className="w-8 h-8 mx-auto mb-3 opacity-30 text-foreground" />
                     <p className="text-sm font-medium text-foreground">Aucune opération trouvée</p>
                     <p className="text-xs mt-1 text-muted-foreground">Essayez de modifier vos filtres ou votre recherche</p>
@@ -417,6 +529,32 @@ export function TransactionsView({
                           {formatAmount(tx.amount)}
                         </span>
                       </td>
+
+                      {/* 6. Actions */}
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(tx)}
+                            className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                            title="Modifier l'opération"
+                            aria-label={`Modifier ${tx.name}`}
+                          >
+                            <Edit2 size={13} />
+                          </button>
+                          {onDeleteTransaction && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleDelete(tx, e)}
+                              className="p-1.5 rounded-lg hover:bg-rose-500/10 text-muted-foreground hover:text-rose-500 transition-colors cursor-pointer"
+                              title="Supprimer l'opération"
+                              aria-label={`Supprimer ${tx.name}`}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })
@@ -438,6 +576,170 @@ export function TransactionsView({
           )}
         </div>
       </div>
+
+      {/* Add / Edit Transaction Modal */}
+      <AnimatePresence>
+        {showAddModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-card w-full max-w-md rounded-2xl border border-border p-6 shadow-2xl relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="font-semibold text-lg text-foreground">
+                  {editingTx ? "Modifier l'opération" : "Ajouter une opération"}
+                </h3>
+                <CloseButton onClick={() => setShowAddModal(false)} />
+              </div>
+
+              <form onSubmit={handleSaveTransaction} className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-neutral-400 block mb-1.5">
+                    Libellé / Marchand
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    placeholder="Ex: Monoprix, Salaire, Netflix..."
+                    className="w-full h-10 px-3.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-border text-sm text-foreground outline-none focus:border-foreground/30 transition-all font-sans"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-neutral-400 block mb-1.5">
+                      Date
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={formDate}
+                      onChange={(e) => setFormDate(e.target.value)}
+                      className="w-full h-10 px-3 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-border text-xs text-foreground outline-none focus:border-foreground/30 cursor-pointer font-sans"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-neutral-400 block mb-1.5">
+                      Type d'opération
+                    </label>
+                    <div className="grid grid-cols-2 gap-1 p-1 bg-black/[0.03] dark:bg-white/[0.04] rounded-xl border border-border h-10 items-center">
+                      <button
+                        type="button"
+                        onClick={() => setFormIsCredit(false)}
+                        className={`h-8 rounded-lg text-xs font-medium transition-all ${
+                          !formIsCredit
+                            ? "bg-card text-foreground shadow-xs font-semibold"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Débit (-)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormIsCredit(true)}
+                        className={`h-8 rounded-lg text-xs font-medium transition-all ${
+                          formIsCredit
+                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shadow-xs font-semibold"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Crédit (+)
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-neutral-400 block mb-1.5">
+                      Montant (€)
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formAmount}
+                      onChange={(e) => setFormAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full h-10 px-3.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-border text-sm text-foreground outline-none focus:border-foreground/30 transition-all tabular-nums font-sans"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-neutral-400 block mb-1.5">
+                      Compte
+                    </label>
+                    <select
+                      value={formAccount}
+                      onChange={(e) => setFormAccount(e.target.value)}
+                      className="w-full h-10 px-3 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-border text-xs text-foreground outline-none focus:border-foreground/30 cursor-pointer font-sans"
+                    >
+                      {accounts.length > 0 ? (
+                        accounts.map(acc => (
+                          <option key={acc} value={acc} className="bg-card text-foreground">{acc}</option>
+                        ))
+                      ) : (
+                        <option value="BoursoBank" className="bg-card text-foreground">BoursoBank</option>
+                      )}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-neutral-400 block mb-1.5">
+                    Catégorie
+                  </label>
+                  <select
+                    value={formCategory}
+                    onChange={(e) => setFormCategory(e.target.value)}
+                    className="w-full h-10 px-3 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-border text-xs text-foreground outline-none focus:border-foreground/30 cursor-pointer font-sans"
+                  >
+                    {OFFICIAL_CATEGORIES.map(cat => (
+                      <option key={cat} value={cat} className="bg-card text-foreground">{cat}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between pt-4 border-t border-border">
+                  {editingTx && onDeleteTransaction ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        handleDelete(editingTx, e);
+                        setShowAddModal(false);
+                      }}
+                      className="h-10 px-3.5 rounded-full text-rose-500 hover:bg-rose-500/10 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2 size={14} />
+                      <span>Supprimer</span>
+                    </button>
+                  ) : <div />}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddModal(false)}
+                      className="h-10 px-4 rounded-full text-xs font-medium text-foreground hover:bg-black/5 dark:hover:bg-white/[0.06] cursor-pointer"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="submit"
+                      className="h-10 px-5 rounded-full bg-foreground text-background text-xs font-medium hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+                    >
+                      Enregistrer
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

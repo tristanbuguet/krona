@@ -34,9 +34,19 @@ export const CaisseEpargneLogo = ({ className = "w-4.5 h-4.5" }: { className?: s
   </svg>
 );
 
+// Logo LCL (Officiel)
+export const LCLLogo = ({ className = "w-4.5 h-4.5" }: { className?: string }) => (
+  <svg viewBox="0 0 36 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <rect width="36" height="24" rx="5" fill="#002D72" />
+    <path d="M5.5 6.5H8.5V15.5H13.5V17.5H5.5V6.5Z" fill="#FFDD00" />
+    <path d="M20.5 7.5C18.2 7.5 16.5 9.2 16.5 12C16.5 14.8 18.2 16.5 20.5 16.5C21.8 16.5 22.8 16 23.5 15.2L22.2 13.8C21.7 14.3 21.2 14.6 20.5 14.6C19.3 14.6 18.5 13.6 18.5 12C18.5 10.4 19.3 9.4 20.5 9.4C21.2 9.4 21.7 9.7 22.2 10.2L23.5 8.8C22.8 8 21.8 7.5 20.5 7.5Z" fill="#FFFFFF" />
+    <path d="M25.5 6.5H28.5V15.5H33.5V17.5H25.5V6.5Z" fill="#FFDD00" />
+  </svg>
+);
+
 import clsx from "clsx";
 
-export type BankType = "bourso" | "ca" | "ce";
+export type BankType = "bourso" | "ca" | "ce" | "lcl";
 
 interface BankSelectorPopoverProps {
   isOpen: boolean;
@@ -169,6 +179,28 @@ export function BankSelectorPopover({
                 </div>
                 <div className="text-xs text-muted-foreground font-sans truncate">
                   Relevé de compte CSV
+                </div>
+              </div>
+            </button>
+
+            {/* LCL Option */}
+            <button
+              type="button"
+              onClick={() => {
+                onSelectBank("lcl");
+                onClose();
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-black/[0.04] dark:hover:bg-white/[0.05] active:scale-[0.98] transition-all text-left group cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-border flex items-center justify-center text-foreground shrink-0 group-hover:bg-black/[0.06] dark:group-hover:bg-white/[0.08] transition-colors">
+                <LCLLogo className="w-4.5 h-4.5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-foreground tracking-tight font-sans">
+                  LCL
+                </div>
+                <div className="text-xs text-muted-foreground font-sans truncate">
+                  Relevé de compte CSV / TSV
                 </div>
               </div>
             </button>

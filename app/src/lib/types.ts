@@ -10,8 +10,9 @@ export type Transaction = {
   isInternalTransfer?: boolean;
   excludeFromSpending?: boolean;
   excludeFromIncome?: boolean;
-  account?: "BoursoBank" | "Crédit Agricole" | "Caisse d'Épargne" | string;
+  account?: "BoursoBank" | "Crédit Agricole" | "Caisse d'Épargne" | "LCL" | string;
   rawName?: string;
+  updatedAt?: string;
 };
 
 export type FixedIncomeSettings = {
@@ -27,12 +28,13 @@ export type FixedIncomeSettings = {
 export type AccountInfo = {
   id: string;
   name: string;
-  bank: "BoursoBank" | "Crédit Agricole" | "Caisse d'Épargne" | "Autre";
+  bank: "BoursoBank" | "Crédit Agricole" | "Caisse d'Épargne" | "LCL" | "Autre";
   type: "Compte courant" | "Livret d'épargne" | "Carte bancaire";
   accountNumber?: string;
   initialBalance?: number;
   color?: string;
   updatedAt?: string;
+  isHidden?: boolean;
 };
 
 export const OFFICIAL_CATEGORIES = [

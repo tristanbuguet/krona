@@ -344,3 +344,125 @@ test("Scénario 3 : Sauvegarde continue et enrichissement incrémental", async (
   assert.ok(syncUpdateBody.data.learningRules["Spotify"]);
 });
 
+test("Scénario 4 : Recatégorisation et arbitrage par updatedAt (multi-appareils)", async () => {
+  const testUserId = "user-scenario-4-recategorize";
+
+  // Appareil A : modification récente de la catégorie d'une transaction et apprentissage de règle
+  const newerTimestamp = "2026-11-04T12:00:00.000Z";
+  const olderTimestamp = "2026-11-04T08:00:00.000Z";
+
+  const updatedDataFromDeviceA = normalizeUserFinancialPayload({
+    transactions: [
+      {
+        id: "tx-cat-test-1",
+        name: "Carrefour Market",
+        type: "Alimentation & Courses",
+        amount: -45.5,
+        date: "2026-11-02",
+        month: "2026-11",
+        updatedAt: newerTimestamp,
+      },
+    ],
+    learningRules: {
+      "Carrefour Market": {
+        categorie: "Alimentation & Courses",
+        updatedAt: newerTimestamp,
+      },
+    },
+  });
+
+  // Sauvegarde sur le Cloud depuis l'appareil A
+  const postRes = await POST(
+    new NextRequest("http://localhost:3000/api/sync", {
+      method: "POST",
+      body: JSON.stringify({
+        userId: testUserId,
+        data: updatedDataFromDeviceA,
+        mode: "overwrite",
+      }),
+    })
+  );
+  assert.strictEqual(postRes.status, 200);
+
+  // Appareil B : possède un cache local obsolète (ancienne catégorie "Autre" avec timestamp antérieur)
+  const staleLocalDeviceB = {
+    transactions: [
+      {
+        id: "tx-cat-test-1",
+        name: "Carrefour Market",
+        type: "Autre",
+        amount: -45.5,
+        date: "2026-11-02",
+        month: "2026-11",
+        updatedAt: olderTimestamp,
+      },
+    ],
+    accounts: [],
+    settings: {
+      monthlyCap: null,
+      monthlyLimitConfig: { type: "amount" as const, value: 0 },
+      incomeSettings: { salary: 0, aids: 0, autoApply: false },
+      categoryBudgets: {},
+      ignoredSubscriptions: [],
+    },
+    learningRules: {
+      "Carrefour Market": {
+        categorie: "Autre",
+        updatedAt: olderTimestamp,
+      },
+    },
+  };
+
+  // Récupération Cloud sur Appareil B
+  const getRes = await GET(
+    new NextRequest(`http://localhost:3000/api/sync?userId=${testUserId}`, {
+      headers: { "x-krona-user-id": testUserId },
+    })
+  );
+  const getBody = await getRes.json();
+
+  const merged = mergeCloudAndLocalData(staleLocalDeviceB, getBody.data);
+  // L'ancienne catégorie "Autre" de l'appareil B DOIT être écrasée par "Alimentation & Courses" (plus récent)
+  assert.strictEqual(merged.transactions[0].type, "Alimentation & Courses");
+  assert.strictEqual(merged.learningRules["Carrefour Market"]?.categorie, "Alimentation & Courses");
+});
+
+test("Scénario 5 : Persistance et fusion des comptes bancaires (masquage isHidden, renommage, solde)", () => {
+  const localAccounts = [
+    {
+      id: "acc-1",
+      name: "Compte Bourso Perso",
+      bank: "BoursoBank" as const,
+      type: "Compte courant" as const,
+      accountNumber: "•••• 1234",
+      initialBalance: 1500,
+      isHidden: true,
+      updatedAt: "2026-11-04T13:00:00.000Z",
+    },
+  ];
+
+  const cloudAccounts = [
+    {
+      id: "acc-1",
+      name: "Compte Bourso",
+      bank: "BoursoBank" as const,
+      type: "Compte courant" as const,
+      accountNumber: "•••• 1234",
+      initialBalance: 1000,
+      isHidden: false,
+      updatedAt: "2026-11-04T10:00:00.000Z",
+    },
+  ];
+
+  const merged = mergeCloudAndLocalData(
+    { transactions: [], accounts: localAccounts, settings: {} as any, learningRules: {} },
+    { transactions: [], accounts: cloudAccounts, settings: {} as any, learningRules: {} }
+  );
+
+  assert.strictEqual(merged.accounts.length, 1);
+  assert.strictEqual(merged.accounts[0].name, "Compte Bourso Perso");
+  assert.strictEqual(merged.accounts[0].isHidden, true);
+  assert.strictEqual(merged.accounts[0].initialBalance, 1500);
+});
+
+
