@@ -14,6 +14,8 @@ export type Transaction = {
   rawName?: string;
   updatedAt?: string;
   source?: "csv" | "bank" | "manual";
+  /** UID Enable Banking du sous-compte d'origine (multi-comptes : courant, épargne…). */
+  bankAccountUid?: string;
 };
 
 export type FixedIncomeSettings = {
@@ -45,8 +47,14 @@ export type BankSessionInfo = {
     name?: string;
     currency?: string;
     balance?: number;
+    /** Type DSP2 (CACC courant, SVGS épargne, CARD…). */
+    cashAccountType?: string;
   }>;
   connectedAt: string;
+  /** Fin de validité du consentement DSP2 (ISO). Au-delà, une reconnexion est requise. */
+  validUntil?: string;
+  /** Résultat de la dernière tentative : avertissements partiels (ex. un sous-compte indisponible). */
+  lastSyncWarnings?: string[];
   lastSyncedAt?: string;
   refreshTimestamps?: string[];
   refreshQuota?: BankRefreshQuota;

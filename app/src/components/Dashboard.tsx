@@ -1702,7 +1702,8 @@ export function Dashboard({
         body: JSON.stringify({
           userId: user?.id || "guest_sandbox_user",
           sessionId: overrideSessionId || bankSession?.sessionId,
-          accountId: overrideAccountId || bankSession?.accounts?.[0]?.uid,
+          accountId: overrideAccountId,
+          accountIds: bankSession?.accounts?.map(a => a.uid) || [],
           bankSession,
           refreshTimestamps: bankSession?.refreshTimestamps,
           learningRules: currentRules,
@@ -1715,7 +1716,11 @@ export function Dashboard({
         success?: boolean;
         error?: string;
         sessionExpired?: boolean;
+        retryable?: boolean;
         quotaExceeded?: boolean;
+        removedDuplicatesCount?: number;
+        warnings?: string[];
+        consentDaysLeft?: number | null;
         refreshQuota?: BankRefreshQuota;
         addedCount?: number;
         transactions?: Transaction[];
@@ -1754,15 +1759,24 @@ export function Dashboard({
           return;
         }
         if (data.sessionExpired || res.status === 401) {
+          // Les transactions déjà importées restent affichées : seule la liaison est retirée
           setBankSession(null);
           try {
             localStorage.removeItem('krona_bank_session_v1');
           } catch {}
           setToastMessage({
-            text: "Session bancaire expirée. Veuillez reconnecter votre banque.",
+            text: data.error || "Session bancaire expirée. Veuillez reconnecter votre banque.",
             visible: true,
           });
-          setTimeout(() => setToastMessage(null), 4000);
+          setTimeout(() => setToastMessage(null), 6000);
+          return;
+        }
+        if (data.retryable || res.status === 503) {
+          setToastMessage({
+            text: data.error || "Banque momentanément indisponible. Réessayez dans quelques minutes.",
+            visible: true,
+          });
+          setTimeout(() => setToastMessage(null), 5000);
           return;
         }
         throw new Error(data.error || "Erreur lors de la synchronisation bancaire.");
@@ -1773,6 +1787,18 @@ export function Dashboard({
         try {
           localStorage.setItem('krona_bank_session_v1', JSON.stringify(data.bankSession));
         } catch {}
+      }
+
+      const notes: string[] = [];
+      {
+        if (data.removedDuplicatesCount) notes.push(`${data.removedDuplicatesCount} doublon(s) supprimé(s)`);
+        if (data.warnings?.length) notes.push(...data.warnings);
+        if (typeof data.consentDaysLeft === "number" && data.consentDaysLeft <= 7) {
+          notes.push(`Accès bancaire à renouveler sous ${Math.max(0, data.consentDaysLeft)} jour(s)`);
+        }
+        if (typeof data.refreshQuota?.remaining === "number") {
+          notes.push(`${data.refreshQuota.remaining}/${data.refreshQuota.limit} actualisation(s) restante(s) aujourd'hui`);
+        }
       }
 
       if (Array.isArray(data.accounts) && data.accounts.length > 0) {
@@ -1803,7 +1829,10 @@ export function Dashboard({
           if (tx && tx.id) serverById.set(tx.id, tx);
         });
 
-        if (currentTxs.length === 0) {
+        if (allCloudTxs.length > 0) {
+          // Le serveur a fusionné l'historique local + cloud et purgé les doublons : sa liste fait foi
+          combinedTransactions = allCloudTxs;
+        } else if (currentTxs.length === 0) {
           combinedTransactions = serverTxsSource;
         } else {
           // 1. Mettre à jour les transactions existantes avec les versions enrichies du serveur
@@ -1962,12 +1991,16 @@ export function Dashboard({
       setImportStep(null);
 
       setToastMessage({
-        text: incomingTxs.length > 0
-          ? `Synchronisation terminée · ${incomingTxs.length} opération${incomingTxs.length > 1 ? "s" : ""} importée${incomingTxs.length > 1 ? "s" : ""}`
-          : "Compte bancaire à jour · Aucune nouvelle opération",
+        text: (() => {
+          const added = data.addedCount ?? 0;
+          const head = added > 0
+            ? `Synchronisation terminée · ${added} opération${added > 1 ? "s" : ""} importée${added > 1 ? "s" : ""}`
+            : "Compte bancaire à jour · Aucune nouvelle opération";
+          return notes.length ? `${head} · ${notes.join(" · ")}` : head;
+        })(),
         visible: true,
       });
-      setTimeout(() => setToastMessage(null), 3500);
+      setTimeout(() => setToastMessage(null), notes.length ? 6000 : 3500);
 
       // Si l'utilisateur n'est pas connecté dans Krona, déclencher automatiquement le popover de compte
       if (!isAuthenticatedRef.current) {

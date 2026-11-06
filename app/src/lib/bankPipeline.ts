@@ -204,8 +204,13 @@ Réponds uniquement en JSON valide sans balises Markdown : [{ "id": "...", "cate
   return resultMap;
 }
 
+/**
+ * Signature comptable d'une opération : date d'opération + montant signé exact (le signe porte le sens du flux)
+ * + commerçant nettoyé (scories de terminal supprimées). Indépendante des identifiants techniques éphémères
+ * et du statut PEND/BOOK, elle sert de clé unique de déduplication bancaire et CSV.
+ */
 export function buildDeduplicationSignature(date: string, amount: number, name: string): string {
-  const cleaned = cleanMerchantName(name);
+  const cleaned = cleanOpenBankingMerchantLabel(name || "", true) || cleanMerchantName(name);
   const cleanSlug = normalizeText(cleaned).replace(/[^a-z0-9]/g, "");
   const roundedAmount = Math.round(amount * 100) / 100;
   return `${date}_${roundedAmount.toFixed(2)}_${cleanSlug}`;
@@ -218,6 +223,8 @@ export interface BankPipelineOptions {
   aspspLabel?: string;
   enableSandboxFallback?: boolean;
   skipAiEnrichment?: boolean;
+  /** Début de la fenêtre couverte par l'extraction bancaire (YYYY-MM-DD). Défaut : plus ancienne date entrante. */
+  historyStartDate?: string;
   aiCategorizer?: (items: Array<{ id: string; label: string; amount?: number }>) => Promise<Map<string, string>>;
 }
 
@@ -227,6 +234,10 @@ export interface BankPipelineResult {
   allMergedTransactions: Transaction[];
   learningRules: LearningRuleMap;
   usedSandboxFallback: boolean;
+  /** Nombre de doublons historiques supprimés lors de cette exécution. */
+  removedDuplicatesCount: number;
+  /** Nombre réel d'opérations nouvelles (hors mises à niveau d'existantes). */
+  addedCount: number;
 }
 
 function applyCategoryToTransaction(tx: Transaction, newCat: string, nowIso: string): Transaction {
@@ -259,6 +270,7 @@ export async function executeBankIngestionPipeline({
   aspspLabel = "BoursoBank",
   enableSandboxFallback = true,
   skipAiEnrichment = false,
+  historyStartDate,
   aiCategorizer,
 }: BankPipelineOptions): Promise<BankPipelineResult> {
   const cleanAspspLabel = formatBankDisplayName(aspspLabel);
@@ -304,6 +316,7 @@ export async function executeBankIngestionPipeline({
       excludeFromIncome: localCat.excludeFromIncome ?? localCat.isInternalTransfer,
       account: formatBankDisplayName(raw.account || cleanAspspLabel),
       source: "bank",
+      ...(raw.bankAccountUid ? { bankAccountUid: raw.bankAccountUid } : {}),
       updatedAt: nowIso,
     };
 
@@ -356,13 +369,52 @@ export async function executeBankIngestionPipeline({
     };
   });
 
-  // Déduplication par ID et par signature comptable
-  const existingIds = new Set<string>(upgradedExisting.map((t) => t.id));
-  const existingSigCounts = new Map<string, number>();
-  for (const tx of upgradedExisting) {
+  // Déduplication par signature comptable (date + montant signé + commerçant nettoyé).
+  // 1) La banque fait foi sur sa fenêtre d'extraction : pour chaque signature, on conserve au plus
+  //    autant d'opérations bancaires existantes que la banque en renvoie (min. 1), ce qui purge les
+  //    doublons historiques (variantes d'intitulé PEND/BOOK, anciens ids éphémères) sans toucher aux
+  //    achats identiques légitimes (deux cafés le même jour) ni à l'historique hors fenêtre.
+  const freshSigCounts = new Map<string, number>();
+  for (const tx of candidateTransactions) {
     const sig = buildDeduplicationSignature(tx.date, tx.amount, tx.name);
-    existingSigCounts.set(sig, (existingSigCounts.get(sig) || 0) + 1);
+    freshSigCounts.set(sig, (freshSigCounts.get(sig) || 0) + 1);
   }
+  const windowStart =
+    historyStartDate ||
+    (candidateTransactions.length > 0
+      ? candidateTransactions.reduce((min, t) => (t.date < min ? t.date : min), candidateTransactions[0].date)
+      : null);
+  const candidateIds = new Set(candidateTransactions.map((t) => t.id));
+  const isBankTx = (t: Transaction) => t.source === "bank" || t.id.startsWith("eb_");
+
+  // Ordre de préférence : CSV/manuel d'abord, puis opérations catégorisées par l'utilisateur, puis ids encore valides
+  const rank = (t: Transaction) =>
+    (isBankTx(t) ? 4 : 0) + (t.type === "Autre" ? 2 : 0) + (candidateIds.has(t.id) ? 0 : 1);
+  const ordered = [...upgradedExisting].sort((a, b) => rank(a) - rank(b));
+
+  const keptSigCounts = new Map<string, number>();
+  const keptExisting: Transaction[] = [];
+  let removedDuplicatesCount = 0;
+  for (const tx of ordered) {
+    const sig = buildDeduplicationSignature(tx.date, tx.amount, tx.name);
+    const kept = keptSigCounts.get(sig) || 0;
+    const inWindow = windowStart !== null && tx.date >= windowStart;
+    if (isBankTx(tx) && inWindow && kept >= Math.max(1, freshSigCounts.get(sig) || 0)) {
+      removedDuplicatesCount++;
+      continue;
+    }
+    keptSigCounts.set(sig, kept + 1);
+    keptExisting.push(tx);
+  }
+  upgradedExisting.length = 0;
+  upgradedExisting.push(...keptExisting);
+  if (removedDuplicatesCount > 0) {
+    console.log(`[BankPipeline] ${removedDuplicatesCount} doublon(s) historique(s) supprimé(s).`);
+  }
+
+  // 2) Les opérations entrantes ne sont ajoutées que si leur signature n'est pas déjà couverte
+  const existingIds = new Set<string>(upgradedExisting.map((t) => t.id));
+  const existingSigCounts = new Map(keptSigCounts);
 
   const deduplicatedNew: Transaction[] = [];
   for (const tx of candidateTransactions) {
@@ -444,6 +496,8 @@ export async function executeBankIngestionPipeline({
     applyAiMap(upgradedExisting);
   }
 
+  flagInterAccountTransfers([...deduplicatedNew, ...upgradedExisting], nowIso);
+
   const allMergedTransactions = [...deduplicatedNew, ...upgradedExisting].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
@@ -458,5 +512,36 @@ export async function executeBankIngestionPipeline({
     allMergedTransactions,
     learningRules: rulesCopy,
     usedSandboxFallback,
+    removedDuplicatesCount,
+    addedCount: deduplicatedNew.length,
   };
+}
+
+/**
+ * Multi-comptes : un débit sur un sous-compte et un crédit du même montant sur un autre sous-compte
+ * de la même liaison (à ±3 jours) constituent un virement interne (ex. courant -> livret), exclu des
+ * dépenses et des revenus. Mutation en place des objets (partagés par référence avec les listes appelantes).
+ */
+export function flagInterAccountTransfers(list: Transaction[], nowIso: string): number {
+  const DAY = 24 * 3600 * 1000;
+  const credits = list.filter((t) => t.bankAccountUid && t.amount > 0);
+  const used = new Set<string>();
+  let flagged = 0;
+  for (const debit of list) {
+    if (!debit.bankAccountUid || debit.amount >= 0) continue;
+    const match = credits.find(
+      (c) =>
+        !used.has(c.id) &&
+        c.bankAccountUid !== debit.bankAccountUid &&
+        Math.abs(c.amount + debit.amount) < 0.005 &&
+        Math.abs(Date.parse(c.date) - Date.parse(debit.date)) <= 3 * DAY
+    );
+    if (!match) continue;
+    used.add(match.id);
+    for (const t of [debit, match]) {
+      Object.assign(t, applyCategoryToTransaction(t, "Virement interne", nowIso));
+    }
+    flagged++;
+  }
+  return flagged;
 }

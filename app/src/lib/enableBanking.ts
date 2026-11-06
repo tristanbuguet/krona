@@ -143,6 +143,8 @@ export interface EnableBankingSessionResponse {
     name: string;
     country: string;
   };
+  status?: string;
+  access?: { valid_until?: string };
 }
 
 export interface EnableBankingTransactionAmount {
@@ -335,7 +337,7 @@ export async function createAuthSession(
   redirectUrl: string,
   state?: string,
   country: string = "FR"
-): Promise<{ url: string; authorizationId?: string }> {
+): Promise<{ url: string; authorizationId?: string; validUntil: string }> {
   const token = generateEnableBankingJWT();
   const aspsp = resolveSandboxAspsp(aspspTitle, country);
   const validUntil = new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
@@ -384,6 +386,7 @@ export async function createAuthSession(
   return {
     url: data.url,
     authorizationId: data.authorization_id,
+    validUntil,
   };
 }
 
@@ -395,39 +398,32 @@ export async function authorizeOrGetSession(
   codeOrSessionId: string,
   isCode: boolean = true
 ): Promise<EnableBankingSessionResponse> {
-  const token = generateEnableBankingJWT();
-
   const endpoint = isCode
     ? `${ENABLE_BANKING_BASE_URL}/sessions`
     : `${ENABLE_BANKING_BASE_URL}/sessions/${encodeURIComponent(codeOrSessionId)}`;
 
-  const response = await fetch(endpoint, {
+  const response = await ebFetch(endpoint, "/sessions", {
     method: isCode ? "POST" : "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     ...(isCode ? { body: JSON.stringify({ code: codeOrSessionId }) } : {}),
-    cache: "no-store",
   });
 
-  if (!response.ok) {
-    let errorDetail = `HTTP ${response.status}`;
-    try {
-      const errJson = (await response.json()) as { message?: string; detail?: string; error?: string };
-      errorDetail = errJson.message || errJson.detail || errJson.error || errorDetail;
-    } catch {
-      // Ignore parse error
-    }
-    throw new Error(`Erreur Enable Banking (/sessions) : ${errorDetail}`);
-  }
-
   const data = (await response.json()) as EnableBankingSessionResponse;
+  // GET /sessions/{id} renvoie un statut (AUTHORIZED, EXPIRED, REVOKED, CLOSED…) et des uids de comptes
+  const status = String(data.status || "").toUpperCase();
+  if (status && status !== "AUTHORIZED") {
+    throw new EnableBankingError(`Session Enable Banking ${status.toLowerCase()} (expired)`, 401);
+  }
+  const accounts = Array.isArray(data.accounts)
+    ? (data.accounts as Array<EnableBankingSessionAccount | string>).map((a) =>
+        typeof a === "string" ? { uid: a } : a
+      )
+    : [];
   return {
     session_id: data.session_id || codeOrSessionId,
-    accounts: Array.isArray(data.accounts) ? data.accounts : [],
+    accounts,
     aspsp: data.aspsp,
+    access: data.access,
   };
 }
 
@@ -454,12 +450,88 @@ export async function deleteSession(sessionId: string): Promise<boolean> {
   }
 }
 
+/** Profondeur d'historique DSP2 garantie sans réauthentification forte (90 jours, marge de 1 jour). */
+export const ENABLE_BANKING_HISTORY_DAYS = 89;
+
 /**
- * Récupère les transactions comptabilisées (booked / BOOK) pour un compte depuis Enable Banking.
+ * Erreur typée Enable Banking : permet de distinguer une session expirée/révoquée (reconnexion requise)
+ * d'une indisponibilité temporaire (réessayer plus tard) sans heuristique fragile sur le message.
+ */
+export class EnableBankingError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "EnableBankingError";
+    this.status = status;
+  }
+  /** 401/403 = consentement expiré ou révoqué ; 422 sur EXPIRED_SESSION / closed session. */
+  get isSessionExpired(): boolean {
+    return (
+      this.status === 401 ||
+      this.status === 403 ||
+      (this.status === 422 && /expired|closed|revoked|invalid.?session/i.test(this.message))
+    );
+  }
+  get isTransient(): boolean {
+    return this.status === 0 || this.status === 429 || this.status >= 500;
+  }
+}
+
+export function isSessionExpiredError(err: unknown): boolean {
+  return err instanceof EnableBankingError && err.isSessionExpired;
+}
+
+/**
+ * fetch authentifié avec retries exponentiels non bloquants (réseau, 429, 5xx) — 3 tentatives max.
+ */
+async function ebFetch(url: string, label: string, init: RequestInit = {}): Promise<Response> {
+  const maxAttempts = 3;
+  let lastError: EnableBankingError | null = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${generateEnableBankingJWT()}`,
+          Accept: "application/json",
+          ...(init.headers || {}),
+        },
+        cache: "no-store",
+      });
+    } catch (err) {
+      lastError = new EnableBankingError(
+        `Erreur réseau Enable Banking (${label}) : ${err instanceof Error ? err.message : String(err)}`,
+        0
+      );
+      if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, 400 * 2 ** (attempt - 1)));
+      continue;
+    }
+    if (response.ok) return response;
+
+    let detail = `HTTP ${response.status}`;
+    try {
+      const errJson = (await response.json()) as { message?: string; detail?: unknown; error?: string; code?: string };
+      const d = typeof errJson.detail === "string" ? errJson.detail : "";
+      detail = [errJson.error || errJson.code, errJson.message || d].filter(Boolean).join(" - ") || detail;
+    } catch {
+      // corps non JSON
+    }
+    lastError = new EnableBankingError(`Erreur Enable Banking (${label}) : ${detail}`, response.status);
+    if (!lastError.isTransient || attempt === maxAttempts) throw lastError;
+    await new Promise((r) => setTimeout(r, 400 * 2 ** (attempt - 1)));
+  }
+  throw lastError ?? new EnableBankingError(`Erreur Enable Banking (${label})`, 0);
+}
+
+/**
+ * Récupère les transactions comptabilisées (booked / BOOK) pour un compte depuis Enable Banking,
+ * sur toute la profondeur d'historique disponible (90 jours) avec pagination complète.
  */
 export async function fetchTransactions(
   sessionId: string,
-  accountId: string
+  accountId: string,
+  options: { dateFrom?: string; now?: Date } = {}
 ): Promise<EnableBankingTransaction[]> {
   let targetAccountUid = accountId.trim();
 
@@ -475,40 +547,30 @@ export async function fetchTransactions(
     throw new Error("Identifiant de compte (accountId) manquant pour récupérer les transactions.");
   }
 
-  const token = generateEnableBankingJWT();
+  // Sans date_from, la plupart des ASPSP (dont BoursoBank) ne renvoient que le mois en cours.
+  const now = options.now || new Date();
+  const dateFrom =
+    options.dateFrom ||
+    new Date(now.getTime() - ENABLE_BANKING_HISTORY_DAYS * 24 * 3600 * 1000).toISOString().slice(0, 10);
+
   const allBookedTransactions: EnableBankingTransaction[] = [];
+  const seenKeys = new Set<string>();
   let continuationKey: string | undefined = undefined;
   let pageCount = 0;
 
-  while (pageCount < 10) {
+  // Certaines banques paginent par 10-20 opérations : 50 pages couvrent largement 90 jours.
+  while (pageCount < 50) {
     pageCount++;
     const url = new URL(
       `${ENABLE_BANKING_BASE_URL}/accounts/${encodeURIComponent(targetAccountUid)}/transactions`
     );
+    url.searchParams.set("date_from", dateFrom);
     url.searchParams.set("transaction_status", "BOOK");
     if (continuationKey) {
       url.searchParams.set("continuation_key", continuationKey);
     }
 
-    const response = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      let errorDetail = `HTTP ${response.status}`;
-      try {
-        const errJson = (await response.json()) as { message?: string; detail?: string; error?: string };
-        errorDetail = errJson.message || errJson.detail || errJson.error || errorDetail;
-      } catch {
-        // Ignore parse error
-      }
-      throw new Error(`Erreur Enable Banking (/transactions) : ${errorDetail}`);
-    }
+    const response = await ebFetch(url.toString(), "/transactions");
 
     const data = (await response.json()) as EnableBankingTransactionsResponse;
     const rawList = Array.isArray(data.transactions) ? data.transactions : [];
@@ -520,7 +582,9 @@ export async function fetchTransactions(
       }
     }
 
-    if (data.continuation_key) {
+    // Garde-fou contre une banque qui renverrait la même clé de continuation en boucle
+    if (data.continuation_key && !seenKeys.has(data.continuation_key)) {
+      seenKeys.add(data.continuation_key);
       continuationKey = data.continuation_key;
     } else {
       break;
@@ -616,8 +680,83 @@ export function cleanOpenBankingMerchantLabel(raw: string, isCardLabel: boolean 
     s = s.replace(/\s+(?:SC\s+)?\d{1,2}\s*$/i, "").trim();
   }
 
+  s = stripTerminalNoise(s);
+
   const cleaned = cleanMerchantName(s);
-  return cleaned;
+  return applyMerchantAlias(cleaned);
+}
+
+/**
+ * Préfixes d'agrégateurs / terminaux de paiement (SumUp, Square, Zettle, PayPal, Stripe…)
+ * qui précèdent le vrai nom du commerçant : "SNP*MLG EVENTS" -> "MLG EVENTS", "SQ *CAFE" -> "CAFE".
+ */
+const PAYMENT_PROCESSOR_PREFIX =
+  /^(?:SNP|SQ|SP|SUMUP|SUM\s?UP|ZTL|IZ|IZETTLE|PP|PAYPAL|STRIPE|STR|MOLLIE|ADY|ADYEN|PAYPLUG|DRI|GOOGLE|APPLE\.COM\/BILL|HELLOASSO|WWW|TPE)\s*\*\s*/i;
+
+/**
+ * Supprime les scories techniques des terminaux et passerelles :
+ * - "Ebay 0*04-15396-3" (référence de commande après un astérisque)
+ * - "Bolt.eu/o/2611010" (domaine + chemin de reçu)
+ * - "Snp*mlg Events" (préfixe d'agrégateur)
+ * Idempotent : peut être appliquée plusieurs fois sans altérer un libellé déjà propre.
+ */
+export function stripTerminalNoise(raw: string): string {
+  let s = (raw || "").trim();
+  if (!s) return s;
+
+  for (let i = 0; i < 2; i++) s = s.replace(PAYMENT_PROCESSOR_PREFIX, "").trim();
+
+  // Chemins d'URL / reçus : "BOLT.EU/O/2611010" -> "BOLT.EU"
+  s = s.replace(/(\.[a-z]{2,4})\/\S*/gi, "$1");
+  // Domaines : "BOLT.EU" -> "BOLT", "NETFLIX.COM" -> "NETFLIX", "WWW.AMAZON.FR" -> "AMAZON"
+  s = s.replace(/^WWW\./i, "");
+  s = s.replace(/\.(?:com|eu|fr|net|org|io|co|uk|de|es|it|nl|be|app|me)\b\.?/gi, " ");
+  // Référence après astérisque : "EBAY 0*04-15396-3", "AMAZON*2K3L49", "UBER *TRIP 8DJ2"
+  s = s.replace(/\s*[A-Z0-9]*\*[A-Z0-9][A-Z0-9\-\/.]*$/i, "");
+  s = s.replace(/\s*\*+\s*$/, "");
+  // Références numériques à tirets / longues séries de chiffres en fin de libellé : "04-15396-3", "2611010"
+  s = s.replace(/\s+[0-9][0-9\-\/.]{4,}$/g, "");
+  s = s.replace(/\s+\d{5,}\b/g, " ");
+  // Séparateurs orphelins
+  s = s.replace(/[*_#]+/g, " ").replace(/\s+-\s*$/, "").replace(/\s+/g, " ").trim();
+
+  return s || (raw || "").trim();
+}
+
+/** Graphies officielles des marques dont le Title Case générique est incorrect. */
+const MERCHANT_ALIASES: Array<[RegExp, string]> = [
+  [/^ebay\b.*$/i, "eBay"],
+  [/^bolt\b(?!\s+food).*$/i, "Bolt"],
+  [/^bolt\s+food\b.*$/i, "Bolt Food"],
+  [/^paypal\b.*$/i, "PayPal"],
+  [/^amazon\s*(prime|prime video)\b.*$/i, "Amazon Prime"],
+  [/^(amazon|amzn)(\s*(mktp|mktplace|marketplace|eu|payments|digital|fr))*\b.*$/i, "Amazon"],
+  [/^netflix\b.*$/i, "Netflix"],
+  [/^spotify\b.*$/i, "Spotify"],
+  [/^uber\s+eats\b.*$/i, "Uber Eats"],
+  [/^uber\s+one\b.*$/i, "Uber One"],
+  [/^uber(\s+trip|\s+bv|\s+help)?\b(?!\s+(eats|one)).*$/i, "Uber"],
+  [/^deliveroo\b.*$/i, "Deliveroo"],
+  [/^sncf\b.*$/i, "SNCF"],
+  [/^ratp\b.*$/i, "RATP"],
+  [/^(free\s+mobile|freemobile)\b.*$/i, "Free Mobile"],
+  [/^sfr\b.*$/i, "SFR"],
+  [/^edf\b.*$/i, "EDF"],
+  [/^ikea\b.*$/i, "IKEA"],
+  [/^lidl\b.*$/i, "Lidl"],
+  [/^apple\b.*$/i, "Apple"],
+  [/^google\b.*$/i, "Google"],
+  [/^vinted\b.*$/i, "Vinted"],
+  [/^lydia\b.*$/i, "Lydia"],
+  [/^mlg\s+events?\b.*$/i, "MLG Events"],
+];
+
+export function applyMerchantAlias(name: string): string {
+  const trimmed = (name || "").trim();
+  for (const [rx, alias] of MERCHANT_ALIASES) {
+    if (rx.test(trimmed)) return alias;
+  }
+  return trimmed;
 }
 
 /**
@@ -626,7 +765,8 @@ export function cleanOpenBankingMerchantLabel(raw: string, isCardLabel: boolean 
  */
 export function normalizeEnableBankingTransactions(
   ebTransactions: EnableBankingTransaction[],
-  accountLabel: string = "BoursoBank"
+  accountLabel: string = "BoursoBank",
+  accountUid?: string
 ): RawTransaction[] {
   const cleanAccountLabel =
     !accountLabel || accountLabel.toLowerCase().includes("mock")
@@ -634,6 +774,11 @@ export function normalizeEnableBankingTransactions(
       : accountLabel;
   const occurrenceMap = new Map<string, number>();
   const normalized: RawTransaction[] = [];
+  // Discriminant de compte (multi-comptes) : évite qu'une même opération sur deux sous-comptes partage un id
+  const accountSlug = (accountUid || "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(-8)
+    .toLowerCase();
 
   for (const tx of ebTransactions) {
     if (!tx || !tx.transaction_amount) continue;
@@ -706,12 +851,10 @@ export function normalizeEnableBankingTransactions(
     const occurrence = (occurrenceMap.get(baseKey) || 0) + 1;
     occurrenceMap.set(baseKey, occurrence);
 
-    const refClean = (tx.entry_reference || tx.transaction_id || "")
-      .replace(/[^a-zA-Z0-9_-]/g, "")
-      .slice(0, 24);
-    const uniqueId = refClean
-      ? `eb_${isoDate}_${signedAmount}_${refClean}`
-      : `eb_${baseKey}_${occurrence}`;
+    // Identifiant 100 % déterministe (date + montant signé + commerçant nettoyé + rang d'occurrence) :
+    // les entry_reference / transaction_id sont éphémères chez certaines banques (changent entre PEND et BOOK
+    // ou d'une session à l'autre) et provoquaient des doublons à chaque synchronisation.
+    const uniqueId = `eb_${accountSlug ? `${accountSlug}_` : ""}${baseKey}_${occurrence}`;
 
     normalized.push({
       id: uniqueId,
@@ -722,6 +865,7 @@ export function normalizeEnableBankingTransactions(
       amount: signedAmount,
       account: cleanAccountLabel,
       source: "bank",
+      ...(accountUid ? { bankAccountUid: accountUid } : {}),
     });
   }
 
@@ -830,4 +974,29 @@ export function generateSandboxMockTransactions(
       source: "bank",
     };
   });
+}
+
+/**
+ * Traduit le type de compte DSP2 (cash_account_type ISO 20022) vers les types de comptes Krona.
+ */
+export function mapCashAccountType(
+  cashAccountType?: string,
+  accountName?: string
+): "Compte courant" | "Livret d'épargne" | "Carte bancaire" {
+  const t = (cashAccountType || "").toUpperCase();
+  const n = (accountName || "").toLowerCase();
+  if (t === "SVGS" || t === "MOMA" || t === "ONDP" || /livret|epargne|épargne|ldd|lep|pel|cel|savings/.test(n))
+    return "Livret d'épargne";
+  if (t === "CARD" || /carte|card/.test(n)) return "Carte bancaire";
+  return "Compte courant";
+}
+
+/**
+ * Durée restante avant expiration du consentement DSP2 (en jours, arrondi inférieur). null si inconnue.
+ */
+export function daysUntilConsentExpiry(validUntil?: string | null, nowMs: number = Date.now()): number | null {
+  if (!validUntil) return null;
+  const ms = Date.parse(validUntil);
+  if (isNaN(ms)) return null;
+  return Math.floor((ms - nowMs) / (24 * 3600 * 1000));
 }

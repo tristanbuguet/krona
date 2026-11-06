@@ -12,6 +12,10 @@ import {
   formatBankDisplayName,
   computeBankRefreshQuota,
   consumeBankRefreshQuota,
+  isSessionExpiredError,
+  EnableBankingError,
+  mapCashAccountType,
+  daysUntilConsentExpiry,
 } from "@/lib/enableBanking";
 import { executeBankIngestionPipeline } from "@/lib/bankPipeline";
 import { Transaction, BankSessionInfo, AccountInfo } from "@/lib/types";
@@ -143,6 +147,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 2. Consentement DSP2 expiré : inutile de consommer un appel (ni un crédit de quota)
+    const knownValidUntil = storedSession?.validUntil || incomingSession?.validUntil;
+    const remainingDays = daysUntilConsentExpiry(knownValidUntil, nowMs);
+    if (remainingDays !== null && remainingDays < 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          sessionExpired: true,
+          refreshQuota: preQuota,
+          error: "Votre consentement bancaire (DSP2) a expiré. Reconnectez votre banque pour reprendre la synchronisation.",
+        },
+        { status: 401 }
+      );
+    }
+
     const sessionId = (
       (typeof body.sessionId === "string" ? body.sessionId : "") ||
       (typeof body.session_id === "string" ? body.session_id : "") ||
@@ -151,18 +170,17 @@ export async function POST(req: NextRequest) {
       ""
     ).trim();
 
-    let accountIds: string[] = [];
-    if (typeof body.accountId === "string" && body.accountId.trim().length > 0) {
-      accountIds = [body.accountId.trim()];
-    } else if (Array.isArray(body.accountIds)) {
-      accountIds = body.accountIds
-        .map((id) => String(id || "").trim())
-        .filter((id) => id.length > 0);
-    } else if (storedSession && Array.isArray(storedSession.accounts) && storedSession.accounts.length > 0) {
-      accountIds = storedSession.accounts.map((a) => a.uid).filter(Boolean);
-    } else if (incomingSession && Array.isArray(incomingSession.accounts) && incomingSession.accounts.length > 0) {
-      accountIds = incomingSession.accounts.map((a) => a.uid).filter(Boolean);
+    // Multi-comptes : on synchronise TOUS les sous-comptes rattachés à la liaison (courant, épargne…),
+    // et pas uniquement le premier transmis par le client.
+    const accountIdSet = new Set<string>();
+    if (Array.isArray(body.accountIds)) {
+      body.accountIds.forEach((id) => accountIdSet.add(String(id || "").trim()));
     }
+    storedSession?.accounts?.forEach((a) => accountIdSet.add(a.uid));
+    incomingSession?.accounts?.forEach((a) => accountIdSet.add(a.uid));
+    if (typeof body.accountId === "string") accountIdSet.add(body.accountId.trim());
+    accountIdSet.delete("");
+    let accountIds: string[] = Array.from(accountIdSet);
 
     if (accountIds.length === 0 && sessionId) {
       const remoteSession = await authorizeOrGetSession(sessionId, false);
@@ -188,20 +206,46 @@ export async function POST(req: NextRequest) {
 
     const rawTransactionsList: RawTransaction[] = [];
     const fetchedBalances = new Map<string, number>();
+    const fetchErrors: unknown[] = [];
+    const syncWarnings: string[] = [];
+    const sessionAccountsMeta = storedSession?.accounts || incomingSession?.accounts || [];
 
-    for (const accUid of accountIds) {
-      try {
-        const ebTxs = await fetchTransactions(sessionId, accUid);
-        const normalizedBatch = normalizeEnableBankingTransactions(ebTxs, aspspLabel);
-        rawTransactionsList.push(...normalizedBatch);
-      } catch (fetchErr) {
-        console.warn(`[Enable Banking Sync] fetchTransactions (${accUid}):`, fetchErr);
-      }
+    // Appels parallèles par sous-compte (transactions + solde), une erreur isolée ne bloque pas les autres
+    await Promise.all(
+      accountIds.map(async (accUid) => {
+        const meta = sessionAccountsMeta.find((a) => a.uid === accUid);
+        const [txResult, balResult] = await Promise.allSettled([
+          fetchTransactions(sessionId, accUid),
+          fetchAccountBalance(accUid),
+        ]);
+        if (txResult.status === "fulfilled") {
+          rawTransactionsList.push(...normalizeEnableBankingTransactions(txResult.value, aspspLabel, accUid));
+        } else {
+          console.warn(`[Enable Banking Sync] fetchTransactions (${accUid}):`, txResult.reason);
+          fetchErrors.push(txResult.reason);
+          syncWarnings.push(`${meta?.name || "Un compte"} n'a pas pu être actualisé.`);
+        }
+        if (balResult.status === "fulfilled" && balResult.value !== null) {
+          fetchedBalances.set(accUid, balResult.value);
+        }
+      })
+    );
 
-      const bal = await fetchAccountBalance(accUid);
-      if (bal !== null) {
-        fetchedBalances.set(accUid, bal);
-      }
+    // Aucun compte n'a répondu : on ne consomme pas de crédit de quota et on ne touche pas aux données
+    if (accountIds.length > 0 && fetchErrors.length === accountIds.length) {
+      const expired = fetchErrors.some(isSessionExpiredError);
+      return NextResponse.json(
+        {
+          success: false,
+          sessionExpired: expired,
+          retryable: !expired,
+          refreshQuota: preQuota,
+          error: expired
+            ? "Votre accès bancaire a expiré ou a été révoqué. Reconnectez votre banque pour reprendre la synchronisation."
+            : "La banque est momentanément indisponible. Vos données restent intactes, réessayez dans quelques minutes (aucune actualisation décomptée).",
+        },
+        { status: expired ? 401 : 503 }
+      );
     }
 
     const existingTransactions: Transaction[] = existingPayload?.transactions || [];
@@ -241,6 +285,9 @@ export async function POST(req: NextRequest) {
       skipAiEnrichment: skipAi,
     });
 
+    // Fenêtre d'extraction couverte par la banque (90 jours) - info renvoyée au client
+    const historyDates = rawTransactionsList.map((t) => t.date).sort();
+
     // Consommer 1 crédit d'actualisation dans le quota 24h
     const consumed = consumeBankRefreshQuota({ refreshTimestamps: combinedTimestamps }, nowMs);
     const updatedQuota = consumed.quota;
@@ -252,6 +299,11 @@ export async function POST(req: NextRequest) {
           ...acc,
           balance: fetchedBalances.has(acc.uid) ? fetchedBalances.get(acc.uid) : acc.balance,
         }))
+          .concat(
+            accountIds
+              .filter((uid) => !baseSession.accounts.some((a) => a.uid === uid))
+              .map((uid) => ({ uid, balance: fetchedBalances.get(uid) }))
+          )
       : accountIds.map((uid) => ({
           uid,
           balance: fetchedBalances.get(uid),
@@ -265,6 +317,7 @@ export async function POST(req: NextRequest) {
           lastSyncedAt: nowIso,
           refreshTimestamps: updatedQuota.timestamps,
           refreshQuota: updatedQuota,
+          lastSyncWarnings: syncWarnings,
         }
       : sessionId
         ? {
@@ -306,7 +359,7 @@ export async function POST(req: NextRequest) {
           id: targetId,
           name: metaAcc?.name || `Compte ${aspspLabel}`,
           bank: "BoursoBank",
-          type: "Compte courant",
+          type: mapCashAccountType(metaAcc?.cashAccountType, metaAcc?.name),
           accountNumber: metaAcc?.iban ? `•••• ${metaAcc.iban.slice(-4)}` : "•••• BOURSOBANK",
           initialBalance: bal,
           updatedAt: nowIso,
@@ -333,6 +386,10 @@ export async function POST(req: NextRequest) {
     const mergedPayload = existingPayload
       ? mergeCloudAndLocalData(incomingUpdate, existingPayload)
       : normalizeUserFinancialPayload(incomingUpdate);
+
+    // Le pipeline a déjà fusionné cloud + client et purgé les doublons : la fusion « lossless »
+    // ne doit pas réintroduire les doublons supprimés.
+    mergedPayload.transactions = pipelineResult.allMergedTransactions;
 
     if (updatedBankSession) {
       mergedPayload.bankSession = updatedBankSession;
@@ -361,7 +418,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        addedCount: pipelineResult.deduplicatedNewTransactions.length,
+        addedCount: pipelineResult.addedCount,
         totalFetched: rawTransactionsList.length,
         transactions: pipelineResult.deduplicatedNewTransactions,
         allTransactions: mergedPayload.transactions,
@@ -369,6 +426,11 @@ export async function POST(req: NextRequest) {
         learningRules: mergedPayload.learningRules,
         bankSession: mergedPayload.bankSession,
         refreshQuota: updatedQuota,
+        removedDuplicatesCount: pipelineResult.removedDuplicatesCount,
+        warnings: syncWarnings,
+        historyFrom: historyDates[0] || null,
+        historyTo: historyDates[historyDates.length - 1] || null,
+        consentDaysLeft: remainingDays,
         data: mergedPayload,
       },
       { status: 200 }
@@ -376,20 +438,22 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : "Erreur lors de la synchronisation bancaire Enable Banking.";
-    const isExpired =
-      message.toLowerCase().includes("401") ||
-      message.toLowerCase().includes("403") ||
-      message.toLowerCase().includes("404") ||
-      message.toLowerCase().includes("expired") ||
-      message.toLowerCase().includes("session");
+    // Ancienne heuristique ("session" dans le message) : toute erreur /sessions était prise pour une expiration
+    const isExpired = isSessionExpiredError(err);
+    const isTransient = err instanceof EnableBankingError && err.isTransient;
 
     return NextResponse.json(
       {
         success: false,
-        error: message,
+        error: isExpired
+          ? "Votre accès bancaire a expiré ou a été révoqué. Reconnectez votre banque."
+          : isTransient
+            ? "La banque est momentanément indisponible. Réessayez dans quelques minutes."
+            : message,
         sessionExpired: isExpired,
+        retryable: isTransient,
       },
-      { status: isExpired ? 401 : 500 }
+      { status: isExpired ? 401 : isTransient ? 503 : 500 }
     );
   }
 }

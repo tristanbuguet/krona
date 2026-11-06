@@ -24,6 +24,7 @@ import {
   ENABLE_BANKING_MAX_DAILY_REFRESHES,
   type EnableBankingTransaction,
 } from '../src/lib/enableBanking';
+import { buildDeduplicationSignature as buildPipelineSignature } from '../src/lib/bankPipeline';
 import { POST as handleDisconnectPost, dynamic as disconnectDynamic } from '../src/app/api/bank/disconnect/route';
 import { POST as handleSyncPost, dynamic as syncDynamic } from '../src/app/api/bank/sync/route';
 import { dynamic as connectDynamic } from '../src/app/api/bank/connect/route';
@@ -218,7 +219,7 @@ test('Enable Banking : normalisation RawTransaction et déduplication sans confl
   const normalized = normalizeEnableBankingTransactions(apiTx, 'Compte Courant');
   assert.equal(normalized.length, 2);
   assert.equal(normalized[0].date, '2026-03-15');
-  assert.equal(normalized[0].label, 'Netflix.com');
+  assert.equal(normalized[0].label, 'Netflix');
   assert.equal(normalized[0].rawLabel, 'NETFLIX.COM');
   assert.equal(normalized[0].amount, -15.99);
   assert.equal(normalized[0].account, 'Compte Courant');
@@ -255,10 +256,7 @@ test('Enable Banking : normalisation RawTransaction et déduplication sans confl
     account: raw.account,
   }));
 
-  const buildDeduplicationSignature = (date: string, amount: number, name: string): string => {
-    const cleanSlug = normalizeText(name).replace(/[^a-z0-9]/g, '').slice(0, 20);
-    return `${date}_${amount}_${cleanSlug}`;
-  };
+  const buildDeduplicationSignature = buildPipelineSignature;
 
   const existingSignatures = new Set(
     existingCsvTransactions.map((t) => buildDeduplicationSignature(t.date, t.amount, t.name))

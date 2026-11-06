@@ -14,6 +14,7 @@ export interface RawTransaction {
   account?: string;
   month?: string; // YYYY-MM
   source?: "csv" | "bank" | "manual";
+  bankAccountUid?: string;
 }
 
 /**

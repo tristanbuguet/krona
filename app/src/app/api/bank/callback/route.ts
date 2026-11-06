@@ -12,6 +12,7 @@ import {
   formatBankDisplayName,
   computeBankRefreshQuota,
   ENABLE_BANKING_DEFAULT_ASPSP,
+  mapCashAccountType
 } from "@/lib/enableBanking";
 import { executeBankIngestionPipeline } from "@/lib/bankPipeline";
 import { getSql, ensureUserSyncTable } from "@/lib/db";
@@ -127,6 +128,7 @@ export async function GET(req: NextRequest) {
       name: acc.name || `Compte ${aspspName}`,
       currency: acc.currency || "EUR",
       balance: accountBalances.get(acc.uid),
+      cashAccountType: acc.cash_account_type,
     }));
 
     // Récupérer l'état actuel de l'utilisateur pour fusionner sans perte et préserver le quota existant
@@ -160,6 +162,9 @@ export async function GET(req: NextRequest) {
       aspspCountry,
       accounts: mappedAccounts,
       connectedAt: nowIso,
+      validUntil:
+        sessionData.access?.valid_until ||
+        new Date(nowMs + 90 * 24 * 3600 * 1000).toISOString(),
       lastSyncedAt: nowIso,
       refreshTimestamps: currentQuota.timestamps,
       refreshQuota: currentQuota,
@@ -179,7 +184,7 @@ export async function GET(req: NextRequest) {
         id: `eb_acc_${acc.uid}`,
         name: acc.name || `Compte ${aspspName}`,
         bank: bankBrand,
-        type: "Compte courant",
+        type: mapCashAccountType(acc.cashAccountType, acc.name),
         accountNumber: ibanSuffix,
         initialBalance: acc.balance ?? 0,
         updatedAt: nowIso,
@@ -191,7 +196,7 @@ export async function GET(req: NextRequest) {
     for (const acc of sessionData.accounts) {
       try {
         const ebTxs = await fetchTransactions(sessionData.session_id, acc.uid);
-        const normalizedBatch = normalizeEnableBankingTransactions(ebTxs, aspspName);
+        const normalizedBatch = normalizeEnableBankingTransactions(ebTxs, aspspName, acc.uid);
         rawTransactionsList.push(...normalizedBatch);
       } catch (fetchErr) {
         console.warn(`[Enable Banking Callback] fetchTransactions (${acc.uid}):`, fetchErr);
@@ -230,6 +235,7 @@ export async function GET(req: NextRequest) {
       ? mergeCloudAndLocalData(incomingUpdate, existingCloud)
       : normalizeUserFinancialPayload(incomingUpdate);
 
+    mergedPayload.transactions = pipelineResult.allMergedTransactions;
     mergedPayload.bankSession = bankSession;
     mergedPayload.settings.bankSession = bankSession;
     mergedPayload.learningRules = pipelineResult.learningRules;

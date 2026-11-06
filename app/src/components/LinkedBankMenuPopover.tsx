@@ -129,6 +129,9 @@ export function LinkedBankMenuPopover({
   const quota = resolveBankRefreshQuota(bankSession);
   const isQuotaReached = quota.remaining <= 0;
   const remainingLabel = formatRemainingRefreshLabel(quota.remaining);
+  const consentMs = bankSession?.validUntil ? Date.parse(bankSession.validUntil) : NaN;
+  const consentDaysLeft = isNaN(consentMs) ? null : Math.floor((consentMs - Date.now()) / 86_400_000);
+  const accountCount = bankSession?.accounts?.length || 0;
 
   const alignmentClasses =
     align === "start"
@@ -179,6 +182,20 @@ export function LinkedBankMenuPopover({
                 />
                 <span className="truncate">{remainingLabel}</span>
               </div>
+              {consentDaysLeft !== null && (
+                <div
+                  data-bank-consent-expiry
+                  className={clsx(
+                    "mt-1 text-[11px] font-sans tabular-nums truncate",
+                    consentDaysLeft <= 7 ? "text-amber-500" : "text-muted-foreground"
+                  )}
+                >
+                  {consentDaysLeft < 0
+                    ? "Accès expiré · reconnexion requise"
+                    : `Accès valide encore ${consentDaysLeft} jour${consentDaysLeft > 1 ? "s" : ""}`}
+                  {accountCount > 1 ? ` · ${accountCount} comptes` : ""}
+                </div>
+              )}
             </div>
 
             <CloseButton onClick={onClose} iconSize={15} />
