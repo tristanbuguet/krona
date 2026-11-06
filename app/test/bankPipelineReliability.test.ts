@@ -16,7 +16,13 @@ import {
   executeBankIngestionPipeline,
   buildDeduplicationSignature,
   sanitizeAndDeduplicateTransactions,
+  recategorizeOrphanBankTransactions,
 } from '../src/lib/bankPipeline';
+import {
+  deduplicateBeforeInsertion,
+  cleanDatabaseDuplicates,
+  getTransactionSortAge,
+} from '../src/lib/bankDeduplication';
 import { mergeCloudAndLocalData } from '../src/lib/cloudSync';
 import { POST as handleCategorizePost } from '../src/app/api/categorize/route';
 import { NextRequest } from 'next/server';
@@ -356,5 +362,319 @@ test('/api/categorize : fallback gracieux en 200 même si Gemini échoue ou time
   const monoprix = json.results.find((r: { id: string; category: string }) => r.id === '1');
   assert.equal(monoprix?.category, 'Alimentation & Courses');
 });
+
+test('Déduplication : cas BOOK/PDNG (rejet des opérations en attente entrantes et mise à niveau des existantes)', () => {
+  // 1. Transaction en attente (PDNG) déjà présente en base
+  const existingPending: Transaction = {
+    id: 'eb_2026-11-04_-24.50_uber-trip_1',
+    date: '2026-11-04',
+    month: '2026-11',
+    name: 'Uber',
+    rawName: 'PAIEMENT CB 04/11 UBER *TRIP CB*4410',
+    amount: -24.5,
+    type: 'Autre',
+    source: 'bank',
+    account: 'BoursoBank',
+    status: 'PDNG',
+    isPending: true,
+  } as unknown as Transaction;
+
+  // 2. Opérations entrantes de la banque :
+  // - Transaction validée (BOOK) pour le même achat (doit remplacer / mettre à niveau l'opération en attente)
+  // - Transaction en attente (PDNG) pour un nouvel achat (doit être STRICTEMENT rejetée)
+  const incomingBook: Transaction = {
+    id: 'eb_2026-11-04_-24.50_uber-trip_1',
+    date: '2026-11-04',
+    month: '2026-11',
+    name: 'Uber',
+    rawName: 'PAIEMENT CB 04/11 UBER *TRIP CB*4410',
+    amount: -24.5,
+    type: 'Transports',
+    source: 'bank',
+    account: 'BoursoBank',
+    status: 'BOOK',
+    isPending: false,
+  } as unknown as Transaction;
+
+  const incomingNewPending: Transaction = {
+    id: 'eb_2026-11-05_-12.00_starbucks_1',
+    date: '2026-11-05',
+    month: '2026-11',
+    name: 'Starbucks',
+    amount: -12.0,
+    type: 'Restos & Fast-Food',
+    source: 'bank',
+    account: 'BoursoBank',
+    status: 'PDNG',
+    isPending: true,
+  } as unknown as Transaction;
+
+  const result = deduplicateBeforeInsertion(
+    [incomingBook, incomingNewPending],
+    [existingPending]
+  );
+
+  // La nouvelle transaction en attente (PDNG) a été rejetée
+  assert.equal(result.newTransactions.length, 0);
+  assert.equal(result.removedDuplicatesCount, 1);
+
+  // L'opération en attente existante a été mise à niveau vers BOOK
+  assert.equal(result.allMergedTransactions.length, 1);
+  const updatedTx = result.allMergedTransactions[0] as unknown as { status?: string; isPending?: boolean; type: string };
+  assert.equal(updatedTx.status, 'BOOK');
+  assert.equal(updatedTx.isPending, false);
+  assert.equal(updatedTx.type, 'Transports');
+});
+
+test('Déduplication : cas CSV déjà importé et appariement 1 pour 1', () => {
+  // 1. Transaction CSV historique déjà importée
+  const existingCsv: Transaction = {
+    id: 'bourso_2026-10-15_-45.00_monoprix_1',
+    date: '2026-10-15',
+    month: '2026-10',
+    name: 'Monoprix',
+    rawName: 'CARTE 15/10/26 MONOPRIX PARIS CB*1234',
+    amount: -45.0,
+    type: 'Alimentation & Courses',
+    source: 'csv',
+    account: 'BoursoBank',
+    updatedAt: '2026-10-15T12:00:00.000Z',
+  };
+
+  // 2. La banque renvoie 2 achats identiques de 45.00 € le même jour :
+  // - Le 1er est un doublon du CSV (doit être ignoré pour garder l'existante CSV)
+  // - Le 2nd est un deuxième achat légitime distinct (doit être inséré)
+  const incomingBank1: Transaction = {
+    id: 'eb_2026-10-15_-45.00_monoprix_1',
+    date: '2026-10-15',
+    month: '2026-10',
+    name: 'Monoprix',
+    rawName: 'CB MONOPRIX PARIS FACT 123',
+    amount: -45.0,
+    type: 'Alimentation & Courses',
+    source: 'bank',
+    account: 'BoursoBank',
+    updatedAt: '2026-11-06T10:00:00.000Z',
+  };
+
+  const incomingBank2: Transaction = {
+    id: 'eb_2026-10-15_-45.00_monoprix_2',
+    date: '2026-10-15',
+    month: '2026-10',
+    name: 'Monoprix',
+    rawName: 'CB MONOPRIX PARIS FACT 124',
+    amount: -45.0,
+    type: 'Alimentation & Courses',
+    source: 'bank',
+    account: 'BoursoBank',
+    updatedAt: '2026-11-06T10:00:00.000Z',
+  };
+
+  const result = deduplicateBeforeInsertion(
+    [incomingBank1, incomingBank2],
+    [existingCsv]
+  );
+
+  // Exactement 1 transaction nouvelle ajoutée (la 2ème)
+  assert.equal(result.newTransactions.length, 1);
+  assert.equal(result.newTransactions[0].id, 'eb_2026-10-15_-45.00_monoprix_2');
+  assert.equal(result.removedDuplicatesCount, 1);
+
+  // Dans le total fusionné : 2 opérations (la CSV existante préservée + la seconde bancaire)
+  assert.equal(result.allMergedTransactions.length, 2);
+  const csvTx = result.allMergedTransactions.find((t) => t.id === existingCsv.id);
+  const bankTx = result.allMergedTransactions.find((t) => t.id === incomingBank2.id);
+  assert.ok(csvTx !== undefined);
+  assert.equal(csvTx?.source, 'csv');
+  assert.ok(bankTx !== undefined);
+  assert.equal(bankTx?.source, 'bank');
+});
+
+test('Catégorisation avec service IA simulé : respect des étapes, libellé nettoyé et persistance', async () => {
+  const sentToAi: Array<{ id: string; label: string; amount?: number }> = [];
+
+  // Moteur IA simulé
+  const mockAiService = async (items: Array<{ id: string; label: string; amount?: number }>) => {
+    sentToAi.push(...items);
+    const resultMap = new Map<string, string>();
+    for (const item of items) {
+      if (item.label.toLowerCase().includes('marais')) {
+        resultMap.set(item.id, 'Shopping & Mode');
+      }
+    }
+    return resultMap;
+  };
+
+  const rawBankOps = [
+    // Opération 1 : évidente locale (Carrefour -> Alimentation & Courses)
+    {
+      id: 'eb_carrefour_1',
+      date: '2026-11-05',
+      month: '2026-11',
+      label: 'CARTE 05/11 CARREFOUR MARKET CB*9999',
+      rawLabel: 'CARTE 05/11 CARREFOUR MARKET CB*9999',
+      amount: -32.5,
+      source: 'bank' as const,
+    },
+    // Opération 2 : inconnue des règles locales (Boutique Le Marais -> Autre)
+    // Doit être envoyée à l'IA avec son libellé nettoyé
+    {
+      id: 'eb_marais_1',
+      date: '2026-11-05',
+      month: '2026-11',
+      label: 'CB BOUTIQUE LE MARAIS PARIS 04 FACT 4920',
+      rawLabel: 'CB BOUTIQUE LE MARAIS PARIS 04 FACT 4920',
+      amount: -78.0,
+      source: 'bank' as const,
+    },
+    // Opération 3 : évidente locale (Pharmacie -> Santé & Soins)
+    {
+      id: 'eb_pharmacie_1',
+      date: '2026-11-05',
+      month: '2026-11',
+      label: 'PHARMACIE CENTRALE PARIS 11',
+      rawLabel: 'PHARMACIE CENTRALE PARIS 11',
+      amount: -25.0,
+      source: 'bank' as const,
+    },
+  ];
+
+  const result = await executeBankIngestionPipeline({
+    rawTransactions: rawBankOps,
+    existingTransactions: [],
+    learningRules: {},
+    aspspLabel: 'BoursoBank',
+    enableSandboxFallback: false,
+    skipAiEnrichment: false,
+    aiCategorizer: mockAiService,
+  });
+
+  // Seule l'opération orpheline "Boutique Le Marais" a été transmise à l'IA
+  assert.equal(sentToAi.length, 1);
+  assert.equal(sentToAi[0].id, 'eb_marais_1');
+  // Le libellé envoyé à l'IA est nettoyé des préfixes carte et scories techniques
+  assert.ok(!sentToAi[0].label.includes('CB '));
+  assert.ok(!sentToAi[0].label.includes('FACT'));
+
+  // Les catégories finales sont toutes résolues
+  const carrefour = result.allMergedTransactions.find((t) => t.id === 'eb_carrefour_1');
+  const marais = result.allMergedTransactions.find((t) => t.id === 'eb_marais_1');
+  const pharmacie = result.allMergedTransactions.find((t) => t.id === 'eb_pharmacie_1');
+
+  assert.equal(carrefour?.type, 'Alimentation & Courses');
+  assert.equal(marais?.type, 'Shopping & Mode');
+  assert.equal(pharmacie?.type, 'Santé & Soins');
+
+  // Le dictionnaire d'apprentissage mémorise la décision de l'IA
+  assert.ok(result.learningRules[marais!.name] !== undefined);
+  assert.equal(result.learningRules[marais!.name].categorie, 'Shopping & Mode');
+});
+
+test('Catégorisation IA : résilience aux pannes de l\'IA (import en "Autre" sans blocage)', async () => {
+  const failingAi = async () => {
+    throw new Error('Gemini API 503 Overloaded');
+  };
+
+  const rawBankOps = [
+    {
+      id: 'eb_unknown_tx_1',
+      date: '2026-11-05',
+      month: '2026-11',
+      label: 'COMMERCE INCONNU SANS MOT CLE 987',
+      rawLabel: 'COMMERCE INCONNU SANS MOT CLE 987',
+      amount: -19.99,
+      source: 'bank' as const,
+    },
+  ];
+
+  // Le pipeline ne doit pas planter et doit importer la transaction en "Autre"
+  const result = await executeBankIngestionPipeline({
+    rawTransactions: rawBankOps,
+    existingTransactions: [],
+    learningRules: {},
+    aspspLabel: 'BoursoBank',
+    enableSandboxFallback: false,
+    skipAiEnrichment: false,
+    aiCategorizer: failingAi,
+  });
+
+  assert.equal(result.allMergedTransactions.length, 1);
+  assert.equal(result.allMergedTransactions[0].type, 'Autre');
+});
+
+test('Nettoyage des doublons en base : conservation de la plus ancienne de chaque paire', () => {
+  const dirtyDatabase: Transaction[] = [
+    // Paire 1 : CSV (ancien) + Banque (nouveau doublon de la même dépense)
+    {
+      id: 'bourso_2026-10-20_-60.00_zara_1',
+      date: '2026-10-20',
+      month: '2026-10',
+      name: 'Zara',
+      amount: -60.0,
+      type: 'Shopping & Mode',
+      source: 'csv',
+      updatedAt: '2026-10-20T10:00:00.000Z',
+    },
+    {
+      id: 'eb_2026-10-20_-60.00_zara_1',
+      date: '2026-10-20',
+      month: '2026-10',
+      name: 'Zara',
+      amount: -60.0,
+      type: 'Shopping & Mode',
+      source: 'bank',
+      updatedAt: '2026-11-06T12:00:00.000Z',
+    },
+    // Paire 2 : Deuxième achat légitime Zara le même jour (occurrence 2)
+    {
+      id: 'eb_2026-10-20_-60.00_zara_2',
+      date: '2026-10-20',
+      month: '2026-10',
+      name: 'Zara',
+      amount: -60.0,
+      type: 'Shopping & Mode',
+      source: 'bank',
+      updatedAt: '2026-11-06T12:00:00.000Z',
+    },
+    // Paire 3 : Triplon d'abonnement Bouygues Telecom (double synchro)
+    {
+      id: 'eb_bouygues_sync1',
+      date: '2026-11-01',
+      month: '2026-11',
+      name: 'Bouygues Telecom',
+      amount: -29.99,
+      type: 'Abonnements & Forfaits',
+      source: 'bank',
+      updatedAt: '2026-11-01T08:00:00.000Z',
+    },
+    {
+      id: 'eb_bouygues_sync2',
+      date: '2026-11-01',
+      month: '2026-11',
+      name: 'Bouygues Telecom',
+      amount: -29.99,
+      type: 'Abonnements & Forfaits',
+      source: 'bank',
+      updatedAt: '2026-11-01T09:00:00.000Z',
+    },
+  ];
+
+  const { cleanedTransactions, removedDuplicatesCount, removedTransactions } = cleanDatabaseDuplicates(dirtyDatabase);
+
+  // 2 doublons éliminés : le doublon banque de Zara occurrence 1, et le second Bouygues
+  assert.equal(removedDuplicatesCount, 2);
+  assert.equal(cleanedTransactions.length, 3);
+
+  // Vérifier que la CSV est bien conservée pour Zara occurrence 1
+  const zaraCsv = cleanedTransactions.find((t) => t.id === 'bourso_2026-10-20_-60.00_zara_1');
+  const zaraSecond = cleanedTransactions.find((t) => t.id === 'eb_2026-10-20_-60.00_zara_2');
+  assert.ok(zaraCsv !== undefined);
+  assert.ok(zaraSecond !== undefined);
+
+  // Vérifier que le plus ancien Bouygues est conservé
+  const bouygues = cleanedTransactions.find((t) => t.id === 'eb_bouygues_sync1');
+  assert.ok(bouygues !== undefined);
+});
+
 
 

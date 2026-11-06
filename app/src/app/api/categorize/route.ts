@@ -108,11 +108,14 @@ export async function POST(req: NextRequest) {
       const fallbackResults = localFallbackCategorize(items);
       const assignedCount = fallbackResults.filter(r => r.category && r.category !== "Autre").length;
       console.log(`[AI Categorization] Transactions envoyées à l'IA : ${items.length}`);
+      console.log(`[AI Categorization] Nombre d'opérations envoyées à l'IA : ${items.length}`);
       console.log(`[AI Categorization] Catégories attribuées par l'IA : ${assignedCount}`);
+      console.log(`[AI Categorization] Nombre de catégories attribuées : ${assignedCount}`);
       return NextResponse.json({ results: fallbackResults, mapping: fallbackResults, fallback: true }, { status: 200 });
     }
 
     console.log(`[AI Categorization] Transactions reçues pour catégorisation : ${items.length}`);
+    console.log(`[AI Categorization] Nombre d'opérations envoyées à l'IA : ${items.length}`);
 
     // Si le lot est important, envoyer les 25 premières à l'IA et pré-catégoriser le reste localement
     const aiBatch = items.slice(0, 25);
@@ -261,6 +264,7 @@ Réponds STRICTEMENT sous la forme d'un tableau JSON brut valide, sans balises M
     const combinedResults = [...finalResults, ...preCategorizedOverflow];
     const assignedCount = combinedResults.filter(r => r.category && r.category !== "Autre").length;
     console.log(`[AI Categorization] Catégories attribuées au total : ${assignedCount}`);
+    console.log(`[AI Categorization] Nombre de catégories attribuées : ${assignedCount}`);
 
     return NextResponse.json({
       results: combinedResults,

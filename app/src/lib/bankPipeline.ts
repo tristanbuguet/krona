@@ -484,17 +484,26 @@ export async function executeBankIngestionPipeline({
 
   if (!skipAiEnrichment) {
     console.log(`[BankPipeline AI] Transactions envoyées à l'IA : ${orphans.length}`);
+    console.log(`[Bank AI] Nombre d'opérations envoyées à l'IA : ${orphans.length}`);
 
     if (orphans.length > 0) {
-      if (aiCategorizer) {
-        aiCategories = await aiCategorizer(orphans);
-      } else {
-        aiCategories = await enrichOrphansWithGemini(orphans);
+      try {
+        if (aiCategorizer) {
+          aiCategories = await aiCategorizer(orphans);
+        } else {
+          aiCategories = await enrichOrphansWithGemini(orphans);
+        }
+      } catch (aiErr: unknown) {
+        console.error(
+          "[Bank AI] Erreur lors de l'appel IA (importation préservée en 'Autre') :",
+          aiErr
+        );
       }
     }
 
     const assignedCount = Array.from(aiCategories.values()).filter((c) => c && c !== "Autre").length;
     console.log(`[BankPipeline AI] Catégories attribuées par l'IA : ${assignedCount}`);
+    console.log(`[Bank AI] Nombre de catégories attribuées : ${assignedCount}`);
   } else {
     console.log(
       `[BankPipeline AI] Enrichissement IA ignoré côté serveur (délégué au client) : ${orphans.length} orpheline(s) transmise(s).`
@@ -578,4 +587,125 @@ export function flagInterAccountTransfers(list: Transaction[], nowIso: string): 
     flagged++;
   }
   return flagged;
+}
+
+/**
+ * Recatégorise les opérations bancaires déjà en base classées « Autre » sans rappeler la banque.
+ * Séquence stricte :
+ * 1. Nettoyage du libellé (scories de terminaux, préfixe carte, dates)
+ * 2. Règles locales (mots-clés regex)
+ * 3. Dictionnaire d'apprentissage mémorisé (learningRules)
+ * 4. IA (Gemini) pour tout ce qui reste en « Autre »
+ * Journalise le nombre d'opérations envoyées à l'IA et de catégories attribuées.
+ */
+export async function recategorizeOrphanBankTransactions({
+  transactions,
+  learningRules = {},
+  aiCategorizer,
+}: {
+  transactions: Transaction[];
+  learningRules?: LearningRuleMap;
+  aiCategorizer?: (items: Array<{ id: string; label: string; amount?: number }>) => Promise<Map<string, string>>;
+}): Promise<{
+  updatedTransactions: Transaction[];
+  recategorizedCount: number;
+  learningRules: LearningRuleMap;
+}> {
+  const nowIso = new Date().toISOString();
+  const rulesCopy: LearningRuleMap = { ...learningRules };
+  const updatedTransactions = [...transactions];
+  let recategorizedCount = 0;
+
+  // 1. Identifier les opérations bancaires en « Autre »
+  const orphanIndices: number[] = [];
+  const orphanItems: Array<{ id: string; label: string; amount?: number }> = [];
+
+  for (let i = 0; i < updatedTransactions.length; i++) {
+    const tx = updatedTransactions[i];
+    const isBank = tx.source === "bank" || tx.id.startsWith("eb_");
+    if (isBank && tx.type === "Autre") {
+      // Nettoyage du libellé avant tout traitement (retrait préfixes carte, dates, mentions techniques)
+      const cleaned = cleanOpenBankingMerchantLabel(tx.rawName || tx.name, true) || tx.name;
+
+      // Étape A & B : Règles locales puis dictionnaire d'apprentissage
+      const local = categorizeLocally({
+        label: cleaned,
+        rawLabel: tx.rawName || tx.name,
+        amount: tx.amount,
+        cache: rulesCopy,
+      });
+
+      if (local.category && local.category !== "Autre") {
+        const updated = applyCategoryToTransaction(
+          { ...tx, name: cleaned },
+          local.category,
+          nowIso
+        );
+        updatedTransactions[i] = updated;
+        recategorizedCount++;
+
+        rulesCopy[updated.name] = {
+          categorie: local.category,
+          isSubscription: Boolean(updated.isSubscription),
+          isInternalTransfer: Boolean(updated.isInternalTransfer),
+          excludeFromSpending: Boolean(updated.excludeFromSpending),
+          excludeFromIncome: Boolean(updated.excludeFromIncome),
+          updatedAt: nowIso,
+        };
+      } else {
+        orphanIndices.push(i);
+        orphanItems.push({
+          id: tx.id,
+          label: cleaned,
+          amount: tx.amount,
+        });
+      }
+    }
+  }
+
+  // Étape C : Appel IA pour tout ce qui reste en « Autre »
+  console.log(`[Bank AI] Nombre d'opérations envoyées à l'IA : ${orphanItems.length}`);
+
+  let aiMap = new Map<string, string>();
+  if (orphanItems.length > 0) {
+    try {
+      if (aiCategorizer) {
+        aiMap = await aiCategorizer(orphanItems);
+      } else {
+        aiMap = await enrichOrphansWithGemini(orphanItems);
+      }
+    } catch (aiErr: unknown) {
+      console.error("[Bank AI] Erreur lors de la catégorisation IA :", aiErr);
+    }
+  }
+
+  const assignedCount = Array.from(aiMap.values()).filter((c) => c && c !== "Autre").length;
+  console.log(`[Bank AI] Nombre de catégories attribuées : ${assignedCount}`);
+
+  if (aiMap.size > 0) {
+    for (const idx of orphanIndices) {
+      const tx = updatedTransactions[idx];
+      const newCat = aiMap.get(tx.id);
+      if (newCat && newCat !== "Autre") {
+        const updated = applyCategoryToTransaction(tx, newCat, nowIso);
+        updatedTransactions[idx] = updated;
+        recategorizedCount++;
+
+        rulesCopy[updated.name] = {
+          categorie: newCat,
+          isSubscription: Boolean(updated.isSubscription),
+          isInternalTransfer: Boolean(updated.isInternalTransfer),
+          excludeFromSpending: Boolean(updated.excludeFromSpending),
+          excludeFromIncome: Boolean(updated.excludeFromIncome),
+          updatedAt: nowIso,
+        };
+      }
+    }
+  }
+
+  return {
+    updatedTransactions,
+    recategorizedCount,
+    learningRules: rulesCopy,
+  };
 }

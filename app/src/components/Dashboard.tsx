@@ -1659,15 +1659,21 @@ export function Dashboard({
       }
 
       // 3. FEEDBACK DE SUCCÈS (coche discrète + 'Relevé importé' pendant 800 ms puis fade-out)
-      setImportStep("success");
+      // Persistance complète dans Neon avant de confirmer le succès
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("krona-local-data-mutated", {
-            detail: { mode: "merge", immediate: true },
+            detail: { mode: "overwrite", immediate: true },
           })
         );
       }
-      triggerCloudSync("merge").catch(() => {});
+      try {
+        await triggerCloudSync("overwrite");
+      } catch (cloudErr) {
+        console.warn("[Krona Bank Sync] Erreur synchronisation cloud :", cloudErr);
+      }
+
+      setImportStep("success");
       await new Promise(resolve => setTimeout(resolve, 800));
       setImportStep(null);
 
@@ -1992,15 +1998,21 @@ export function Dashboard({
         }
       }
 
-      setImportStep("success");
+      // Persistance complète dans Neon avant de confirmer le succès
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("krona-local-data-mutated", {
-            detail: { mode: "merge", immediate: true },
+            detail: { mode: "overwrite", immediate: true },
           })
         );
       }
-      triggerCloudSync("merge").catch(() => {});
+      try {
+        await triggerCloudSync("overwrite");
+      } catch (cloudErr) {
+        console.warn("[Krona Bank Sync] Erreur synchronisation cloud :", cloudErr);
+      }
+
+      setImportStep("success");
       await new Promise(resolve => setTimeout(resolve, 800));
       setImportStep(null);
 
@@ -2226,22 +2238,169 @@ export function Dashboard({
             localStorage.setItem('krona_bank_session_v1', JSON.stringify(newSession));
           } catch {}
         }
-        handleBankSync(sessionIdParam || undefined, accountIdParam || undefined).then(() => {
-          if (isGuestParam || !isAuthenticatedRef.current) {
-            setTimeout(() => {
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(
-                  new CustomEvent("krona-open-account-popover", {
-                    detail: { open: true, reason: "bank_sync" },
-                  })
-                );
+
+        // Le callback Enable Banking a déjà importé les opérations et les a sauvegardées dans Neon.
+        // On synchronise le state local avec Neon, puis on exécute l'IA sur les opérations orphelines
+        // SANS ré-appeler l'API Enable Banking (évite la double synchro et préserve le quota DSP2).
+        (async () => {
+          try {
+            setImportStep("importing");
+
+            // 1. Récupération des données fraîches depuis Neon via /api/sync
+            const activeUid = user?.id || "guest_sandbox_user";
+            let syncedTxs: Transaction[] = [];
+            try {
+              const syncRes = await fetch(`/api/sync?userId=${encodeURIComponent(activeUid)}`, {
+                headers: user?.id ? { "x-krona-user-id": user.id } : {},
+              });
+              if (syncRes.ok) {
+                const syncJson = (await syncRes.json()) as {
+                  data?: UserFinancialPayload;
+                  payload?: UserFinancialPayload;
+                };
+                const p = syncJson.data || syncJson.payload;
+                if (p) {
+                  if (Array.isArray(p.transactions) && p.transactions.length > 0) {
+                    syncedTxs = p.transactions;
+                    setTransactions(p.transactions);
+                    localStorage.setItem("financeTransactions_v1", JSON.stringify(p.transactions));
+                    if (p.transactions[0]?.month) {
+                      handleMonthChange(p.transactions[0].month);
+                    }
+                  }
+                  if (p.bankSession) {
+                    setBankSession(p.bankSession);
+                    localStorage.setItem("krona_bank_session_v1", JSON.stringify(p.bankSession));
+                  }
+                  if (p.learningRules) {
+                    localStorage.setItem("krona_merchant_knowledge", JSON.stringify(p.learningRules));
+                  }
+                }
               }
-              if (onOpenAccountPopover) {
-                onOpenAccountPopover();
+            } catch (fetchErr) {
+              console.warn("[Krona Bank Callback] Erreur lors de la lecture Neon :", fetchErr);
+            }
+
+            if (syncedTxs.length === 0) {
+              syncedTxs = JSON.parse(localStorage.getItem("financeTransactions_v1") || "[]") as Transaction[];
+            }
+
+            // 2. Étape IA pour toute opération bancaire non catégorisée en « Autre »
+            const orphanTxs = syncedTxs.filter(
+              (t) => (t.source === "bank" || t.id.startsWith("eb_")) && t.type === "Autre"
+            );
+
+            if (orphanTxs.length > 0) {
+              setImportStep("categorizing");
+              try {
+                const aiRes = await fetch("/api/categorize", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  signal: AbortSignal.timeout(6000),
+                  body: JSON.stringify({
+                    items: orphanTxs.slice(0, 25).map((tx) => ({
+                      id: tx.id,
+                      label: tx.name,
+                      amount: tx.amount,
+                    })),
+                  }),
+                });
+
+                if (aiRes.ok) {
+                  const aiData = (await aiRes.json()) as {
+                    mapping?: Array<{ id: string; category: string }>;
+                    results?: Array<{ id: string; category: string }>;
+                  };
+                  const resultsList = Array.isArray(aiData.mapping)
+                    ? aiData.mapping
+                    : Array.isArray(aiData.results)
+                      ? aiData.results
+                      : [];
+
+                  const idToCat = new Map<string, string>();
+                  resultsList.forEach((r) => {
+                    if (r.id && r.category && r.category !== "Autre") {
+                      idToCat.set(r.id, r.category);
+                    }
+                  });
+
+                  if (idToCat.size > 0) {
+                    const nowIso = new Date().toISOString();
+                    const updatedKnowledge = {
+                      ...JSON.parse(localStorage.getItem("krona_merchant_knowledge") || "{}"),
+                    };
+
+                    syncedTxs = syncedTxs.map((tx) => {
+                      const newCat = idToCat.get(tx.id);
+                      if (newCat && newCat !== tx.type) {
+                        const isRegul = isRegularisationCategory(newCat);
+                        const isInternal = isInternalTransferCategory(newCat) || isRegul;
+                        const isSub = !isInternal && isSubscriptionCategory(newCat);
+
+                        updatedKnowledge[tx.name] = {
+                          categorie: newCat,
+                          isSubscription: isSub,
+                          isInternalTransfer: isInternal,
+                          excludeFromSpending: isInternal,
+                          excludeFromIncome: isInternal || isRegul,
+                          updatedAt: nowIso,
+                        };
+
+                        return {
+                          ...tx,
+                          type: newCat,
+                          isSubscription: isSub,
+                          isRecurring: isSub,
+                          isInternalTransfer: isInternal,
+                          excludeFromSpending: isInternal,
+                          excludeFromIncome: isInternal || isRegul,
+                          updatedAt: nowIso,
+                        };
+                      }
+                      return tx;
+                    });
+
+                    setTransactions(syncedTxs);
+                    localStorage.setItem("krona_merchant_knowledge", JSON.stringify(updatedKnowledge));
+                    localStorage.setItem("financeTransactions_v1", JSON.stringify(syncedTxs));
+
+                    await triggerCloudSync("overwrite");
+                  }
+                }
+              } catch (aiErr: unknown) {
+                console.error("[Krona Bank Callback] Erreur lors de la catégorisation IA :", aiErr);
               }
-            }, 600);
+            }
+
+            setImportStep("success");
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            setImportStep(null);
+
+            setToastMessage({
+              text: "Banque connectée · Synchronisation terminée avec succès",
+              visible: true,
+            });
+            setTimeout(() => setToastMessage(null), 4000);
+
+            if (isGuestParam || !isAuthenticatedRef.current) {
+              setTimeout(() => {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent("krona-open-account-popover", {
+                      detail: { open: true, reason: "bank_sync" },
+                    })
+                  );
+                }
+                if (onOpenAccountPopover) {
+                  onOpenAccountPopover();
+                }
+              }, 600);
+            }
+          } catch (err: unknown) {
+            setImportStep(null);
+            console.error("[Krona Bank Callback Flow] Erreur :", err);
           }
-        });
+        })();
       } else if (bankErrorParam) {
         setToastMessage({
           text: `Connexion bancaire interrompue (${bankErrorParam})`,

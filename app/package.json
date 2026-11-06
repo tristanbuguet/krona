@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "npx tsx --test test/**/*.test.ts"
+    "test": "npx tsx --test test/**/*.test.ts",
+    "clean-duplicates": "npx tsx scripts/cleanBankDuplicates.ts",
+    "recategorize-orphans": "npx tsx scripts/recategorizeBankOrphans.ts"
   },
   "dependencies": {
     "@google/genai": "^2.27.0",

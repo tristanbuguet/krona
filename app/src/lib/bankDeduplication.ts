@@ -338,118 +338,326 @@ export function pickBestTransaction(candidates: Transaction[]): Transaction {
 }
 
 /**
- * Assainit et déduplique définitivement une liste de transactions financières.
- * Élimine les doublons créés par :
- * 1. Les variations d'identifiants historiques (eb_... vs eb_acc1_... vs eb_date_amount_...)
- * 2. Les miroirs de comptes carte vs compte courant (BoursoBank Open Banking)
- * 3. Les variantes d'intitulés (ex. "Uber One" vs "UBER *ONE MEMBE", "Bouygues Telecom" vs "PRLV SEPA BOUYGUES TELECOM")
- * 4. Les synchronisations successives empilées
- *
- * Conserve fidèlement les opérations légitimes multiples (ex. 2 achats distincts au même montant)
- * et préserve la catégorie enrichie ou corrigée par l'utilisateur.
+ * Calcule l'âge relatif d'une transaction pour arbitrer les doublons en gardant la plus ancienne.
+ * Un score plus faible = plus ancien.
+ * - Les transactions CSV / manuelles (source: "csv") ont la priorité d'ancienneté (base comptable initiale).
+ * - À source égale, la date updatedAt / createdAt la plus ancienne prime.
+ * - En l'absence de date, l'indice d'apparition dans le tableau fait foi.
  */
-export function sanitizeAndDeduplicateTransactions(transactions: Transaction[]): Transaction[] {
-  if (!Array.isArray(transactions) || transactions.length <= 1) {
-    return Array.isArray(transactions) ? transactions : [];
+export function getTransactionSortAge(tx: Transaction, originalIndex: number = 0): number {
+  const isCsv = tx.source === "csv" || /^(bourso|ca|ce|lcl|csv)_/i.test(tx.id);
+  const baseOffset = isCsv ? 0 : 1_000_000_000_000;
+  const parsedTime = tx.updatedAt ? Date.parse(tx.updatedAt) : 0;
+  const timeComponent = !isNaN(parsedTime) && parsedTime > 0 ? parsedTime : originalIndex * 1000;
+  return baseOffset + timeComponent;
+}
+
+/**
+ * Déduplication avant toute insertion (Appariement un pour un) :
+ * - Vérifie si une opération avec la même date, le même montant exact et le même commerçant nettoyé existe déjà.
+ * - Si l'opération existe déjà, garde l'existante ("Si une opération existe déjà, garde l'existante").
+ * - Si l'opération existante est en attente (PDNG) et que la validée (BOOK) arrive, met à jour vers BOOK.
+ * - Deux achats identiques le même jour restent deux opérations si la source en contient deux.
+ * - Filtre et rejette toute transaction entrante en attente (PDNG / PEND).
+ */
+export function deduplicateBeforeInsertion(
+  incomingTransactions: Transaction[],
+  existingTransactions: Transaction[]
+): {
+  newTransactions: Transaction[];
+  allMergedTransactions: Transaction[];
+  removedDuplicatesCount: number;
+} {
+  if (!Array.isArray(incomingTransactions) || incomingTransactions.length === 0) {
+    return {
+      newTransactions: [],
+      allMergedTransactions: Array.isArray(existingTransactions) ? existingTransactions : [],
+      removedDuplicatesCount: 0,
+    };
   }
 
-  // 1. Déduplication stricte par ID d'abord (garder la plus récemment mise à jour)
-  const byId = new Map<string, Transaction>();
-  for (const tx of transactions) {
+  // 1. Filtrer les opérations entrantes : ne garder strictement que les validées (BOOK / BOOKED)
+  const validIncoming = incomingTransactions.filter((tx) => {
+    const rawStatus = ((tx as unknown as { status?: string }).status || "").toUpperCase();
+    if (rawStatus === "PDNG" || rawStatus === "PEND" || rawStatus === "PENDING") {
+      return false;
+    }
+    return true;
+  });
+
+  // 2. Construire le pool des opérations existantes groupées par signature comptable
+  const existingPool = new Map<string, Transaction[]>();
+  const existingIds = new Set<string>();
+  const updatedExistingList = (existingTransactions || []).map((t) => ({ ...t }));
+
+  for (const ex of updatedExistingList) {
+    if (ex && ex.id) existingIds.add(ex.id);
+    const sig = buildDeduplicationSignature(ex.date, ex.amount, ex.name);
+    const list = existingPool.get(sig) || [];
+    list.push(ex);
+    existingPool.set(sig, list);
+  }
+
+  const newTransactions: Transaction[] = [];
+  let removedDuplicatesCount = 0;
+
+  // 3. Appariement un pour un sur chaque opération entrante
+  for (const inc of validIncoming) {
+    if (!inc || !inc.id) continue;
+
+    // Déjà présente par ID strict
+    const existingById = updatedExistingList.find((e) => e.id === inc.id);
+    if (existingById) {
+      const existingStatus = ((existingById as unknown as { status?: string }).status || "").toUpperCase();
+      if (
+        existingStatus === "PDNG" ||
+        existingStatus === "PEND" ||
+        (existingById as unknown as { isPending?: boolean }).isPending
+      ) {
+        existingById.updatedAt = inc.updatedAt || new Date().toISOString();
+        (existingById as unknown as { status: string }).status = "BOOK";
+        (existingById as unknown as { isPending: boolean }).isPending = false;
+        if (existingById.type === "Autre" && inc.type && inc.type !== "Autre") {
+          existingById.type = inc.type;
+        }
+      }
+      removedDuplicatesCount++;
+      continue;
+    }
+
+    const sig = buildDeduplicationSignature(inc.date, inc.amount, inc.name);
+    const available = existingPool.get(sig);
+
+    if (available && available.length > 0) {
+      // Une opération existe déjà pour cette dépense : on garde l'existante
+      const matched = available.shift()!;
+      const matchedStatus = ((matched as unknown as { status?: string }).status || "").toUpperCase();
+
+      // Si l'existante était en attente (PDNG), la validée (BOOK) la remplace/met à niveau
+      if (matchedStatus === "PDNG" || matchedStatus === "PEND" || (matched as unknown as { isPending?: boolean }).isPending) {
+        matched.updatedAt = inc.updatedAt || new Date().toISOString();
+        (matched as unknown as { status: string }).status = "BOOK";
+        (matched as unknown as { isPending: boolean }).isPending = false;
+        if (matched.type === "Autre" && inc.type && inc.type !== "Autre") {
+          matched.type = inc.type;
+        }
+      }
+
+      removedDuplicatesCount++;
+      continue;
+    }
+
+    // Aucun appariement existant : c'est un achat légitime nouveau (ou un deuxième achat identique)
+    newTransactions.push(inc);
+    existingIds.add(inc.id);
+  }
+
+  const allMergedTransactions = [...newTransactions, ...updatedExistingList].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  return {
+    newTransactions,
+    allMergedTransactions,
+    removedDuplicatesCount,
+  };
+}
+
+/**
+ * Supprime les doublons déjà présents dans la base Neon ou le stockage local
+ * (en gardant la plus ancienne de chaque paire).
+ * Appariement un pour un :
+ * - Si une opération CSV et une opération Banque existent pour le même achat, garde la CSV (la plus ancienne).
+ * - Si une opération en attente (PDNG) et une validée (BOOK) existent, garde la validée (remplacement).
+ * - Si deux opérations bancaires identiques existent pour un même achat (double synchro ou compte carte/courant), garde la plus ancienne.
+ * - Deux achats identiques légitimes le même jour restent deux opérations.
+ * Ne fait aucun appel réseau vers la banque.
+ */
+export function cleanDatabaseDuplicates(transactions: Transaction[]): {
+  cleanedTransactions: Transaction[];
+  removedDuplicatesCount: number;
+  removedTransactions: Transaction[];
+} {
+  if (!Array.isArray(transactions) || transactions.length <= 1) {
+    return {
+      cleanedTransactions: Array.isArray(transactions) ? transactions : [],
+      removedDuplicatesCount: 0,
+      removedTransactions: [],
+    };
+  }
+
+  // 1. Déduplication d'abord par identifiant strict (garder la plus ancienne)
+  const byId = new Map<string, { tx: Transaction; index: number }>();
+  const idDuplicates: Transaction[] = [];
+
+  for (let i = 0; i < transactions.length; i++) {
+    const tx = transactions[i];
     if (!tx || !tx.id) continue;
     const existing = byId.get(tx.id);
     if (!existing) {
-      byId.set(tx.id, tx);
+      byId.set(tx.id, { tx, index: i });
     } else {
-      const existingTime = existing.updatedAt ? Date.parse(existing.updatedAt) : 0;
-      const newTime = tx.updatedAt ? Date.parse(tx.updatedAt) : 0;
-      if (newTime >= existingTime) {
-        byId.set(tx.id, tx);
+      const existingAge = getTransactionSortAge(existing.tx, existing.index);
+      const currentAge = getTransactionSortAge(tx, i);
+      if (currentAge < existingAge) {
+        idDuplicates.push(existing.tx);
+        byId.set(tx.id, { tx, index: i });
+      } else {
+        idDuplicates.push(tx);
       }
     }
   }
 
-  const uniqueById = Array.from(byId.values());
+  const uniqueByIdList = Array.from(byId.values()).sort((a, b) => a.index - b.index);
 
-  // 2. Déduplication par signature comptable : date + montant signé + commerçant nettoyé
-  const isBankTx = (t: Transaction) => t.source === "bank" || t.id.startsWith("eb_");
-
-  const sigGroups = new Map<string, Transaction[]>();
-  for (const tx of uniqueById) {
-    const sig = buildDeduplicationSignature(tx.date, tx.amount, tx.name);
+  // 2. Regroupement par signature comptable (date + montant exact + commerçant nettoyé)
+  const sigGroups = new Map<string, Array<{ tx: Transaction; index: number }>>();
+  for (const item of uniqueByIdList) {
+    const sig = buildDeduplicationSignature(item.tx.date, item.tx.amount, item.tx.name);
     const list = sigGroups.get(sig) || [];
-    list.push(tx);
+    list.push(item);
     sigGroups.set(sig, list);
   }
 
-  const result: Transaction[] = [];
+  const keptResult: Transaction[] = [];
+  const removedDuplicates: Transaction[] = [...idDuplicates];
 
   for (const group of sigGroups.values()) {
     if (group.length === 1) {
-      result.push(group[0]);
+      keptResult.push(group[0].tx);
       continue;
     }
 
-    const bankTxs = group.filter(isBankTx);
-    const nonBankTxs = group.filter((t) => !isBankTx(t));
+    // Gestion du cas BOOK vs PDNG : si une version BOOK et une version PDNG coexistent, éliminer la PDNG
+    const hasBook = group.some((item) => {
+      const s = ((item.tx as unknown as { status?: string }).status || "").toUpperCase();
+      return s === "BOOK" || s === "BOOKED";
+    });
+    const nonPdngGroup = hasBook
+      ? group.filter((item) => {
+          const s = ((item.tx as unknown as { status?: string }).status || "").toUpperCase();
+          const isPending = (item.tx as unknown as { isPending?: boolean }).isPending;
+          if (s === "PDNG" || s === "PEND" || isPending) {
+            removedDuplicates.push(item.tx);
+            return false;
+          }
+          return true;
+        })
+      : group;
 
-    // Si aucune transaction bancaire (toutes CSV / manuelles avec IDs distincts) :
-    // Deux lignes dans un relevé CSV représentent deux achats distincts légitimes
-    if (bankTxs.length === 0) {
-      result.push(...nonBankTxs);
+    if (nonPdngGroup.length <= 1) {
+      if (nonPdngGroup.length === 1) keptResult.push(nonPdngGroup[0].tx);
       continue;
     }
 
-    // S'il s'agit d'un abonnement / prélèvement fixe (Uber One, Bouygues Telecom, Basic Fit, Netflix...) :
-    if (isStrictRecurringSubscription(group[0].name)) {
-      result.push(pickBestTransaction(group));
+    // Cas abonnement strict (Uber One, Bouygues Telecom, Basic Fit, Netflix, Loyer...) :
+    // Il ne peut physiquement y avoir qu'une seule opération par date/montant.
+    // On conserve STRICTEMENT la plus ancienne de la paire !
+    if (isStrictRecurringSubscription(nonPdngGroup[0].tx.name)) {
+      const sorted = [...nonPdngGroup].sort(
+        (a, b) => getTransactionSortAge(a.tx, a.index) - getTransactionSortAge(b.tx, b.index)
+      );
+      // Conserver la catégorie enrichie si l'ancienne était en "Autre"
+      const bestCategory = sorted.find((i) => i.tx.type && i.tx.type !== "Autre")?.tx.type;
+      const oldestTx = { ...sorted[0].tx };
+      if (bestCategory && oldestTx.type === "Autre") {
+        oldestTx.type = bestCategory;
+      }
+      keptResult.push(oldestTx);
+      for (let j = 1; j < sorted.length; j++) {
+        removedDuplicates.push(sorted[j].tx);
+      }
       continue;
     }
 
-    // Pour les opérations bancaires ordinaires :
-    const occMap = new Map<number, Transaction[]>();
-    const unindexedBank: Transaction[] = [];
+    // Cas général : partition par rang d'occurrence (achat 1, achat 2, achat 3...)
+    // Les opérations CSV et bancaires sont indexées déterministement par _1, _2...
+    // Si des opérations n'ont pas de suffixe numérique explicite, on leur assigne
+    // un rang séquentiel (1 pour la première, 2 pour la deuxième) au sein de leur source.
+    const isBank = (t: Transaction) => t.source === "bank" || t.id.startsWith("eb_");
+    const nonBankItems = nonPdngGroup.filter((i) => !isBank(i.tx));
+    const bankItems = nonPdngGroup.filter((i) => isBank(i.tx));
 
-    for (const tx of bankTxs) {
-      const match = tx.id.match(/_(\d+)$/);
+    // Si toutes sont CSV / manuelles : deux lignes dans un relevé CSV représentent deux achats réels
+    if (bankItems.length === 0) {
+      for (const item of nonBankItems) keptResult.push(item.tx);
+      continue;
+    }
+
+    // Associer à chaque élément son rang d'occurrence (1, 2...)
+    const getOccurrenceRank = (
+      item: { tx: Transaction; index: number },
+      sourceIndex: number
+    ): number => {
+      const match = item.tx.id.match(/_(\d+)$/);
       if (match) {
-        const occ = parseInt(match[1], 10);
-        const list = occMap.get(occ) || [];
-        list.push(tx);
-        occMap.set(occ, list);
-      } else {
-        unindexedBank.push(tx);
+        const val = parseInt(match[1], 10);
+        if (!isNaN(val) && val > 0) return val;
       }
-    }
+      return sourceIndex + 1;
+    };
 
-    // Si des transactions bancaires partagent le même index d'occurrence (_1), fusionner les doublons
-    for (const list of occMap.values()) {
-      result.push(pickBestTransaction(list));
-    }
+    // Grouper par rang d'occurrence
+    const byRank = new Map<number, Array<{ tx: Transaction; index: number }>>();
 
-    // S'il y a des opérations non indexées, fusionner si même signature
-    if (unindexedBank.length > 0) {
-      if (occMap.size === 0) {
-        const byExactId = new Map<string, Transaction>();
-        for (const u of unindexedBank) {
-          if (!byExactId.has(u.id)) byExactId.set(u.id, u);
-        }
-        result.push(...byExactId.values());
+    nonBankItems.forEach((item, idx) => {
+      const rank = getOccurrenceRank(item, idx);
+      const list = byRank.get(rank) || [];
+      list.push(item);
+      byRank.set(rank, list);
+    });
+
+    bankItems.forEach((item, idx) => {
+      const rank = getOccurrenceRank(item, idx);
+      const list = byRank.get(rank) || [];
+      list.push(item);
+      byRank.set(rank, list);
+    });
+
+    // Pour chaque rang d'occurrence (ex: achat n°1) :
+    // S'il y a plusieurs transactions pour le même rang (ex: 1 CSV + 1 Banque, ou 2 Banques dupliquées),
+    // on garde la plus ancienne (CSV prioritaire sur Banque, puis horodatage) et on élimine les doublons.
+    const sortedRanks = Array.from(byRank.keys()).sort((a, b) => a - b);
+    for (const rank of sortedRanks) {
+      const rankItems = byRank.get(rank)!;
+      if (rankItems.length === 1) {
+        keptResult.push(rankItems[0].tx);
       } else {
-        const best = pickBestTransaction(unindexedBank);
-        if (occMap.size === 0) {
-          result.push(best);
+        const sorted = [...rankItems].sort(
+          (a, b) => getTransactionSortAge(a.tx, a.index) - getTransactionSortAge(b.tx, b.index)
+        );
+        // Conserver la catégorie enrichie si la plus ancienne était en "Autre"
+        const bestCategory = sorted.find((i) => i.tx.type && i.tx.type !== "Autre")?.tx.type;
+        const oldestTx = { ...sorted[0].tx };
+        if (bestCategory && oldestTx.type === "Autre") {
+          oldestTx.type = bestCategory;
+        }
+        keptResult.push(oldestTx);
+        for (let k = 1; k < sorted.length; k++) {
+          removedDuplicates.push(sorted[k].tx);
         }
       }
-    }
-
-    // Réinjecter les transactions non bancaires
-    for (const nonBank of nonBankTxs) {
-      result.push(nonBank);
     }
   }
 
-  return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const cleanedTransactions = keptResult.sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  return {
+    cleanedTransactions,
+    removedDuplicatesCount: removedDuplicates.length,
+    removedTransactions: removedDuplicates,
+  };
+}
+
+/**
+ * Assainit et déduplique définitivement une liste de transactions financières.
+ * Utilise l'algorithme d'audit et de déduplication cleanDatabaseDuplicates pour garantir
+ * qu'aucun doublon ne subsiste tout en préservant fidèlement les achats réels multiples.
+ */
+export function sanitizeAndDeduplicateTransactions(transactions: Transaction[]): Transaction[] {
+  return cleanDatabaseDuplicates(transactions).cleanedTransactions;
 }
 
 /**
