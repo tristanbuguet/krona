@@ -17,6 +17,8 @@ import {
   buildDeduplicationSignature,
   sanitizeAndDeduplicateTransactions,
   recategorizeOrphanBankTransactions,
+  AI_BATCH_SIZE,
+  type AiOrphanItem,
 } from '../src/lib/bankPipeline';
 import {
   deduplicateBeforeInsertion,
@@ -675,6 +677,146 @@ test('Nettoyage des doublons en base : conservation de la plus ancienne de chaqu
   const bouygues = cleanedTransactions.find((t) => t.id === 'eb_bouygues_sync1');
   assert.ok(bouygues !== undefined);
 });
+
+test('Catégorisation IA par lots : traitement exhaustif (> 30 opérations), transmission du libellé brut et non-régression sur Autre', async () => {
+  assert.equal(AI_BATCH_SIZE, 30);
+
+  // 1. Création de 65 opérations orphelines (strictement inconnues des regex et règles)
+  // 65 opérations = 3 lots (30 + 30 + 5)
+  const TOTAL_OPS = 65;
+  const rawOps = Array.from({ length: TOTAL_OPS }, (_, i) => ({
+    id: `eb_batch_tx_${i + 1}`,
+    date: '2026-11-05',
+    month: '2026-11',
+    label: `COMMERCE INCONNU CLEAN ${i + 1}`,
+    rawLabel: `CB COMMERCE BRUT BANQUE 999 TIERS PARTENAIRE ${i + 1} | MCC: 5411`,
+    amount: -(10 + i),
+    source: 'bank' as const,
+  }));
+
+  // 2. Mock du service IA :
+  // - Vérifie la taille maximale de chaque lot (<= 30)
+  // - Vérifie que le libellé brut rawLabel est fidèlement transmis pour chaque élément
+  // - Simule un échec temporaire sur le 1er lot (pour tester le réessai unique obligatoire)
+  // - Catégorise 60 opérations sur 65 en "Alimentation & Courses"
+  // - Laisse délibérément les 5 dernières non résolues (en "Autre")
+  const receivedBatches: Array<Array<AiOrphanItem>> = [];
+  let firstBatchAttempt = true;
+
+  const mockAiService = async (items: Array<AiOrphanItem>): Promise<Map<string, string>> => {
+    receivedBatches.push([...items]);
+
+    // Vérification de la taille de lot raisonnable (jamais supérieure à AI_BATCH_SIZE = 30)
+    assert.ok(
+      items.length <= AI_BATCH_SIZE,
+      `Un lot envoyé à l'IA (${items.length}) dépasse la taille maximale autorisée (${AI_BATCH_SIZE})`
+    );
+
+    // Vérification de la transmission du libellé brut (rawLabel)
+    for (const item of items) {
+      assert.ok(
+        typeof item.rawLabel === 'string' && item.rawLabel.includes('CB COMMERCE BRUT BANQUE 999'),
+        `Le libellé brut n'a pas été transmis à l'IA pour l'opération ${item.id} : ${item.rawLabel}`
+      );
+      assert.ok(
+        typeof item.label === 'string' && item.label.toLowerCase().includes('commerce inconnu clean'),
+        `Le libellé nettoyé en complément doit être présent : ${item.label}`
+      );
+    }
+
+    // Simulation d'une défaillance sur le 1er appel du 1er lot (doit déclencher 1 réessai)
+    if (firstBatchAttempt) {
+      firstBatchAttempt = false;
+      throw new Error('Gemini API 503 Transient Overload');
+    }
+
+    const map = new Map<string, string>();
+    for (const item of items) {
+      // Les 60 premières reçoivent une catégorie déduite du libellé brut / MCC 5411
+      const num = parseInt(item.id.replace('eb_batch_tx_', ''), 10);
+      if (num <= 60) {
+        map.set(item.id, 'Alimentation & Courses');
+      } else {
+        // Les 5 dernières restent en "Autre" (non résolues)
+        map.set(item.id, 'Autre');
+      }
+    }
+    return map;
+  };
+
+  // 3. Exécution du pipeline d'ingestion bancaire
+  const result = await executeBankIngestionPipeline({
+    rawTransactions: rawOps,
+    existingTransactions: [],
+    learningRules: {},
+    aspspLabel: 'BoursoBank',
+    enableSandboxFallback: false,
+    skipAiEnrichment: false,
+    aiCategorizer: mockAiService,
+  });
+
+  // 4. Vérifications strictes :
+  // A. Couverture complète : TOUTES les 65 opérations sont traitées jusqu'à la dernière
+  assert.equal(result.allMergedTransactions.length, TOTAL_OPS);
+
+  // B. Découpage en lots :
+  // Lot 1 : 30 opérations (échoue 1 fois, réessayé avec succès = 2 appels)
+  // Lot 2 : 30 opérations (succès = 1 appel)
+  // Lot 3 : 5 opérations (succès = 1 appel)
+  // Total appels IA = 4
+  assert.equal(receivedBatches.length, 4);
+  assert.equal(receivedBatches[0].length, 30);
+  assert.equal(receivedBatches[1].length, 30);
+  assert.equal(receivedBatches[2].length, 30);
+  assert.equal(receivedBatches[3].length, 5);
+
+  // C. Résolution des catégories :
+  // Exactement 60 opérations résolues en "Alimentation & Courses"
+  const resolved = result.allMergedTransactions.filter((t) => t.type === 'Alimentation & Courses');
+  assert.equal(resolved.length, 60);
+
+  // Seules les 5 opérations non résolues restent en "Autre"
+  const remainingAutre = result.allMergedTransactions.filter((t) => t.type === 'Autre');
+  assert.equal(remainingAutre.length, 5);
+
+  const unresolvedIds = remainingAutre.map((t) => t.id).sort();
+  assert.deepEqual(unresolvedIds, [
+    'eb_batch_tx_61',
+    'eb_batch_tx_62',
+    'eb_batch_tx_63',
+    'eb_batch_tx_64',
+    'eb_batch_tx_65',
+  ]);
+
+  // D. Conservation du libellé brut dans le modèle de données final
+  for (const tx of result.allMergedTransactions) {
+    assert.ok(
+      typeof tx.rawLabel === 'string' && tx.rawLabel.includes('CB COMMERCE BRUT BANQUE 999'),
+      `La transaction ${tx.id} en base doit conserver son rawLabel d'origine.`
+    );
+  }
+
+  // E. Vérification de recategorizeOrphanBankTransactions avec le même service simulé
+  const recatResult = await recategorizeOrphanBankTransactions({
+    transactions: remainingAutre,
+    learningRules: {},
+    aiCategorizer: async (items) => {
+      // Résout l'opération 61
+      const m = new Map<string, string>();
+      for (const it of items) {
+        if (it.id === 'eb_batch_tx_61') {
+          m.set(it.id, 'Transports');
+        }
+      }
+      return m;
+    },
+  });
+
+  assert.equal(recatResult.recategorizedCount, 1);
+  const tx61 = recatResult.updatedTransactions.find((t) => t.id === 'eb_batch_tx_61');
+  assert.equal(tx61?.type, 'Transports');
+});
+
 
 
 

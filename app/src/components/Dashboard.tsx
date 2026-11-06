@@ -22,7 +22,9 @@ import { useAuth } from "./AuthProvider";
 import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, RotateCcw, ChevronDown, ChevronRight, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays, ArrowRight, Search, Plus, Landmark, Building2, Unlink, RefreshCw } from "lucide-react";
 import { LinkedBankMenuPopover } from "./LinkedBankMenuPopover";
 import { ImportMethodPopover } from "./ImportMethodPopover";
+import { AiRulesManager } from "./AiRulesManager";
 import { formatBankDisplayName, isLinkedBankTransaction, isLinkedBankAccount } from "@/lib/bankFormatting";
+import { cleanOpenBankingMerchantLabel } from "@/lib/bankDeduplication";
 import { TrendsView } from "./views/TrendsView";
 import { TransactionsView } from "./views/TransactionsView";
 import { AccountsView } from "./views/AccountsView";
@@ -39,9 +41,16 @@ import {
   isInternalTransferCategory,
   isRegularisationCategory,
   isRegularisationTransaction,
-  INTERNAL_TRANSFER_CATEGORY
+  INTERNAL_TRANSFER_CATEGORY,
+  LearningRuleMap,
+  LearningRuleItem,
 } from "@/lib/types";
-import { UserFinancialPayload, sanitizeAndDeduplicateTransactions } from "@/lib/cloudSync";
+import {
+  UserFinancialPayload,
+  sanitizeAndDeduplicateTransactions,
+  DEFAULT_MONTHLY_LIMIT_CONFIG,
+  isMeaningfulLimitConfig,
+} from "@/lib/cloudSync";
 
 function parseAndFormatDate(dateStr: string) {
   let parsedDate = new Date(dateStr);
@@ -466,7 +475,7 @@ export function Dashboard({
   onOpenAccountPopover,
 }: DashboardProps = {}) {
   const { theme } = useTheme();
-  const { isAuthenticated, user, signInWithGoogle, triggerCloudSync } = useAuth();
+  const { isAuthenticated, user, signInWithGoogle, triggerCloudSync, syncStatus } = useAuth();
   const [isDark, setIsDark] = useState(true);
   const isAuthenticatedRef = useRef(isAuthenticated);
 
@@ -486,7 +495,21 @@ export function Dashboard({
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [importStep, setImportStep] = useState<ImportStep | null>(null);
-  const [toastMessage, setToastMessage] = useState<{ text: string, visible: boolean } | null>(null);
+  const [toastMessage, setToastMessage] = useState<{
+    text: string;
+    visible: boolean;
+    onUndo?: () => void;
+    undoLabel?: string;
+  } | null>(null);
+  const undoToastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [learningRulesState, setLearningRulesState] = useState<LearningRuleMap>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      return JSON.parse(localStorage.getItem("krona_merchant_knowledge") || "{}") as LearningRuleMap;
+    } catch {
+      return {};
+    }
+  });
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
   const handleMonthChange = useCallback((newMonth: string | null, pushToHistory = true) => {
@@ -823,7 +846,8 @@ export function Dashboard({
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [selectedRowTx]);
-  const [settingsTab, setSettingsTab] = useState<"income_fixed" | "subscriptions" | "budgets_data">("income_fixed");
+  type SettingsTabId = "income_fixed" | "subscriptions" | "budgets_data" | "ai_rules";
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("income_fixed");
   const [internalActiveTab, setInternalActiveTab] = useState("dashboard");
   const activeTab = propActiveTab !== undefined ? propActiveTab : internalActiveTab;
   const setActiveTab = (tab: string) => {
@@ -845,25 +869,62 @@ export function Dashboard({
   });
 
   const [customSpendingLimit, setCustomSpendingLimit] = useState<number | null>(null);
-  const [monthlyLimitConfig, setMonthlyLimitConfig] = useState<MonthlyLimitConfig>({
-    type: "percent",
-    value: 30,
-  });
+  const [monthlyLimitConfig, setMonthlyLimitConfig] = useState<MonthlyLimitConfig>(DEFAULT_MONTHLY_LIMIT_CONFIG);
+  const [reserveInputValue, setReserveInputValue] = useState<string>("30");
+  const isReserveInputFocusedRef = useRef(false);
+
+  const [settingsSaveStatus, setSettingsSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const settingsSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (settingsSaveTimerRef.current) {
+        clearTimeout(settingsSaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  const indicateSettingsSaving = useCallback(async (saveAction: () => Promise<void> | void) => {
+    if (settingsSaveTimerRef.current) {
+      clearTimeout(settingsSaveTimerRef.current);
+    }
+    setSettingsSaveStatus("saving");
+    const startTime = Date.now();
+    try {
+      await saveAction();
+      const elapsed = Date.now() - startTime;
+      if (elapsed < 450) {
+        await new Promise(res => setTimeout(res, 450 - elapsed));
+      }
+      setSettingsSaveStatus("saved");
+      settingsSaveTimerRef.current = setTimeout(() => {
+        setSettingsSaveStatus("idle");
+      }, 3500);
+    } catch {
+      setSettingsSaveStatus("error");
+      settingsSaveTimerRef.current = setTimeout(() => {
+        setSettingsSaveStatus("idle");
+      }, 4000);
+    }
+  }, []);
 
   useEffect(() => {
     try {
       const savedConfig = localStorage.getItem("krona_monthly_limit_config");
       if (savedConfig) {
         const parsed = JSON.parse(savedConfig);
-        if (
-          parsed &&
-          typeof parsed.value === "number" &&
-          parsed.value >= 0
-        ) {
-          setMonthlyLimitConfig({
-            type: "percent",
-            value: Math.min(100, Math.max(0, parsed.value)),
-          });
+        if (isMeaningfulLimitConfig(parsed)) {
+          if (parsed.type === "percent") {
+            setMonthlyLimitConfig({
+              type: "percent",
+              value: Math.min(100, Math.max(0, Math.round(parsed.value))),
+            });
+          } else if (parsed.type === "amount" && parsed.value > 0) {
+            setMonthlyLimitConfig({
+              type: "amount",
+              value: parsed.value,
+            });
+          }
         }
       }
       const saved = localStorage.getItem("krona_monthly_spending_limit");
@@ -873,6 +934,12 @@ export function Dashboard({
       }
     } catch (e) { }
   }, []);
+
+  useEffect(() => {
+    if (!isReserveInputFocusedRef.current && monthlyLimitConfig.type === "percent") {
+      setReserveInputValue(String(monthlyLimitConfig.value ?? 30));
+    }
+  }, [monthlyLimitConfig]);
 
   // Settings, Inbox & Navigation Listeners
   useEffect(() => {
@@ -1170,15 +1237,18 @@ export function Dashboard({
 
       const restoredLimitConfig =
         payload.settings?.monthlyLimitConfig || payload.monthlyLimitConfig;
-      if (
-        restoredLimitConfig &&
-        typeof restoredLimitConfig.value === "number" &&
-        restoredLimitConfig.value >= 0
-      ) {
-        setMonthlyLimitConfig({
-          type: "percent",
-          value: Math.min(100, Math.max(0, restoredLimitConfig.value)),
-        });
+      if (isMeaningfulLimitConfig(restoredLimitConfig)) {
+        if (restoredLimitConfig.type === "percent") {
+          setMonthlyLimitConfig({
+            type: "percent",
+            value: Math.min(100, Math.max(0, Math.round(restoredLimitConfig.value))),
+          });
+        } else if (restoredLimitConfig.type === "amount" && restoredLimitConfig.value > 0) {
+          setMonthlyLimitConfig({
+            type: "amount",
+            value: restoredLimitConfig.value,
+          });
+        }
       }
 
       const restoredCap =
@@ -1231,7 +1301,7 @@ export function Dashboard({
       setIgnoredSubscriptions([]);
       setBankSession(null);
       setCustomSpendingLimit(null);
-      setMonthlyLimitConfig({ type: "amount", value: 0 });
+      setMonthlyLimitConfig(DEFAULT_MONTHLY_LIMIT_CONFIG);
       setIncomeSettings({
         salary: 0,
         aids: 0,
@@ -1333,7 +1403,7 @@ export function Dashboard({
     setIgnoredSubscriptions([]);
     setBankSession(null);
     setCustomSpendingLimit(null);
-    setMonthlyLimitConfig({ type: "amount", value: 0 });
+    setMonthlyLimitConfig(DEFAULT_MONTHLY_LIMIT_CONFIG);
     setIncomeSettings({
       salary: 0,
       aids: 0,
@@ -1368,7 +1438,7 @@ export function Dashboard({
               accounts: [],
               settings: {
                 monthlyCap: 0,
-                monthlyLimitConfig: { type: "amount", value: 0 },
+                monthlyLimitConfig: DEFAULT_MONTHLY_LIMIT_CONFIG,
                 incomeSettings: {
                   salary: 0,
                   aids: 0,
@@ -1393,7 +1463,7 @@ export function Dashboard({
               },
               ignoredSubscriptions: [],
               merchantKnowledge: {},
-              monthlyLimitConfig: { type: "amount", value: 0 },
+              monthlyLimitConfig: DEFAULT_MONTHLY_LIMIT_CONFIG,
               monthlySpendingLimit: 0,
             },
           }),
@@ -1598,6 +1668,7 @@ export function Dashboard({
                 id: tx.id,
                 label: tx.name,
               })),
+              learningRules: learningRulesState,
             }),
           });
 
@@ -1916,38 +1987,49 @@ export function Dashboard({
       if (candidateOrphans.length > 0) {
         setImportStep("categorizing");
         try {
-          const aiRes = await fetch("/api/categorize", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            signal: AbortSignal.timeout(6000),
-            body: JSON.stringify({
-              items: candidateOrphans.slice(0, 25).map(tx => ({
-                id: tx.id,
-                label: tx.name,
-                amount: tx.amount,
-              })),
-            }),
-          });
+          const BATCH_SIZE = 30;
+          const idToCat = new Map<string, string>();
 
-          if (aiRes.ok) {
-            const aiData = (await aiRes.json()) as {
-              mapping?: Array<{ id: string; category: string }>;
-              results?: Array<{ id: string; category: string }>;
-            };
-            const resultsList = Array.isArray(aiData.mapping)
-              ? aiData.mapping
-              : Array.isArray(aiData.results)
-                ? aiData.results
-                : [];
-
-            const idToCat = new Map<string, string>();
-            resultsList.forEach(r => {
-              if (r.id && r.category && r.category !== "Autre") {
-                idToCat.set(r.id, r.category);
-              }
+          // Traitement séquentiel de TOUTES les opérations en Autre par lots de 30 jusqu'à la dernière
+          for (let b = 0; b < candidateOrphans.length; b += BATCH_SIZE) {
+            const batch = candidateOrphans.slice(b, b + BATCH_SIZE);
+            const aiRes = await fetch("/api/categorize", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal: AbortSignal.timeout(45000),
+              body: JSON.stringify({
+                items: batch.map(tx => ({
+                  id: tx.id,
+                  label: tx.name,
+                  rawLabel: tx.rawLabel || tx.rawName || tx.name,
+                  amount: tx.amount,
+                })),
+                learningRules: learningRulesState,
+              }),
             });
 
-            if (idToCat.size > 0) {
+            if (aiRes.ok) {
+              const aiData = (await aiRes.json()) as {
+                mapping?: Array<{ id: string; category: string }>;
+                results?: Array<{ id: string; category: string }>;
+              };
+              const resultsList = Array.isArray(aiData.mapping)
+                ? aiData.mapping
+                : Array.isArray(aiData.results)
+                  ? aiData.results
+                  : [];
+
+              resultsList.forEach(r => {
+                if (r.id && r.category && r.category !== "Autre") {
+                  idToCat.set(r.id, r.category);
+                }
+              });
+            } else {
+              console.warn("[Krona AI Bank Sync] Statut non-OK pour le lot :", aiRes.status);
+            }
+          }
+
+          if (idToCat.size > 0) {
               const updatedKnowledge = {
                 ...JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}'),
               };
@@ -1989,9 +2071,6 @@ export function Dashboard({
                 localStorage.setItem('financeTransactions_v1', JSON.stringify(combinedTransactions));
               } catch {}
             }
-          } else {
-            console.warn("[Krona AI Bank Sync] Statut non-OK :", aiRes.status);
-          }
         } catch (aiErr: unknown) {
           // Si l'appel IA échoue, importe quand même les opérations (en « Autre »), journalise l'erreur et termine le loader sans le bloquer
           console.error("[Krona AI Bank Sync] Erreur lors de la catégorisation IA :", aiErr);
@@ -2051,7 +2130,7 @@ export function Dashboard({
     } finally {
       setIsSyncingBank(false);
     }
-  }, [user?.id, bankSession, handleMonthChange, triggerCloudSync, onOpenAccountPopover]);
+  }, [user?.id, bankSession, handleMonthChange, triggerCloudSync, onOpenAccountPopover, learningRulesState]);
 
   const handleDisconnectBank = async () => {
     try {
@@ -2293,38 +2372,49 @@ export function Dashboard({
             if (orphanTxs.length > 0) {
               setImportStep("categorizing");
               try {
-                const aiRes = await fetch("/api/categorize", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  signal: AbortSignal.timeout(6000),
-                  body: JSON.stringify({
-                    items: orphanTxs.slice(0, 25).map((tx) => ({
-                      id: tx.id,
-                      label: tx.name,
-                      amount: tx.amount,
-                    })),
-                  }),
-                });
+                const BATCH_SIZE = 30;
+                const idToCat = new Map<string, string>();
 
-                if (aiRes.ok) {
-                  const aiData = (await aiRes.json()) as {
-                    mapping?: Array<{ id: string; category: string }>;
-                    results?: Array<{ id: string; category: string }>;
-                  };
-                  const resultsList = Array.isArray(aiData.mapping)
-                    ? aiData.mapping
-                    : Array.isArray(aiData.results)
-                      ? aiData.results
-                      : [];
-
-                  const idToCat = new Map<string, string>();
-                  resultsList.forEach((r) => {
-                    if (r.id && r.category && r.category !== "Autre") {
-                      idToCat.set(r.id, r.category);
-                    }
+                // Traitement séquentiel de TOUTES les opérations en Autre par lots de 30 jusqu'à la dernière
+                for (let b = 0; b < orphanTxs.length; b += BATCH_SIZE) {
+                  const batch = orphanTxs.slice(b, b + BATCH_SIZE);
+                  const aiRes = await fetch("/api/categorize", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    signal: AbortSignal.timeout(45000),
+                    body: JSON.stringify({
+                      items: batch.map((tx) => ({
+                        id: tx.id,
+                        label: tx.name,
+                        rawLabel: tx.rawLabel || tx.rawName || tx.name,
+                        amount: tx.amount,
+                      })),
+                      learningRules: learningRulesState,
+                    }),
                   });
 
-                  if (idToCat.size > 0) {
+                  if (aiRes.ok) {
+                    const aiData = (await aiRes.json()) as {
+                      mapping?: Array<{ id: string; category: string }>;
+                      results?: Array<{ id: string; category: string }>;
+                    };
+                    const resultsList = Array.isArray(aiData.mapping)
+                      ? aiData.mapping
+                      : Array.isArray(aiData.results)
+                        ? aiData.results
+                        : [];
+
+                    resultsList.forEach((r) => {
+                      if (r.id && r.category && r.category !== "Autre") {
+                        idToCat.set(r.id, r.category);
+                      }
+                    });
+                  } else {
+                    console.warn("[Krona Bank Callback] Statut non-OK pour le lot :", aiRes.status);
+                  }
+                }
+
+                if (idToCat.size > 0) {
                     const nowIso = new Date().toISOString();
                     const updatedKnowledge = {
                       ...JSON.parse(localStorage.getItem("krona_merchant_knowledge") || "{}"),
@@ -2366,7 +2456,6 @@ export function Dashboard({
 
                     await triggerCloudSync("overwrite");
                   }
-                }
               } catch (aiErr: unknown) {
                 console.error("[Krona Bank Callback] Erreur lors de la catégorisation IA :", aiErr);
               }
@@ -2484,7 +2573,9 @@ export function Dashboard({
         );
       }
     } catch (e) { }
-    triggerCloudSync("overwrite").catch(() => {});
+    indicateSettingsSaving(async () => {
+      await triggerCloudSync("overwrite");
+    });
   };
 
   const handleSaveBudget = (cat: string, val: number) => {
@@ -2505,7 +2596,9 @@ export function Dashboard({
         })
       );
     }
-    triggerCloudSync("overwrite").catch(() => {});
+    indicateSettingsSaving(async () => {
+      await triggerCloudSync("overwrite");
+    });
   };
 
   const filteredTransactions = useMemo(() => {
@@ -2555,36 +2648,153 @@ export function Dashboard({
     const isSub = !isInternal && isSubscriptionCategory(newType);
     const nowIso = new Date().toISOString();
 
-    try {
-      const cache = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
-      cache[merchantName] = {
-        ...(cache[merchantName] || {}),
+    // 1. Nom nettoyé canonique du commerçant (sans numéro de magasin ni code terminal)
+    const cleanMerchant = cleanOpenBankingMerchantLabel(merchantName, true) || cleanMerchantName(merchantName);
+
+    // 2. Snapshot pour le mécanisme d'annulation (Undo)
+    const previousTransactions = transactions;
+    const previousRules = { ...learningRulesState };
+
+    // 3. Mémorisation automatique de la règle pour ce commerçant
+    const updatedRules: LearningRuleMap = {
+      ...previousRules,
+      [cleanMerchant]: {
+        ...(previousRules[cleanMerchant] || {}),
         categorie: newType,
         isSubscription: isSub,
         isInternalTransfer: isInternal,
         excludeFromSpending: isInternal,
         excludeFromIncome: isInternal || isRegul,
+        source: "user_manual",
         updatedAt: nowIso,
-      };
-      localStorage.setItem('krona_merchant_knowledge', JSON.stringify(cache));
-    } catch (e) { }
+      },
+    };
+    if (cleanMerchant !== merchantName) {
+      updatedRules[merchantName] = { ...updatedRules[cleanMerchant] };
+    }
+
+    try {
+      localStorage.setItem("krona_merchant_knowledge", JSON.stringify(updatedRules));
+      setLearningRulesState(updatedRules);
+    } catch { }
 
     // Si la transaction est déplacée vers Abonnements et qu'elle était ignorée, la réactiver
-    if (isSub && ignoredSubscriptions.includes(merchantName)) {
+    if (isSub && (ignoredSubscriptions.includes(cleanMerchant) || ignoredSubscriptions.includes(merchantName))) {
       setIgnoredSubscriptions(prev => {
-        const updated = prev.filter(m => m !== merchantName);
-        localStorage.setItem('krona_ignored_subscriptions', JSON.stringify(updated));
+        const updated = prev.filter(m => m !== cleanMerchant && m !== merchantName);
+        localStorage.setItem("krona_ignored_subscriptions", JSON.stringify(updated));
         return updated;
       });
     }
 
+    // 4. Application automatique aux opérations passées du même commerçant
+    const updatedTxList = transactions.map(t => {
+      const tClean = cleanOpenBankingMerchantLabel(t.name, true) || cleanMerchantName(t.name);
+      const tRawClean = t.rawName ? (cleanOpenBankingMerchantLabel(t.rawName, true) || cleanMerchantName(t.rawName)) : "";
+      const matches =
+        t.id === txId ||
+        t.name === merchantName ||
+        t.name === cleanMerchant ||
+        tClean === cleanMerchant ||
+        (tRawClean && tRawClean === cleanMerchant);
+
+      if (matches) {
+        return {
+          ...t,
+          type: newType,
+          isSubscription: isSub,
+          isRecurring: isSub,
+          isInternalTransfer: isInternal,
+          excludeFromSpending: isInternal,
+          excludeFromIncome: isInternal || isRegul,
+          updatedAt: nowIso,
+        };
+      }
+      return t;
+    });
+
+    setTransactions(updatedTxList);
+    try {
+      localStorage.setItem("financeTransactions_v1", JSON.stringify(updatedTxList));
+    } catch { }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("krona-local-data-mutated", {
+          detail: { mode: "overwrite", immediate: true },
+        })
+      );
+    }
+    triggerCloudSync("overwrite").catch(() => {});
+
+    // 5. Toast unique de 6 secondes avec « Annuler » qui annule les deux (transactions et règle mémorisée)
+    if (undoToastTimeoutRef.current) {
+      clearTimeout(undoToastTimeoutRef.current);
+    }
+
+    const handleUndo = () => {
+      setTransactions(previousTransactions);
+      setLearningRulesState(previousRules);
+      try {
+        localStorage.setItem("financeTransactions_v1", JSON.stringify(previousTransactions));
+        localStorage.setItem("krona_merchant_knowledge", JSON.stringify(previousRules));
+      } catch { }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("krona-local-data-mutated", {
+            detail: { mode: "overwrite", immediate: true },
+          })
+        );
+      }
+      triggerCloudSync("overwrite").catch(() => {});
+      setToastMessage(null);
+    };
+
+    setToastMessage({
+      text: `Règle mémorisée · ${cleanMerchant} → ${newType}`,
+      visible: true,
+      onUndo: handleUndo,
+      undoLabel: "Annuler",
+    });
+
+    undoToastTimeoutRef.current = setTimeout(() => {
+      setToastMessage(prev => (prev?.onUndo === handleUndo ? null : prev));
+    }, 6000);
+  };
+
+  const handleUpdateLearnedRule = (merchantKey: string, newCategory: string) => {
+    const isRegul = isRegularisationCategory(newCategory);
+    const isInternal = isInternalTransferCategory(newCategory) || isRegul;
+    const isSub = !isInternal && isSubscriptionCategory(newCategory);
+    const nowIso = new Date().toISOString();
+
+    const updatedRules: LearningRuleMap = {
+      ...learningRulesState,
+      [merchantKey]: {
+        ...(learningRulesState[merchantKey] || {}),
+        categorie: newCategory,
+        isSubscription: isSub,
+        isInternalTransfer: isInternal,
+        excludeFromSpending: isInternal,
+        excludeFromIncome: isInternal || isRegul,
+        source: "user_manual",
+        updatedAt: nowIso,
+      },
+    };
+
+    setLearningRulesState(updatedRules);
+    try {
+      localStorage.setItem("krona_merchant_knowledge", JSON.stringify(updatedRules));
+    } catch { }
+
+    // Met à jour les transactions actives correspondantes
     setTransactions(prev => {
-      const source = prev;
-      const updated = source.map(t => {
-        if (t.id === txId || t.name === merchantName) {
+      const updated = prev.map(t => {
+        const tClean = cleanOpenBankingMerchantLabel(t.name, true) || cleanMerchantName(t.name);
+        if (t.name === merchantKey || tClean === merchantKey) {
           return {
             ...t,
-            type: newType,
+            type: newCategory,
             isSubscription: isSub,
             isRecurring: isSub,
             isInternalTransfer: isInternal,
@@ -2596,8 +2806,8 @@ export function Dashboard({
         return t;
       });
       try {
-        localStorage.setItem('financeTransactions_v1', JSON.stringify(updated));
-      } catch (e) { }
+        localStorage.setItem("financeTransactions_v1", JSON.stringify(updated));
+      } catch { }
       return updated;
     });
 
@@ -2609,12 +2819,25 @@ export function Dashboard({
       );
     }
     triggerCloudSync("overwrite").catch(() => {});
+  };
 
-    setToastMessage({
-      text: `Catégorie mise à jour · ${merchantName} → ${newType}`,
-      visible: true
-    });
-    setTimeout(() => setToastMessage(null), 3000);
+  const handleDeleteLearnedRule = (merchantKey: string) => {
+    const updatedRules = { ...learningRulesState };
+    delete updatedRules[merchantKey];
+
+    setLearningRulesState(updatedRules);
+    try {
+      localStorage.setItem("krona_merchant_knowledge", JSON.stringify(updatedRules));
+    } catch { }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("krona-local-data-mutated", {
+          detail: { mode: "overwrite", immediate: true },
+        })
+      );
+    }
+    triggerCloudSync("overwrite").catch(() => {});
   };
 
   const handleDeleteTransaction = (txId: string) => {
@@ -3209,7 +3432,9 @@ export function Dashboard({
         );
       }
     } catch (err) { }
-    triggerCloudSync("overwrite").catch(() => {});
+    indicateSettingsSaving(async () => {
+      await triggerCloudSync("overwrite");
+    });
   };
 
   const effectiveMonthlyLimit = useMemo(() => {
@@ -3377,12 +3602,21 @@ export function Dashboard({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.98 }}
             transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[105] bg-neutral-900/90 border border-white/[0.08] backdrop-blur-md text-white px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-sm"
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[105] bg-neutral-900/95 dark:bg-neutral-900/90 border border-white/[0.12] backdrop-blur-md text-white px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-3 text-sm font-sans"
           >
             <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
               <Check size={14} strokeWidth={3} />
             </div>
             <span className="font-medium text-white">{toastMessage.text}</span>
+            {toastMessage.onUndo && (
+              <button
+                type="button"
+                onClick={toastMessage.onUndo}
+                className="ml-1 px-3 py-1 text-xs font-semibold rounded-full bg-white/15 hover:bg-white/25 active:scale-95 text-white transition-all cursor-pointer whitespace-nowrap"
+              >
+                {toastMessage.undoLabel || "Annuler"}
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -4157,6 +4391,7 @@ export function Dashboard({
                         { id: "income_fixed", label: "Revenus & Fixes", icon: Wallet },
                         { id: "subscriptions", label: "Abonnements", icon: Repeat },
                         { id: "budgets_data", label: "Plafonds & Données", icon: Flag },
+                        { id: "ai_rules", label: "Mémoire de l'IA & Règles", icon: Sparkles },
                       ].map((tab) => {
                         const Icon = tab.icon;
                         const isActive = settingsTab === tab.id;
@@ -4164,7 +4399,7 @@ export function Dashboard({
                           <button
                             key={tab.id}
                             type="button"
-                            onClick={() => setSettingsTab(tab.id as any)}
+                            onClick={() => setSettingsTab(tab.id as SettingsTabId)}
                             className="relative flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all active:scale-[0.97] cursor-pointer whitespace-nowrap focus-visible:outline-none select-none"
                           >
                             {isActive && (
@@ -4443,11 +4678,39 @@ export function Dashboard({
                                 min="0"
                                 max="100"
                                 step="1"
-                                value={monthlyLimitConfig.type === "percent" ? (monthlyLimitConfig.value ?? "") : 30}
+                                value={reserveInputValue}
                                 onChange={e => {
                                   const rawVal = e.target.value;
-                                  const parsedVal = rawVal === "" ? 0 : Math.min(100, Math.max(0, parseFloat(rawVal) || 0));
-                                  handleUpdateLimitConfig({ type: "percent", value: parsedVal });
+                                  setReserveInputValue(rawVal);
+                                  if (rawVal !== "") {
+                                    const parsed = parseFloat(rawVal);
+                                    if (!isNaN(parsed)) {
+                                      const clamped = Math.min(100, Math.max(0, Math.round(parsed)));
+                                      setMonthlyLimitConfig({ type: "percent", value: clamped });
+                                      const computedSpending = Math.max(0, Math.round(effectiveReferenceIncome * (1 - clamped / 100)));
+                                      setCustomSpendingLimit(computedSpending);
+                                    }
+                                  }
+                                }}
+                                onFocus={() => {
+                                  isReserveInputFocusedRef.current = true;
+                                }}
+                                onBlur={() => {
+                                  isReserveInputFocusedRef.current = false;
+                                  let finalVal: number;
+                                  if (reserveInputValue.trim() === "") {
+                                    finalVal = typeof monthlyLimitConfig.value === "number" && monthlyLimitConfig.value > 0 ? monthlyLimitConfig.value : 30;
+                                  } else {
+                                    const parsed = parseFloat(reserveInputValue);
+                                    finalVal = isNaN(parsed) ? 30 : Math.min(100, Math.max(0, Math.round(parsed)));
+                                  }
+                                  setReserveInputValue(String(finalVal));
+                                  handleUpdateLimitConfig({ type: "percent", value: finalVal });
+                                }}
+                                onKeyDown={e => {
+                                  if (e.key === "Enter") {
+                                    (e.target as HTMLInputElement).blur();
+                                  }
                                 }}
                                 placeholder="30"
                                 className="w-full pl-3 pr-7 py-1.5 rounded-xl bg-background border border-border focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 text-right text-sm font-medium text-foreground tabular-nums font-sans transition-all focus:outline-none placeholder:text-muted-foreground"
@@ -4568,14 +4831,34 @@ export function Dashboard({
                         </div>
                       </div>
                     </div>
+                  ) : settingsTab === "ai_rules" ? (
+                    <AiRulesManager
+                      learningRules={learningRulesState}
+                      onUpdateRule={handleUpdateLearnedRule}
+                      onDeleteRule={handleDeleteLearnedRule}
+                    />
                   ) : null}
                 </div>
 
                 {/* Footer */}
                 <div className="sticky bottom-0 z-30 bg-card border-t border-border px-5 sm:px-6 py-3.5 flex items-center justify-between shrink-0">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground font-sans">
-                    <Check size={14} className="text-emerald-500 dark:text-emerald-400 shrink-0" />
-                    <span>Enregistré automatiquement</span>
+                  <div className="flex items-center gap-2 text-xs font-sans transition-colors min-h-[20px]">
+                    {settingsSaveStatus === "saving" || syncStatus === "syncing" ? (
+                      <>
+                        <RefreshCw size={13} className="text-muted-foreground animate-spin shrink-0" />
+                        <span className="text-muted-foreground font-medium">Enregistrement...</span>
+                      </>
+                    ) : settingsSaveStatus === "error" || syncStatus === "error" ? (
+                      <>
+                        <AlertCircle size={14} className="text-rose-500 shrink-0" />
+                        <span className="text-rose-500 font-medium">Erreur d&apos;enregistrement</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check size={14} className="text-emerald-500 dark:text-emerald-400 shrink-0" />
+                        <span className="text-muted-foreground">Enregistré automatiquement</span>
+                      </>
+                    )}
                   </div>
                   <button
                     type="button"

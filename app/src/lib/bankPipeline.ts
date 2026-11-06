@@ -70,60 +70,35 @@ export function normalizeAiCategory(aiCategory: string): string {
   return "Autre";
 }
 
-export async function enrichOrphansWithGemini(
-  orphans: Array<{ id: string; label: string; amount?: number }>
-): Promise<Map<string, string>> {
-  const resultMap = new Map<string, string>();
-  if (orphans.length === 0) {
-    console.log("[BankPipeline AI] 0 transaction orpheline à envoyer à l'IA (100% résolu par Regex + Règles).");
-    return resultMap;
-  }
+export const AI_BATCH_SIZE = 30;
 
-  console.log(`[BankPipeline AI] Envoi de ${orphans.length} transaction(s) à l'IA pour catégorisation...`);
+export interface AiOrphanItem {
+  id: string;
+  label: string;
+  rawLabel?: string;
+  amount?: number;
+}
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.warn("[BankPipeline AI] GEMINI_API_KEY absente, exécution du moteur heuristique de secours.");
-    for (const item of orphans) {
-      const cleaned = cleanOpenBankingMerchantLabel(item.label, true);
-      const local = categorizeLocally({
-        label: cleaned || item.label,
-        rawLabel: item.label,
-        amount: item.amount ?? 0,
-        cache: {},
-      });
-      if (local.category && local.category !== "Autre") {
-        resultMap.set(item.id, local.category);
-      }
-    }
-    console.log(
-      `[BankPipeline AI] Résultat IA (fallback local) : ${resultMap.size}/${orphans.length} catégorisées`,
-      Object.fromEntries(resultMap)
-    );
-    return resultMap;
-  }
+export function buildAiCategorizationPrompt(
+  items: Array<AiOrphanItem>,
+  fewShotSection: string = ""
+): string {
+  const operationsPayload = items.map((it) => {
+    const raw = (it.rawLabel || it.label).trim();
+    const cleaned = it.label.trim();
+    return {
+      id: it.id,
+      rawLabel: raw,
+      cleanedName: cleaned !== raw ? cleaned : undefined,
+      amount: it.amount,
+    };
+  });
 
-  try {
-    // Si la liste d'orphelines est volumineuse, envoyer les 25 premières à l'IA et résoudre le reste localement
-    const aiBatch = orphans.slice(0, 25);
-    const localBatch = orphans.slice(25);
-
-    for (const item of localBatch) {
-      const cleaned = cleanOpenBankingMerchantLabel(item.label, true);
-      const local = categorizeLocally({
-        label: cleaned || item.label,
-        rawLabel: item.label,
-        amount: item.amount ?? 0,
-        cache: {},
-      });
-      if (local.category && local.category !== "Autre") {
-        resultMap.set(item.id, local.category);
-      }
-    }
-
-    const prompt = `
+  return `
 Tu es un moteur FinTech expert de catégorisation bancaire française.
-Pour chaque opération ci-dessous (comportant id, label et montant en euros), identifie le commerçant ou la nature de la dépense et associe STRICTEMENT une catégorie parmi cette liste FINIE et exacte (et AUCUNE autre) :
+Pour chaque opération bancaire ci-dessous, déduis la catégorie exacte et pertinente à partir de son libellé brut d'origine (enseigne, type de paiement, informations de remittance, nom du tiers, code de transaction ou MCC) et du nom nettoyé en complément.
+Tu dois n'utiliser "Autre" qu'en DERNIER RECOURS absolu.
+Tu DOIS obligatoirement renvoyer une catégorie pour CHAQUE opération reçue, choisie STRICTEMENT parmi cette liste FINIE et exacte (et AUCUNE autre) :
 - Alimentation & Courses
 - Restos & Fast-Food
 - Sorties & Soirées
@@ -137,77 +112,227 @@ Pour chaque opération ci-dessous (comportant id, label et montant en euros), id
 - Épargne & Trésorerie
 - Virement interne
 - Autre
+${fewShotSection}
+Règles d'association expertes :
+- Supermarchés, hypermarchés, épiceries, supérettes, Picard, Monoprix, Coccinelle, U Express, Franprix, Carrefour, Leclerc, Lidl, Auchan, Intermarché, boulangeries -> "Alimentation & Courses"
+- Restaurants, fast-foods, snacks, brasseries, cafés, Deliveroo, Uber Eats, McDonald's, Burger King, Starbucks, Vicco, Goodnews, sandwicheries -> "Restos & Fast-Food"
+- Cinémas, soirées, loisirs, clubs, billetterie, Shotgun, concerts, musées, théâtres, parcs, escape game -> "Sorties & Soirées"
+- Boutiques de vêtements, mode, chaussures, maroquinerie, Galeries Lafayette, Zara, H&M, Sephora, beauté, Fnac, Amazon, Darty, tabac, presse -> "Shopping & Mode"
+- Train, RATP, métro, SNCF, Navigo, Imagine R, TER, TGV, avion, péages, parkings, carburant, stations Total/BP/Shell, Uber, Bolt, taxi, trottinettes -> "Transports"
+- Salle de sport, Basic-Fit, Fitness Park, abonnements récurrents streaming/musique, Netflix, Spotify, Disney+, Deezer, Uber One, forfaits mobiles/box, Bouygues, Orange, Free, SFR -> "Abonnements & Forfaits"
+- Médecins, pharmacie, spécialistes, dentiste, optique, hôpital, laboratoires, Doctolib, Livi, Kry, soins médicaux -> "Santé & Soins"
+- Loyer, électricité, EDF, Engie, TotalEnergies, gaz, eau, charges de copropriété, syndic, bricolage, Leroy Merlin, Castorama, Ikea, meubles, quincaillerie -> "Logement & Maison"
+- Virements entre particuliers, Lydia, PayPal entre amis, remboursements mutuelle/sécu -> "Virements proches & Remboursements"
+- Salaires (virements employeur, montants positifs significatifs), allocations CAF, Pôle Emploi/France Travail, CPAM, aides de l'État -> "Revenus & Aides"
+- Livrets d'épargne, plans épargne (PEL/PEA/assurance-vie), versements d'épargne -> "Épargne & Trésorerie"
+- Virements internes de compte à compte du même titulaire, régularisations techniques, ajustements internes -> "Virement interne"
+- N'attribue "Autre" qu'en cas d'impossibilité totale de déduire l'activité.
 
-Règles d'association :
-- Supermarchés, alimentation générale, Picard, Monoprix, Coccinelle, U Express, boulangeries, supérettes -> "Alimentation & Courses"
-- Restaurants, fast-foods, snacks, brasseries, cafés, Goodnews, Vicco, Uber Eats, Deliveroo, McDonald's -> "Restos & Fast-Food"
-- Cinémas, soirées, loisirs, clubs, billetterie, Shotgun, parcs -> "Sorties & Soirées"
-- Boutiques, prêt-à-porter, Galeries Lafayette, Zara, Ikea, Amazon, Fnac, tabac -> "Shopping & Mode"
-- Train, métro, RATP, Navigo, Imagine R, SNCF, avion, péages, carburant, Uber, taxi -> "Transports"
-- Salle de sport, Basic-Fit, Netflix, Spotify, Uber One, forfaits mobiles/box, Bouygues, abonnements récurrents -> "Abonnements & Forfaits"
-- Médecins, pharmacie, Kry, Livi, Doctolib, optique, dentiste, laboratoire -> "Santé & Soins"
-- Loyer, électricité, gaz, eau, charges, syndic, bricolage -> "Logement & Maison"
-- Virements entre particuliers, Lydia, PayPal entre amis -> "Virements proches & Remboursements"
-- Salaires (montants positifs significatifs), indemnités, allocations, CAF, Pôle Emploi -> "Revenus & Aides"
-- Livrets, placements, versements épargne -> "Épargne & Trésorerie"
-- Virements internes de compte à compte, régularisations techniques -> "Virement interne"
-- Si indéterminé ou trop générique -> "Autre"
+Opérations à catégoriser (avec ID, libellé brut d'origine et libellé nettoyé en complément) :
+${JSON.stringify(operationsPayload, null, 2)}
 
-Opérations à catégoriser :
-${JSON.stringify(aiBatch)}
-
-Réponds uniquement en JSON valide sans balises Markdown : [{ "id": "...", "category": "..." }]
+Réponds STRICTEMENT sous la forme d'un tableau JSON brut valide, sans balises Markdown ni texte additionnel :
+[
+  { "id": "...", "category": "..." }
+]
 `.trim();
+}
 
-    const ai = new GoogleGenAI({ apiKey });
-    const candidateModels = [
-      "gemini-3.5-flash-lite",
-      "gemini-3.8-flash",
-      "gemini-flash-latest",
-      "gemini-flash-lite-latest",
-    ];
+async function callGeminiApi(
+  ai: GoogleGenAI,
+  prompt: string,
+  timeoutMs: number = 8000
+): Promise<string> {
+  const candidateModels = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+  ];
 
-    let responseText = "";
-    for (const model of candidateModels) {
+  for (const model of candidateModels) {
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout IA modèle ${model} (${timeoutMs}ms)`)), timeoutMs)
+      );
+      const response = await Promise.race([
+        ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
+        }),
+        timeoutPromise,
+      ]);
+      if (response.text) {
+        return response.text;
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[BankPipeline AI] Modèle ${model} indisponible, test du suivant...`, msg);
+    }
+  }
+
+  throw new Error("Tous les modèles Gemini ont échoué ou ont expiré.");
+}
+
+function parseAiCategorizationResponse(
+  responseText: string
+): Array<{ id: string; category: string }> {
+  const cleaned = responseText.replace(/```json/gi, "").replace(/```/g, "").trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    const firstBracket = cleaned.indexOf("[");
+    const lastBracket = cleaned.lastIndexOf("]");
+    if (firstBracket !== -1 && lastBracket > firstBracket) {
       try {
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout IA modèle ${model} (4500ms)`)), 4500)
-        );
-        const response = await Promise.race([
-          ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: { responseMimeType: "application/json" },
-          }),
-          timeoutPromise,
-        ]);
-        if (response.text) {
-          responseText = response.text;
-          break;
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[BankPipeline AI] Modèle ${model} indisponible, test du suivant...`, msg);
+        parsed = JSON.parse(cleaned.slice(firstBracket, lastBracket + 1));
+      } catch {
+        parsed = null;
       }
     }
+  }
 
-    if (responseText) {
-      const text = responseText.replace(/```json/gi, "").replace(/```/g, "").trim();
-      const parsed = JSON.parse(text) as unknown;
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === "object" && "id" in item && "category" in item) {
-            const id = String((item as { id: unknown }).id);
-            const cat = normalizeAiCategory(String((item as { category: unknown }).category));
-            if (cat !== "Autre") {
-              resultMap.set(id, cat);
-            }
+  const results: Array<{ id: string; category: string }> = [];
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      if (item && typeof item === "object" && "id" in item) {
+        const id = String((item as { id: unknown }).id);
+        const cat = normalizeAiCategory(String((item as { category?: unknown }).category || ""));
+        results.push({ id, category: cat });
+      }
+    }
+  }
+  return results;
+}
+
+async function processSingleBatchWithRetry(
+  ai: GoogleGenAI,
+  batch: Array<AiOrphanItem>,
+  fewShotSection: string
+): Promise<Map<string, string>> {
+  const batchMap = new Map<string, string>();
+  if (batch.length === 0) return batchMap;
+
+  const prompt = buildAiCategorizationPrompt(batch, fewShotSection);
+
+  // Tentative 1 pour le lot complet
+  let responseText: string | null = null;
+  try {
+    responseText = await callGeminiApi(ai, prompt);
+  } catch (err1) {
+    console.warn("[Bank AI] Échec du lot IA, nouvel essai unique...", err1);
+    try {
+      // Réessai du lot en échec une fois
+      responseText = await callGeminiApi(ai, prompt);
+    } catch (err2) {
+      console.error("[Bank AI] Deuxième échec du lot IA, abandon du lot.", err2);
+      return batchMap;
+    }
+  }
+
+  if (responseText) {
+    const parsedItems = parseAiCategorizationResponse(responseText);
+    for (const item of parsedItems) {
+      if (item.category && item.category !== "Autre") {
+        batchMap.set(item.id, item.category);
+      }
+    }
+  }
+
+  // Vérification que la réponse contient une catégorie pour chaque opération envoyée
+  // Relance seulement celles qui manquent
+  const missingItems = batch.filter((item) => !batchMap.has(item.id));
+  if (missingItems.length > 0 && missingItems.length < batch.length) {
+    try {
+      const missingPrompt = buildAiCategorizationPrompt(missingItems, fewShotSection);
+      const retryText = await callGeminiApi(ai, missingPrompt, 5000);
+      if (retryText) {
+        const retryParsed = parseAiCategorizationResponse(retryText);
+        for (const item of retryParsed) {
+          if (item.category && item.category !== "Autre") {
+            batchMap.set(item.id, item.category);
           }
         }
       }
+    } catch (retryMissingErr) {
+      console.warn("[Bank AI] Erreur lors de la relance des opérations manquantes :", retryMissingErr);
     }
-  } catch (err) {
-    console.warn("[BankPipeline AI] Erreur lors de l'appel Gemini :", err);
+  }
+
+  return batchMap;
+}
+
+export async function enrichOrphansWithGemini(
+  orphans: Array<AiOrphanItem>,
+  learningRules: LearningRuleMap = {}
+): Promise<Map<string, string>> {
+  const resultMap = new Map<string, string>();
+  if (orphans.length === 0) {
+    console.log("[Bank AI] Nombre d'opérations envoyées à l'IA : 0");
+    console.log("[Bank AI] Nombre de lots : 0");
+    console.log("[Bank AI] Nombre de catégories attribuées : 0");
+    console.log("[Bank AI] Nombre restant en « Autre » : 0");
+    return resultMap;
+  }
+
+  const totalBatches = Math.ceil(orphans.length / AI_BATCH_SIZE);
+  console.log(`[BankPipeline AI] Transactions envoyées à l'IA : ${orphans.length}`);
+  console.log(`[Bank AI] Nombre d'opérations envoyées à l'IA : ${orphans.length}`);
+  console.log(`[Bank AI] Nombre de lots : ${totalBatches}`);
+
+  // Sélection au maximum des 10 dernières règles apprises pour le Few-Shot
+  const sortedRecentRules = Object.entries(learningRules)
+    .map(([key, val]) => {
+      const cat = val?.categorie || (val as { category?: string } | null)?.category || "";
+      const updatedAt = val?.updatedAt ? Date.parse(val.updatedAt) : 0;
+      return { key: key.trim(), category: cat, updatedAt };
+    })
+    .filter((r) => r.key.length > 0 && r.category && r.category !== "Autre")
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, 10);
+
+  let fewShotSection = "";
+  if (sortedRecentRules.length > 0) {
+    fewShotSection = `
+Règles apprises et préférences récentes de cet utilisateur (à respecter et imiter en priorité pour tes déductions) :
+${sortedRecentRules.map((r) => `- "${r.key}" -> "${r.category}"`).join("\n")}
+`;
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.warn("[BankPipeline AI] GEMINI_API_KEY absente, exécution du moteur heuristique de secours.");
+    for (const item of orphans) {
+      const cleaned = cleanOpenBankingMerchantLabel(item.label, true);
+      const local = categorizeLocally({
+        label: cleaned || item.label,
+        rawLabel: item.rawLabel || item.label,
+        amount: item.amount ?? 0,
+        cache: learningRules,
+      });
+      if (local.category && local.category !== "Autre") {
+        resultMap.set(item.id, local.category);
+      }
+    }
+    const assignedCount = resultMap.size;
+    const remainingAutre = orphans.length - assignedCount;
+    console.log(`[BankPipeline AI] Catégories attribuées par l'IA : ${assignedCount}`);
+    console.log(`[Bank AI] Nombre de catégories attribuées : ${assignedCount}`);
+    console.log(`[Bank AI] Nombre restant en « Autre » : ${remainingAutre}`);
+    return resultMap;
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  // Traite les opérations par lots de taille AI_BATCH_SIZE (30), l'un après l'autre
+  for (let i = 0; i < orphans.length; i += AI_BATCH_SIZE) {
+    const batch = orphans.slice(i, i + AI_BATCH_SIZE);
+    const batchMap = await processSingleBatchWithRetry(ai, batch, fewShotSection);
+    for (const [id, cat] of batchMap.entries()) {
+      resultMap.set(id, cat);
+    }
   }
 
   // Fallback local complémentaire pour toute opération non résolue par l'IA
@@ -216,9 +341,9 @@ Réponds uniquement en JSON valide sans balises Markdown : [{ "id": "...", "cate
       const cleaned = cleanOpenBankingMerchantLabel(item.label, true);
       const local = categorizeLocally({
         label: cleaned || item.label,
-        rawLabel: item.label,
+        rawLabel: item.rawLabel || item.label,
         amount: item.amount ?? 0,
-        cache: {},
+        cache: learningRules,
       });
       if (local.category && local.category !== "Autre") {
         resultMap.set(item.id, local.category);
@@ -226,10 +351,11 @@ Réponds uniquement en JSON valide sans balises Markdown : [{ "id": "...", "cate
     }
   }
 
-  console.log(
-    `[BankPipeline AI] Résultat renvoyé : ${resultMap.size}/${orphans.length} transaction(s) catégorisée(s)`,
-    Object.fromEntries(resultMap)
-  );
+  const assignedCount = Array.from(resultMap.values()).filter((c) => c && c !== "Autre").length;
+  const remainingAutre = orphans.length - assignedCount;
+  console.log(`[BankPipeline AI] Catégories attribuées par l'IA : ${assignedCount}`);
+  console.log(`[Bank AI] Nombre de catégories attribuées : ${assignedCount}`);
+  console.log(`[Bank AI] Nombre restant en « Autre » : ${remainingAutre}`);
 
   return resultMap;
 }
@@ -255,7 +381,7 @@ export interface BankPipelineOptions {
   skipAiEnrichment?: boolean;
   /** Début de la fenêtre couverte par l'extraction bancaire (YYYY-MM-DD). Défaut : plus ancienne date entrante. */
   historyStartDate?: string;
-  aiCategorizer?: (items: Array<{ id: string; label: string; amount?: number }>) => Promise<Map<string, string>>;
+  aiCategorizer?: (items: Array<AiOrphanItem>) => Promise<Map<string, string>>;
 }
 
 export interface BankPipelineResult {
@@ -335,6 +461,7 @@ export async function executeBankIngestionPipeline({
       id: raw.id,
       name: cleanedName,
       rawName: raw.rawLabel,
+      rawLabel: raw.rawLabel || raw.label,
       type: localCat.category || "Autre",
       amount: raw.amount,
       date: raw.date,
@@ -389,6 +516,7 @@ export async function executeBankIngestionPipeline({
           name: cleanedName,
           account: cleanedAccount,
           source: resolvedSource,
+          rawLabel: ex.rawLabel || ex.rawName || ex.name,
         },
         resolvedCategory,
         nowIso
@@ -466,14 +594,24 @@ export async function executeBankIngestionPipeline({
 
   // Étape C (Appel IA) : uniquement sur les opérations non résolues ("Autre")
   // Les doublons écartés par la déduplication ne sont JAMAIS envoyés à l'IA
-  const orphans = deduplicatedNew
+  const orphans: AiOrphanItem[] = deduplicatedNew
     .filter((t) => t.type === "Autre")
-    .map((t) => ({ id: t.id, label: t.name, amount: t.amount }));
+    .map((t) => ({
+      id: t.id,
+      label: t.name,
+      rawLabel: t.rawLabel || t.rawName || t.name,
+      amount: t.amount,
+    }));
 
   // Si des opérations existantes issues de la banque étaient restées en "Autre", les réévaluer
   for (const ex of upgradedExisting) {
     if (ex.source === "bank" && ex.type === "Autre" && !orphans.some((o) => o.id === ex.id)) {
-      orphans.push({ id: ex.id, label: ex.name, amount: ex.amount });
+      orphans.push({
+        id: ex.id,
+        label: ex.name,
+        rawLabel: ex.rawLabel || ex.rawName || ex.name,
+        amount: ex.amount,
+      });
     }
   }
 
@@ -486,27 +624,63 @@ export async function executeBankIngestionPipeline({
   let aiCategories = new Map<string, string>();
 
   if (!skipAiEnrichment) {
-    console.log(`[BankPipeline AI] Transactions envoyées à l'IA : ${orphans.length}`);
-    console.log(`[Bank AI] Nombre d'opérations envoyées à l'IA : ${orphans.length}`);
-
-    if (orphans.length > 0) {
+    if (orphans.length === 0) {
+      console.log(`[BankPipeline AI] Transactions envoyées à l'IA : 0`);
+      console.log(`[Bank AI] Nombre d'opérations envoyées à l'IA : 0`);
+      console.log(`[Bank AI] Nombre de lots : 0`);
+      console.log(`[Bank AI] Nombre de catégories attribuées : 0`);
+      console.log(`[Bank AI] Nombre restant en « Autre » : 0`);
+    } else {
       try {
         if (aiCategorizer) {
-          aiCategories = await aiCategorizer(orphans);
+          const totalBatches = Math.ceil(orphans.length / AI_BATCH_SIZE);
+          console.log(`[BankPipeline AI] Transactions envoyées à l'IA : ${orphans.length}`);
+          console.log(`[Bank AI] Nombre d'opérations envoyées à l'IA : ${orphans.length}`);
+          console.log(`[Bank AI] Nombre de lots : ${totalBatches}`);
+
+          // Traitement séquentiel par lots de 30 avec 1 réessai pour les lots en échec
+          for (let i = 0; i < orphans.length; i += AI_BATCH_SIZE) {
+            const batch = orphans.slice(i, i + AI_BATCH_SIZE);
+            let batchMap: Map<string, string> | null = null;
+            try {
+              batchMap = await aiCategorizer(batch);
+            } catch (err1) {
+              console.warn(`[Bank AI] Échec du lot ${Math.floor(i / AI_BATCH_SIZE) + 1}, nouvel essai unique...`, err1);
+              try {
+                batchMap = await aiCategorizer(batch);
+              } catch (err2) {
+                console.error(`[Bank AI] Deuxième échec du lot ${Math.floor(i / AI_BATCH_SIZE) + 1}, abandon du lot.`, err2);
+              }
+            }
+
+            if (batchMap) {
+              for (const [id, cat] of batchMap.entries()) {
+                const normalized = normalizeAiCategory(cat);
+                if (normalized !== "Autre") {
+                  aiCategories.set(id, normalized);
+                }
+              }
+            }
+          }
+
+          const assignedCount = Array.from(aiCategories.values()).filter((c) => c && c !== "Autre").length;
+          const remainingAutre = orphans.length - assignedCount;
+          console.log(`[BankPipeline AI] Catégories attribuées par l'IA : ${assignedCount}`);
+          console.log(`[Bank AI] Nombre de catégories attribuées : ${assignedCount}`);
+          console.log(`[Bank AI] Nombre restant en « Autre » : ${remainingAutre}`);
         } else {
-          aiCategories = await enrichOrphansWithGemini(orphans);
+          aiCategories = await enrichOrphansWithGemini(orphans, rulesCopy);
         }
       } catch (aiErr: unknown) {
         console.error(
           "[Bank AI] Erreur lors de l'appel IA (importation préservée en 'Autre') :",
           aiErr
         );
+        const remainingAutre = orphans.length - aiCategories.size;
+        console.log(`[Bank AI] Nombre de catégories attribuées : ${aiCategories.size}`);
+        console.log(`[Bank AI] Nombre restant en « Autre » : ${remainingAutre}`);
       }
     }
-
-    const assignedCount = Array.from(aiCategories.values()).filter((c) => c && c !== "Autre").length;
-    console.log(`[BankPipeline AI] Catégories attribuées par l'IA : ${assignedCount}`);
-    console.log(`[Bank AI] Nombre de catégories attribuées : ${assignedCount}`);
   } else {
     console.log(
       `[BankPipeline AI] Enrichissement IA ignoré côté serveur (délégué au client) : ${orphans.length} orpheline(s) transmise(s).`
@@ -522,14 +696,18 @@ export async function executeBankIngestionPipeline({
           const updatedTx = applyCategoryToTransaction(tx, newCat, nowIso);
           list[i] = updatedTx;
 
-          rulesCopy[updatedTx.name] = {
-            categorie: newCat,
-            isSubscription: Boolean(updatedTx.isSubscription),
-            isInternalTransfer: Boolean(updatedTx.isInternalTransfer),
-            excludeFromSpending: Boolean(updatedTx.excludeFromSpending),
-            excludeFromIncome: Boolean(updatedTx.excludeFromIncome),
-            updatedAt: nowIso,
-          };
+          // Ne jamais écraser une règle manuelle définie par l'utilisateur
+          if (rulesCopy[updatedTx.name]?.source !== "user_manual") {
+            rulesCopy[updatedTx.name] = {
+              categorie: newCat,
+              isSubscription: Boolean(updatedTx.isSubscription),
+              isInternalTransfer: Boolean(updatedTx.isInternalTransfer),
+              excludeFromSpending: Boolean(updatedTx.excludeFromSpending),
+              excludeFromIncome: Boolean(updatedTx.excludeFromIncome),
+              source: "ai_suggested",
+              updatedAt: nowIso,
+            };
+          }
         }
       }
     };
@@ -605,7 +783,7 @@ export async function recategorizeOrphanBankTransactions({
 }: {
   transactions: Transaction[];
   learningRules?: LearningRuleMap;
-  aiCategorizer?: (items: Array<{ id: string; label: string; amount?: number }>) => Promise<Map<string, string>>;
+  aiCategorizer?: (items: Array<AiOrphanItem>) => Promise<Map<string, string>>;
 }): Promise<{
   updatedTransactions: Transaction[];
   recategorizedCount: number;
@@ -618,7 +796,7 @@ export async function recategorizeOrphanBankTransactions({
 
   // 1. Identifier les opérations bancaires en « Autre »
   const orphanIndices: number[] = [];
-  const orphanItems: Array<{ id: string; label: string; amount?: number }> = [];
+  const orphanItems: Array<AiOrphanItem> = [];
 
   for (let i = 0; i < updatedTransactions.length; i++) {
     const tx = updatedTransactions[i];
@@ -630,7 +808,7 @@ export async function recategorizeOrphanBankTransactions({
       // Étape A & B : Règles locales puis dictionnaire d'apprentissage
       const local = categorizeLocally({
         label: cleaned,
-        rawLabel: tx.rawName || tx.name,
+        rawLabel: tx.rawLabel || tx.rawName || tx.name,
         amount: tx.amount,
         cache: rulesCopy,
       });
@@ -657,6 +835,7 @@ export async function recategorizeOrphanBankTransactions({
         orphanItems.push({
           id: tx.id,
           label: cleaned,
+          rawLabel: tx.rawLabel || tx.rawName || tx.name,
           amount: tx.amount,
         });
       }
@@ -664,23 +843,57 @@ export async function recategorizeOrphanBankTransactions({
   }
 
   // Étape C : Appel IA pour tout ce qui reste en « Autre »
-  console.log(`[Bank AI] Nombre d'opérations envoyées à l'IA : ${orphanItems.length}`);
-
   let aiMap = new Map<string, string>();
-  if (orphanItems.length > 0) {
+  if (orphanItems.length === 0) {
+    console.log(`[Bank AI] Nombre d'opérations envoyées à l'IA : 0`);
+    console.log(`[Bank AI] Nombre de lots : 0`);
+    console.log(`[Bank AI] Nombre de catégories attribuées : 0`);
+    console.log(`[Bank AI] Nombre restant en « Autre » : 0`);
+  } else {
     try {
       if (aiCategorizer) {
-        aiMap = await aiCategorizer(orphanItems);
+        const totalBatches = Math.ceil(orphanItems.length / AI_BATCH_SIZE);
+        console.log(`[Bank AI] Nombre d'opérations envoyées à l'IA : ${orphanItems.length}`);
+        console.log(`[Bank AI] Nombre de lots : ${totalBatches}`);
+
+        for (let i = 0; i < orphanItems.length; i += AI_BATCH_SIZE) {
+          const batch = orphanItems.slice(i, i + AI_BATCH_SIZE);
+          let batchMap: Map<string, string> | null = null;
+          try {
+            batchMap = await aiCategorizer(batch);
+          } catch (err1) {
+            console.warn(`[Bank AI] Échec du lot ${Math.floor(i / AI_BATCH_SIZE) + 1}, nouvel essai unique...`, err1);
+            try {
+              batchMap = await aiCategorizer(batch);
+            } catch (err2) {
+              console.error(`[Bank AI] Deuxième échec du lot ${Math.floor(i / AI_BATCH_SIZE) + 1}, abandon du lot.`, err2);
+            }
+          }
+
+          if (batchMap) {
+            for (const [id, cat] of batchMap.entries()) {
+              const normalized = normalizeAiCategory(cat);
+              if (normalized !== "Autre") {
+                aiMap.set(id, normalized);
+              }
+            }
+          }
+        }
+
+        const assignedCount = Array.from(aiMap.values()).filter((c) => c && c !== "Autre").length;
+        const remainingAutre = orphanItems.length - assignedCount;
+        console.log(`[Bank AI] Nombre de catégories attribuées : ${assignedCount}`);
+        console.log(`[Bank AI] Nombre restant en « Autre » : ${remainingAutre}`);
       } else {
-        aiMap = await enrichOrphansWithGemini(orphanItems);
+        aiMap = await enrichOrphansWithGemini(orphanItems, rulesCopy);
       }
     } catch (aiErr: unknown) {
       console.error("[Bank AI] Erreur lors de la catégorisation IA :", aiErr);
+      const remainingAutre = orphanItems.length - aiMap.size;
+      console.log(`[Bank AI] Nombre de catégories attribuées : ${aiMap.size}`);
+      console.log(`[Bank AI] Nombre restant en « Autre » : ${remainingAutre}`);
     }
   }
-
-  const assignedCount = Array.from(aiMap.values()).filter((c) => c && c !== "Autre").length;
-  console.log(`[Bank AI] Nombre de catégories attribuées : ${assignedCount}`);
 
   if (aiMap.size > 0) {
     for (const idx of orphanIndices) {
@@ -691,14 +904,17 @@ export async function recategorizeOrphanBankTransactions({
         updatedTransactions[idx] = updated;
         recategorizedCount++;
 
-        rulesCopy[updated.name] = {
-          categorie: newCat,
-          isSubscription: Boolean(updated.isSubscription),
-          isInternalTransfer: Boolean(updated.isInternalTransfer),
-          excludeFromSpending: Boolean(updated.excludeFromSpending),
-          excludeFromIncome: Boolean(updated.excludeFromIncome),
-          updatedAt: nowIso,
-        };
+        if (rulesCopy[updated.name]?.source !== "user_manual") {
+          rulesCopy[updated.name] = {
+            categorie: newCat,
+            isSubscription: Boolean(updated.isSubscription),
+            isInternalTransfer: Boolean(updated.isInternalTransfer),
+            excludeFromSpending: Boolean(updated.excludeFromSpending),
+            excludeFromIncome: Boolean(updated.excludeFromIncome),
+            source: "ai_suggested",
+            updatedAt: nowIso,
+          };
+        }
       }
     }
   }

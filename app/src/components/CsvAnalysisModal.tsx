@@ -38,17 +38,17 @@ export function CsvAnalysisModal({ step, onDismiss }: CsvAnalysisModalProps) {
     step === "success"
       ? "Relevé importé"
       : step === "categorizing"
-        ? "Catégorisation avec l'IA..."
+        ? "Catégorisation avec l'IA"
         : "Importation...";
 
-  // Garde-fou automatique : si le modal reste affiché plus de 8 secondes sans transition,
+  // Garde-fou automatique : si le modal reste affiché plus de 60 secondes sans transition,
   // fermer automatiquement pour ne jamais bloquer l'interface
   useEffect(() => {
     if (!step) return;
     const safetyTimer = setTimeout(() => {
-      console.warn("[CsvAnalysisModal] Durée maximale atteinte (8s) - Déblocage de sécurité.");
+      console.warn("[CsvAnalysisModal] Durée maximale atteinte (60s) - Déblocage de sécurité.");
       onDismiss?.();
-    }, 8000);
+    }, 60000);
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {

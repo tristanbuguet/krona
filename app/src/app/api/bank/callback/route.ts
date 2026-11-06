@@ -229,10 +229,11 @@ export async function GET(req: NextRequest) {
       learningRules: pipelineResult.learningRules,
       bankSession,
       settings: {
-        monthlyCap: null,
-        monthlyLimitConfig: { type: "amount", value: 0 },
-        incomeSettings: { salary: 0, aids: 0, autoApply: false },
-        categoryBudgets: {},
+        ...(existingCloud?.settings || {}),
+        monthlyCap: existingCloud?.settings?.monthlyCap ?? existingCloud?.monthlyCap ?? null,
+        monthlyLimitConfig: existingCloud?.settings?.monthlyLimitConfig ?? existingCloud?.monthlyLimitConfig ?? { type: "percent", value: 30 },
+        incomeSettings: existingCloud?.settings?.incomeSettings ?? existingCloud?.incomeSettings ?? { salary: 0, aids: 0, autoApply: false },
+        categoryBudgets: existingCloud?.settings?.categoryBudgets ?? existingCloud?.categoryBudgets ?? {},
         bankSession,
       },
     };

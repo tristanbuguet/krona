@@ -1,7 +1,15 @@
-import { Transaction, FixedIncomeSettings, AccountInfo, BankSessionInfo, isRegularisationCategory } from "./types";
+import {
+  Transaction,
+  FixedIncomeSettings,
+  AccountInfo,
+  BankSessionInfo,
+  isRegularisationCategory,
+  LearningRuleItem,
+  LearningRuleMap,
+} from "./types";
 import { computeBankRefreshQuota, sanitizeAndDeduplicateTransactions } from "./bankDeduplication";
 
-export { sanitizeAndDeduplicateTransactions };
+export { sanitizeAndDeduplicateTransactions, type LearningRuleItem, type LearningRuleMap };
 
 export interface GoogleUserProfile {
   id: string;
@@ -41,9 +49,28 @@ export function resolveUserAvatarUrl(
 
 export type SyncStatus = "idle" | "syncing" | "synced" | "error";
 
+export const DEFAULT_MONTHLY_LIMIT_CONFIG: { type: "percent"; value: number } = {
+  type: "percent",
+  value: 30,
+};
+
+export function isMeaningfulLimitConfig(
+  cfg?: { type?: string; value?: number } | null
+): cfg is { type: "amount" | "percent"; value: number } {
+  if (!cfg || typeof cfg !== "object") return false;
+  if (typeof cfg.value !== "number" || isNaN(cfg.value)) return false;
+  if (cfg.type === "percent") {
+    return cfg.value >= 0 && cfg.value <= 100;
+  }
+  if (cfg.type === "amount") {
+    return cfg.value > 0;
+  }
+  return false;
+}
+
 export interface UserFinancialSettings {
   monthlyCap: number | null;
-  monthlyLimitConfig: { type: "amount" | "percent"; value: number };
+  monthlyLimitConfig?: { type: "amount" | "percent"; value: number };
   incomeSettings: FixedIncomeSettings;
   categoryBudgets: Record<string, number>;
   ignoredSubscriptions?: string[];
@@ -51,18 +78,6 @@ export interface UserFinancialSettings {
   selectedMonth?: string | null;
   bankSession?: BankSessionInfo | null;
 }
-
-export type LearningRuleMap = Record<
-  string,
-  {
-    categorie: string;
-    isSubscription?: boolean;
-    isInternalTransfer?: boolean;
-    excludeFromSpending?: boolean;
-    excludeFromIncome?: boolean;
-    updatedAt?: string;
-  }
->;
 
 /**
  * Contrat de données unifié pour la persistance Cloud et Local-First par compte Google.
@@ -233,9 +248,18 @@ export function mergeCloudAndLocalData(
     local.settings?.monthlyLimitConfig || local.monthlyLimitConfig;
   const cloudLimitConfig =
     cloud?.settings?.monthlyLimitConfig || cloud?.monthlyLimitConfig;
-  const mergedLimitConfig =
-    localLimitConfig ||
-    cloudLimitConfig || { type: "amount", value: 0 };
+
+  let mergedLimitConfig: { type: "amount" | "percent"; value: number };
+  if (isMeaningfulLimitConfig(localLimitConfig) && isMeaningfulLimitConfig(cloudLimitConfig)) {
+    // Les deux sources possèdent une configuration valide : priorité aux modifications locales récentes
+    mergedLimitConfig = localLimitConfig;
+  } else if (isMeaningfulLimitConfig(localLimitConfig)) {
+    mergedLimitConfig = localLimitConfig;
+  } else if (isMeaningfulLimitConfig(cloudLimitConfig)) {
+    mergedLimitConfig = cloudLimitConfig;
+  } else {
+    mergedLimitConfig = { type: "amount", value: 0 };
+  }
 
   const localCap =
     local.settings?.monthlyCap !== undefined && local.settings?.monthlyCap !== null
@@ -405,11 +429,7 @@ export function readLocalFinancialData(): Partial<UserFinancialPayload> {
   if (limitConfigRaw) {
     try {
       const parsed = JSON.parse(limitConfigRaw);
-      if (
-        parsed &&
-        (parsed.type === "amount" || parsed.type === "percent") &&
-        typeof parsed.value === "number"
-      ) {
+      if (isMeaningfulLimitConfig(parsed)) {
         monthlyLimitConfig = parsed;
       }
     } catch {}
@@ -431,8 +451,6 @@ export function readLocalFinancialData(): Partial<UserFinancialPayload> {
   const bankSession = safeParse<BankSessionInfo | null>("krona_bank_session_v1", null);
   const nowIso = new Date().toISOString();
 
-  const fallbackLimitConfig = { type: "amount" as const, value: 0 };
-
   return {
     transactions,
     accounts,
@@ -442,20 +460,20 @@ export function readLocalFinancialData(): Partial<UserFinancialPayload> {
     bankSession,
     settings: {
       monthlyCap: resolvedMonthlyCap,
-      monthlyLimitConfig: monthlyLimitConfig ?? fallbackLimitConfig,
+      ...(monthlyLimitConfig ? { monthlyLimitConfig } : {}),
       incomeSettings: fixedIncomeSettings,
       categoryBudgets,
       ignoredSubscriptions,
       selectedBank,
       selectedMonth,
       bankSession,
-    },
+    } as UserFinancialSettings,
     lastUpdated: nowIso,
     categoryBudgets,
     fixedIncomeSettings,
     ignoredSubscriptions,
     merchantKnowledge,
-    monthlyLimitConfig: monthlyLimitConfig ?? fallbackLimitConfig,
+    ...(monthlyLimitConfig ? { monthlyLimitConfig } : {}),
     monthlySpendingLimit: resolvedMonthlyCap,
     selectedBank,
     selectedMonth,
@@ -534,7 +552,7 @@ export function writeLocalFinancialData(payload: UserFinancialPayload): void {
 
     const limitCfg =
       payload.settings?.monthlyLimitConfig || payload.monthlyLimitConfig;
-    if (limitCfg) {
+    if (limitCfg && isMeaningfulLimitConfig(limitCfg)) {
       localStorage.setItem(
         "krona_monthly_limit_config",
         JSON.stringify(limitCfg)

@@ -6,6 +6,7 @@ import { recategorizeOrphanBankTransactions } from "@/lib/bankPipeline";
 import { UserFinancialPayload } from "@/lib/cloudSync";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const DATA_DIR = path.join(process.cwd(), ".krona-cloud");
 const STORE_FILE = path.join(DATA_DIR, "users-cloud-store.json");

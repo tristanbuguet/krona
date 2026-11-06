@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 import {
   fetchTransactions,
@@ -385,7 +386,7 @@ export async function POST(req: NextRequest) {
       settings: {
         ...(existingPayload?.settings || {
           monthlyCap: null,
-          monthlyLimitConfig: { type: "amount", value: 0 },
+          monthlyLimitConfig: { type: "percent", value: 30 },
           incomeSettings: { salary: 0, aids: 0, autoApply: false },
           categoryBudgets: {},
         }),

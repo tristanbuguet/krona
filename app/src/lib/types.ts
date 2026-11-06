@@ -12,6 +12,8 @@ export type Transaction = {
   excludeFromIncome?: boolean;
   account?: "BoursoBank" | "Crédit Agricole" | "Caisse d'Épargne" | "LCL" | string;
   rawName?: string;
+  /** Libellé brut d'origine fourni par la banque (intitulé complet, remittance, nom du tiers, code MCC). */
+  rawLabel?: string;
   updatedAt?: string;
   source?: "csv" | "bank" | "manual";
   /** UID Enable Banking du sous-compte d'origine (multi-comptes : courant, épargne…). */
@@ -41,6 +43,22 @@ export type BankRefreshQuota = {
   timestamps: string[];
   resetAt?: string | null;
 };
+
+export type LearningRuleSource = "user_manual" | "system_regex" | "ai_suggested";
+
+export interface LearningRuleItem {
+  categorie: string;
+  isSubscription?: boolean;
+  isInternalTransfer?: boolean;
+  excludeFromSpending?: boolean;
+  excludeFromIncome?: boolean;
+  updatedAt?: string;
+  source?: LearningRuleSource;
+  confidence?: number;
+  matchCount?: number;
+}
+
+export type LearningRuleMap = Record<string, LearningRuleItem>;
 
 export type BankSessionInfo = {
   sessionId: string;

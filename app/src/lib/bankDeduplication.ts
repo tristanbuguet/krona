@@ -105,6 +105,8 @@ export function stripTerminalNoise(raw: string): string {
   // Références numériques à tirets / longues séries de chiffres en fin de libellé : "04-15396-3", "2611010"
   s = s.replace(/\s+[0-9][0-9\-\/.]{4,}$/g, "");
   s = s.replace(/\s+\d{5,}\b/g, " ");
+  // Numéros de magasin, caisse, zone ou codes terminaux en fin de libellé (ex. "Franprix 5045" -> "Franprix", "Picard 2" -> "Picard")
+  s = s.replace(/\s+(?:(?:SC|MAG|MAGASIN|N[°O]|NO\.?)\s*)?\d{1,5}\s*$/i, "").trim();
   // Séparateurs orphelins
   s = s.replace(/[*_#]+/g, " ").replace(/\s+-\s*$/, "").replace(/\s+/g, " ").trim();
 
@@ -181,9 +183,9 @@ export function cleanOpenBankingMerchantLabel(raw: string, isCardLabel: boolean 
   s = s.replace(/\bBOUYGUES\s+TELECOM\s+BOUYGUES\s+TELE\w*/gi, "Bouygues Telecom");
   s = s.replace(/\bSC\.?AUT\.?TASTY\s+CROU\w*/gi, "Tasty Crous");
 
-  // Si c'est un libellé carte, retirer le chiffre de caisse/zone final isolé
+  // Si c'est un libellé carte ou commerçant, retirer le numéro de magasin/caisse/zone final isolé
   if (looksLikeCard) {
-    s = s.replace(/\s+(?:SC\s+)?\d{1,2}\s*$/i, "").trim();
+    s = s.replace(/\s+(?:(?:SC|MAG|MAGASIN|N[°O]|NO\.?)\s*)?\d{1,5}\s*$/i, "").trim();
   }
 
   s = stripTerminalNoise(s);
@@ -791,6 +793,10 @@ export function cleanDatabaseDuplicates(
       if (bestCategory && oldestTx.type === "Autre") {
         oldestTx.type = bestCategory;
       }
+      if (!oldestTx.rawLabel) {
+        const rLabel = sorted.find((i) => i.tx.rawLabel)?.tx.rawLabel;
+        if (rLabel) oldestTx.rawLabel = rLabel;
+      }
       keptResult.push(oldestTx);
       for (let j = 1; j < sorted.length; j++) {
         removedDuplicates.push(sorted[j].tx);
@@ -896,6 +902,10 @@ export function cleanDatabaseDuplicates(
       if (!best.bankAccountUid) {
         const accUid = otherCandidates.find((t) => t.bankAccountUid)?.bankAccountUid;
         if (accUid) best.bankAccountUid = accUid;
+      }
+      if (!best.rawLabel) {
+        const rLabel = otherCandidates.find((t) => t.rawLabel)?.rawLabel;
+        if (rLabel) best.rawLabel = rLabel;
       }
 
       keptForSig.push(best);

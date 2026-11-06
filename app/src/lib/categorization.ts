@@ -1,4 +1,11 @@
-import { OFFICIAL_CATEGORIES, isSubscriptionCategory, isInternalTransferCategory, isRegularisationCategory } from "./types";
+import {
+  OFFICIAL_CATEGORIES,
+  isSubscriptionCategory,
+  isInternalTransferCategory,
+  isRegularisationCategory,
+  LearningRuleItem,
+  LearningRuleMap,
+} from "./types";
 
 export type OfficialCategory = (typeof OFFICIAL_CATEGORIES)[number];
 
@@ -296,6 +303,88 @@ export function mapCaisseEpargneCategory(
 }
 
 /**
+ * Recherche une règle d'apprentissage utilisateur correspondant à une opération.
+ * Compare sur le nom nettoyé du commerçant, sans numéro de magasin ni code terminal
+ * (« Franprix 5045 » et « Franprix 5046 » = « Franprix »).
+ */
+export function findLearnedRule(
+  label: string,
+  rawLabel?: string,
+  cache?: LearningRuleMap
+): LearningRuleItem | null {
+  if (!cache || typeof cache !== "object" || Object.keys(cache).length === 0) {
+    return null;
+  }
+
+  const cleanLabel = cleanMerchantName(label);
+  const cleanRaw = rawLabel ? cleanMerchantName(rawLabel) : "";
+  const normLabel = normalizeText(label);
+  const normClean = normalizeText(cleanLabel);
+  const normRaw = normalizeText(rawLabel || "");
+  const normRawClean = normalizeText(cleanRaw);
+
+  const stripStoreNoise = (s: string) =>
+    s
+      .replace(/[*_]+/g, " ")
+      .replace(/\s+(?:(?:sc|mag|magasin|n[°o]|no\.?)\s*)?\d{1,5}\s*$/i, "")
+      .replace(/\s+\d+$/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const stemLabel = stripStoreNoise(normLabel);
+  const stemClean = stripStoreNoise(normClean);
+
+  // 1. Recherche par accès direct
+  const directMatch =
+    cache[cleanLabel] ||
+    cache[label] ||
+    cache[normClean] ||
+    cache[normLabel] ||
+    cache[stemClean] ||
+    cache[stemLabel] ||
+    (cleanRaw ? cache[cleanRaw] : undefined) ||
+    (rawLabel ? cache[rawLabel] : undefined) ||
+    (normRawClean ? cache[normRawClean] : undefined) ||
+    (normRaw ? cache[normRaw] : undefined);
+
+  if (directMatch) return directMatch;
+
+  // 2. Recherche par scan des clés (insensible à la casse, accents et numéros de magasin)
+  for (const [ruleKey, ruleVal] of Object.entries(cache)) {
+    if (!ruleVal) continue;
+    const cleanKey = cleanMerchantName(ruleKey);
+    const normKey = normalizeText(ruleKey).replace(/[*_]+/g, " ").replace(/\s+/g, " ").trim();
+    const normCleanKey = normalizeText(cleanKey).replace(/[*_]+/g, " ").replace(/\s+/g, " ").trim();
+    const stemKey = stripStoreNoise(normKey);
+    const stemCleanKey = stripStoreNoise(normCleanKey);
+
+    const targets = [normClean, normLabel, stemClean, stemLabel].filter(Boolean);
+    const keys = [normCleanKey, normKey, stemCleanKey, stemKey].filter(Boolean);
+
+    let matched = false;
+    for (const t of targets) {
+      for (const k of keys) {
+        if (
+          k === t ||
+          (k.length >= 4 && t.startsWith(k)) ||
+          (t.length >= 4 && k.startsWith(t))
+        ) {
+          matched = true;
+          break;
+        }
+      }
+      if (matched) break;
+    }
+
+    if (matched) {
+      return ruleVal;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Dictionnaire complet de catégorisation locale par mots-clés (insensible à la casse et accents).
  */
 export function categorizeLocally({
@@ -313,7 +402,7 @@ export function categorizeLocally({
   categoryBourso?: string;
   bankCategory?: string;
   subCategory?: string;
-  cache?: Record<string, any>;
+  cache?: LearningRuleMap;
 }): CategorizationResult {
   const normLabel = normalizeText(label);
   const normRaw = normalizeText(rawLabel || "");
@@ -325,33 +414,20 @@ export function categorizeLocally({
     .trim();
 
   // 1. RÈGLE APPRISE UTILISATEUR (learningRules / cache local prioritaire)
-  const stemLabel = normLabel.replace(/[*_]+/g, " ").replace(/\s+\d+$/, "").replace(/\s+/g, " ").trim();
-  let cachedRule =
-    cache[label] ||
-    cache[normLabel] ||
-    cache[stemLabel] ||
-    (rawLabel ? cache[rawLabel] : undefined) ||
-    (rawLabel ? cache[normRaw] : undefined);
+  const cachedRule = findLearnedRule(label, rawLabel, cache);
+  const ruleCat = cachedRule?.categorie || (cachedRule as { category?: string } | null)?.category;
 
-  if (!cachedRule && cache && typeof cache === "object") {
-    for (const [ruleKey, ruleVal] of Object.entries(cache)) {
-      const normKey = normalizeText(ruleKey).replace(/[*_]+/g, " ").replace(/\s+/g, " ").trim();
-      if (normKey && (normKey === normLabel || normKey === stemLabel || (normKey.length >= 4 && stemLabel.startsWith(normKey)))) {
-        cachedRule = ruleVal;
-        break;
-      }
-    }
-  }
   if (
-    cachedRule?.categorie &&
-    (OFFICIAL_CATEGORIES.includes(cachedRule.categorie) ||
-      cachedRule.categorie === "Régularisation" ||
-      isRegularisationCategory(cachedRule.categorie))
+    cachedRule &&
+    ruleCat &&
+    (OFFICIAL_CATEGORIES.includes(ruleCat as OfficialCategory) ||
+      ruleCat === "Régularisation" ||
+      isRegularisationCategory(ruleCat))
   ) {
-    let cat = cachedRule.categorie;
-    if (cat === "Régularisation" || isRegularisationCategory(cat)) {
-      cat = "Virement interne";
-    }
+    const cat: OfficialCategory =
+      ruleCat === "Régularisation" || isRegularisationCategory(ruleCat)
+        ? "Virement interne"
+        : (ruleCat as OfficialCategory);
     const isRegul = isRegularisationCategory(cat);
     const isInternal = isInternalTransferCategory(cat) || isRegul || Boolean(cachedRule.isInternalTransfer);
     const isSub = !isInternal && (isSubscriptionCategory(cat) 
