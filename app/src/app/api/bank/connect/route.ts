@@ -1,8 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAuthSession, ENABLE_BANKING_DEFAULT_ASPSP } from "@/lib/enableBanking";
+import { createAuthSession, ENABLE_BANKING_DEFAULT_ASPSP, ENABLE_BANKING_APP_ID } from "@/lib/enableBanking";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
+    // Diagnostic serveur Vercel discret
+    const rawKey = process.env.ENABLE_BANKING_PRIVATE_KEY;
+    const hasKey = Boolean(rawKey && rawKey.trim().length > 0);
+    const keyLength = rawKey ? rawKey.trim().length : 0;
+    const keyPreview = hasKey
+      ? `${rawKey!.trim().slice(0, 15).replace(/[\r\n]/g, " ")}...`
+      : "absente";
+
+    const rawAppId = process.env.ENABLE_BANKING_APP_ID;
+    const hasAppId = Boolean(rawAppId && rawAppId.trim().length > 0);
+    const resolvedAppId = (rawAppId || ENABLE_BANKING_APP_ID).trim();
+    const appIdPreview = `${resolvedAppId.slice(0, 8)}...`;
+
+    console.log(
+      `[EnableBanking Connect] Diagnostic environnement Vercel : ` +
+      `ENABLE_BANKING_PRIVATE_KEY=${hasKey ? `détectée (longueur: ${keyLength}, aperçu: "${keyPreview}")` : "absente"} | ` +
+      `ENABLE_BANKING_APP_ID=${hasAppId ? `présent ("${appIdPreview}")` : `absent (fallback sur "${appIdPreview}")`}`
+    );
     let body: Record<string, unknown> = {};
     try {
       const parsed = (await req.json()) as Record<string, unknown> | null;

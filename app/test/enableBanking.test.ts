@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   generateEnableBankingJWT,
+  getEnableBankingPrivateKey,
+  cleanPrivateKeyString,
   createAuthSession,
   fetchTransactions,
   fetchAccountBalance,
@@ -22,8 +24,10 @@ import {
   ENABLE_BANKING_MAX_DAILY_REFRESHES,
   type EnableBankingTransaction,
 } from '../src/lib/enableBanking';
-import { POST as handleDisconnectPost } from '../src/app/api/bank/disconnect/route';
-import { POST as handleSyncPost } from '../src/app/api/bank/sync/route';
+import { POST as handleDisconnectPost, dynamic as disconnectDynamic } from '../src/app/api/bank/disconnect/route';
+import { POST as handleSyncPost, dynamic as syncDynamic } from '../src/app/api/bank/sync/route';
+import { dynamic as connectDynamic } from '../src/app/api/bank/connect/route';
+import { dynamic as callbackDynamic } from '../src/app/api/bank/callback/route';
 import { executeBankIngestionPipeline } from '../src/lib/bankPipeline';
 import { resolveBankRefreshQuota, formatRemainingRefreshLabel } from '../src/components/LinkedBankMenuPopover';
 import { mergeTransactionsLossless } from '../src/lib/cloudSync';
@@ -1145,6 +1149,78 @@ test('Enable Banking POST /api/bank/sync : enchaîne synchronisation BoursoBank,
       // Ignore cleanup errors
     }
   }
+});
+
+test('Enable Banking Vercel Serverless : cleanPrivateKeyString gère les sauts de ligne réels et littéraux, guillemets et base64', () => {
+  // Cas 1 : Clé sur une ligne avec séquences littérales \n et guillemets doubles
+  const oneLineDoubleQuotes = `"${TEST_PRIVATE_KEY.replace(/\n/g, '\\n')}"`;
+  const cleaned1 = cleanPrivateKeyString(oneLineDoubleQuotes);
+  assert.equal(cleaned1, TEST_PRIVATE_KEY.trim());
+
+  // Cas 2 : Clé avec guillemets simples et séquences littérales \n
+  const oneLineSingleQuotes = `'${TEST_PRIVATE_KEY.replace(/\n/g, '\\n')}'`;
+  const cleaned2 = cleanPrivateKeyString(oneLineSingleQuotes);
+  assert.equal(cleaned2, TEST_PRIVATE_KEY.trim());
+
+  // Cas 3 : Clé avec guillemets imbriqués ou échappés
+  const nestedQuotes = `'"${TEST_PRIVATE_KEY.replace(/\n/g, '\\n')}"'`;
+  const cleaned3 = cleanPrivateKeyString(nestedQuotes);
+  assert.equal(cleaned3, TEST_PRIVATE_KEY.trim());
+
+  // Cas 4 : Clé avec doubles antislashs (\\\\n) et retours chariot (\r\n)
+  const escapedBackslashes = TEST_PRIVATE_KEY.replace(/\n/g, '\\\\n').replace(/\n/g, '\r\n');
+  const cleaned4 = cleanPrivateKeyString(escapedBackslashes);
+  assert.equal(cleaned4, TEST_PRIVATE_KEY.trim());
+
+  // Cas 5 : Clé encodée en Base64
+  const base64Key = Buffer.from(TEST_PRIVATE_KEY).toString('base64');
+  const cleaned5 = cleanPrivateKeyString(base64Key);
+  assert.equal(cleaned5, TEST_PRIVATE_KEY.trim());
+});
+
+test('Enable Banking Vercel Serverless : getEnableBankingPrivateKey et signature JWT avec variable d’environnement formatée Vercel', () => {
+  const originalKey = process.env.ENABLE_BANKING_PRIVATE_KEY;
+  const originalAppId = process.env.ENABLE_BANKING_APP_ID;
+
+  // Simuler ce que Vercel injecte (clé entre guillemets avec séquences littérales \n)
+  process.env.ENABLE_BANKING_PRIVATE_KEY = `"${TEST_PRIVATE_KEY.replace(/\n/g, '\\n')}"`;
+  process.env.ENABLE_BANKING_APP_ID = '"c1ad2bc2-df1a-460a-9497-4b1b29094600"';
+
+  try {
+    const loadedKey = getEnableBankingPrivateKey();
+    assert.equal(loadedKey, TEST_PRIVATE_KEY.trim());
+
+    // Vérifier que la génération de JWT réussit et produit une signature RS256 valide
+    const token = generateEnableBankingJWT();
+    const [headerB64, payloadB64, sigB64] = token.split('.');
+
+    const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString('utf8')) as Record<string, string>;
+    assert.equal(header.kid, 'c1ad2bc2-df1a-460a-9497-4b1b29094600');
+
+    const verifier = crypto.createVerify('RSA-SHA256');
+    verifier.update(`${headerB64}.${payloadB64}`);
+    verifier.end();
+    const isValid = verifier.verify(TEST_PUBLIC_KEY, Buffer.from(sigB64, 'base64url'));
+    assert.equal(isValid, true);
+  } finally {
+    if (originalKey !== undefined) {
+      process.env.ENABLE_BANKING_PRIVATE_KEY = originalKey;
+    } else {
+      delete process.env.ENABLE_BANKING_PRIVATE_KEY;
+    }
+    if (originalAppId !== undefined) {
+      process.env.ENABLE_BANKING_APP_ID = originalAppId;
+    } else {
+      delete process.env.ENABLE_BANKING_APP_ID;
+    }
+  }
+});
+
+test('Enable Banking Vercel Serverless : toutes les routes API bancaires exportent dynamic = "force-dynamic"', () => {
+  assert.equal(connectDynamic, 'force-dynamic');
+  assert.equal(callbackDynamic, 'force-dynamic');
+  assert.equal(syncDynamic, 'force-dynamic');
+  assert.equal(disconnectDynamic, 'force-dynamic');
 });
 
 

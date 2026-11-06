@@ -177,18 +177,78 @@ export interface EnableBankingTransactionsResponse {
 }
 
 /**
+ * Nettoie une chaîne de clé privée RSA (PEM) provenant de variables d'environnement (notamment Vercel Serverless) :
+ * - Remplacement systématique des séquences littérales "\n" et retours chariot par de véritables sauts de ligne
+ * - Suppression des guillemets superflus (doubles, simples, échappés) entourant la clé
+ * - Support des clés encodées en Base64 ou multilignes
+ */
+export function cleanPrivateKeyString(rawKey: string): string {
+  if (!rawKey || typeof rawKey !== "string") return "";
+
+  let key = rawKey.trim();
+
+  // 1. Décodage Base64 si la variable a été encodée pour contourner les retours à la ligne Vercel
+  if (!key.includes("-----BEGIN") && key.length > 50) {
+    try {
+      const decoded = Buffer.from(key, "base64").toString("utf-8");
+      if (decoded.includes("PRIVATE KEY")) {
+        key = decoded.trim();
+      }
+    } catch {
+      // Pas du base64 valide, continuer avec la clé brute
+    }
+  }
+
+  // 2. Suppression itérative des guillemets superflus entourant la clé (doubles, simples, échappés, backticks)
+  while (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'")) ||
+    (key.startsWith("`") && key.endsWith("`")) ||
+    (key.startsWith('\\"') && key.endsWith('\\"')) ||
+    (key.startsWith("\\'") && key.endsWith("\\'"))
+  ) {
+    if (key.startsWith('\\"') || key.startsWith("\\'")) {
+      key = key.slice(2, -2).trim();
+    } else {
+      key = key.slice(1, -1).trim();
+    }
+  }
+
+  // 3. Suppression des guillemets résiduels aux extrémités
+  key = key.replace(/^["'`]+|["'`]+$/g, "").trim();
+
+  // 4. Remplacement des séquences littérales de saut de ligne (\n, \\n, \r\n) par de réels sauts de ligne
+  key = key
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\+n/g, "\n")
+    .replace(/\\+r/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+
+  // 5. Si la clé est du base64 brut sans en-tête PEM, l'encadrer en PKCS#8
+  if (!key.includes("-----BEGIN") && key.length > 100) {
+    key = `-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----`;
+  }
+
+  return key;
+}
+
+/**
  * Récupère la clé privée RSA (PKCS#8) côté serveur uniquement.
- * Cherche dans ENABLE_BANKING_PRIVATE_KEY ou enablebanking-key.pem.
+ * Cherche en priorité dans ENABLE_BANKING_PRIVATE_KEY (avec nettoyage des retours à la ligne et guillemets),
+ * puis en solution de secours local dans enablebanking-key.pem.
  */
 export function getEnableBankingPrivateKey(): string {
   const envKey = process.env.ENABLE_BANKING_PRIVATE_KEY;
   if (envKey && envKey.trim().length > 0) {
-    const cleaned = envKey.replace(/^"|"$/g, "").replace(/\\n/g, "\n").trim();
-    if (cleaned.includes("BEGIN PRIVATE KEY")) {
+    const cleaned = cleanPrivateKeyString(envKey);
+    if (cleaned.includes("PRIVATE KEY")) {
       return cleaned;
     }
   }
 
+  // Solution de secours en local uniquement via fs.existsSync
   const candidatePaths = [
     path.join(process.cwd(), "enablebanking-key.pem"),
     path.join(process.cwd(), "..", "enablebanking-key.pem"),
@@ -198,12 +258,13 @@ export function getEnableBankingPrivateKey(): string {
     try {
       if (fs.existsSync(/*turbopackIgnore: true*/ filePath)) {
         const raw = fs.readFileSync(/*turbopackIgnore: true*/ filePath, "utf-8").trim();
-        if (raw.includes("BEGIN PRIVATE KEY")) {
-          return raw;
+        const cleaned = cleanPrivateKeyString(raw);
+        if (cleaned.includes("PRIVATE KEY")) {
+          return cleaned;
         }
       }
     } catch {
-      // Ignore file read errors and try next candidate
+      // Ignorer les erreurs d'accès fichiers et continuer
     }
   }
 
@@ -219,9 +280,8 @@ export function getEnableBankingPrivateKey(): string {
  */
 export function generateEnableBankingJWT(nowSeconds?: number): string {
   const privateKey = getEnableBankingPrivateKey();
-  const appId = (process.env.ENABLE_BANKING_APP_ID || ENABLE_BANKING_APP_ID)
-    .replace(/^"|"$/g, "")
-    .trim();
+  const rawAppId = process.env.ENABLE_BANKING_APP_ID || ENABLE_BANKING_APP_ID;
+  const appId = rawAppId.replace(/^["'`]+|["'`]+$/g, "").trim();
 
   const iat = nowSeconds !== undefined ? Math.floor(nowSeconds) : Math.floor(Date.now() / 1000);
   const exp = iat + 3600;

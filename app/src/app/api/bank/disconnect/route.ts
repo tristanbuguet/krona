@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
+
+export const dynamic = "force-dynamic";
+
 import { getSql, ensureUserSyncTable } from "@/lib/db";
 import { UserFinancialPayload } from "@/lib/cloudSync";
 import {
