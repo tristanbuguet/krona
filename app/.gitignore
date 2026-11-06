@@ -24,6 +24,7 @@
 # misc
 .DS_Store
 *.pem
+enablebanking-key.pem
 
 # debug
 npm-debug.log*

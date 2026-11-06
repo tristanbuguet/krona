@@ -19,13 +19,19 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import clsx from "clsx";
 import { useTheme } from "./ThemeProvider";
 import { useAuth } from "./AuthProvider";
-import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, RotateCcw, ChevronDown, ChevronRight, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays, ArrowRight, Search, Plus } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, RefreshCcw, RotateCcw, ChevronDown, ChevronRight, Trash2, X, Wallet, Repeat, Check, Sparkles, AlertCircle, CheckCircle2, Info, Activity, PieChart as PieChartIcon, ArrowRightLeft, Download, UploadCloud, ShieldCheck, Flag, ShoppingCart, Utensils, ShoppingBag, Train, Monitor, Ticket, HeartPulse, Home, Star, CalendarDays, ArrowRight, Search, Plus, Landmark, Building2, Unlink, RefreshCw } from "lucide-react";
+import { LinkedBankMenuPopover } from "./LinkedBankMenuPopover";
+import { ImportMethodPopover } from "./ImportMethodPopover";
+import { formatBankDisplayName, isLinkedBankTransaction, isLinkedBankAccount } from "@/lib/bankFormatting";
 import { TrendsView } from "./views/TrendsView";
 import { TransactionsView } from "./views/TransactionsView";
 import { AccountsView } from "./views/AccountsView";
 import {
   Transaction,
+  AccountInfo,
   FixedIncomeSettings,
+  BankSessionInfo,
+  BankRefreshQuota,
   isSubscriptionCategory,
   isSalaryTransaction,
   isAidTransaction,
@@ -560,7 +566,13 @@ export function Dashboard({
   }, [showInbox]);
 
   const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
+  const [isImportMethodOpen, setIsImportMethodOpen] = useState(false);
+  const [showDisconnectModal, setShowDisconnectModal] = useState(false);
   const importMenuRef = useRef<HTMLDivElement>(null);
+  const [bankSession, setBankSession] = useState<BankSessionInfo | null>(null);
+  const [isBankMenuOpen, setIsBankMenuOpen] = useState(false);
+  const [isConnectingBank, setIsConnectingBank] = useState(false);
+  const [isSyncingBank, setIsSyncingBank] = useState(false);
 
   useEffect(() => {
     if (!isImportMenuOpen) return;
@@ -914,13 +926,34 @@ export function Dashboard({
     const savedTx = localStorage.getItem('financeTransactions_v1');
     if (savedTx) {
       let parsed = JSON.parse(savedTx) as Transaction[];
+      const knowledgeCache = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
 
-      // Auto-migrate old internal transfer transactions and sanitize subscription flags
+      // Auto-migrate old internal transfer transactions, sanitize "Mock ASPSP", and re-evaluate "Autre"
       let hasMutated = false;
       parsed = parsed.map(tx => {
         const nam = tx.name.toLowerCase();
         let currentType = tx.type;
-        const isRegul = isRegularisationTransaction(tx) || isRegularisationCategory(tx.type) || tx.type === "Régularisation";
+        let currentAccount = tx.account;
+
+        if (currentAccount === "Mock ASPSP" || (currentAccount && currentAccount.toLowerCase().includes("mock"))) {
+          currentAccount = formatBankDisplayName(currentAccount);
+          hasMutated = true;
+        }
+
+        if (currentType === "Autre") {
+          const localCat = categorizeLocally({
+            label: tx.name,
+            rawLabel: tx.rawName || tx.name,
+            amount: tx.amount,
+            cache: knowledgeCache,
+          });
+          if (localCat.category && localCat.category !== "Autre") {
+            currentType = localCat.category;
+            hasMutated = true;
+          }
+        }
+
+        const isRegul = isRegularisationTransaction(tx) || isRegularisationCategory(currentType) || currentType === "Régularisation";
         if (currentType === "Régularisation" || isRegularisationCategory(currentType)) {
           currentType = "Virement interne";
           hasMutated = true;
@@ -940,22 +973,27 @@ export function Dashboard({
           nam.includes("regularisation") ||
           nam.includes("ajustement");
 
-        if (isInternal && (!tx.isInternalTransfer || !tx.excludeFromSpending || !tx.excludeFromIncome || tx.type !== currentType)) {
+        if (isInternal && (!tx.isInternalTransfer || !tx.excludeFromSpending || !tx.excludeFromIncome || tx.type !== currentType || tx.account !== currentAccount)) {
           hasMutated = true;
           return {
             ...tx,
-            type: currentType || "Virement interne",
+            account: currentAccount,
+            type: currentType === "Autre" ? "Virement interne" : (currentType || "Virement interne"),
             isInternalTransfer: true,
             excludeFromSpending: true,
             excludeFromIncome: true,
           };
         }
 
-        if (currentType !== tx.type) {
+        const isSub = isSubscriptionCategory(currentType);
+        if (currentType !== tx.type || currentAccount !== tx.account) {
           hasMutated = true;
           return {
             ...tx,
+            account: currentAccount,
             type: currentType,
+            isSubscription: isSub ? true : tx.isSubscription,
+            isRecurring: isSub ? true : tx.isRecurring,
           };
         }
 
@@ -1014,6 +1052,27 @@ export function Dashboard({
     const savedIgnoredSubs = localStorage.getItem('krona_ignored_subscriptions');
     if (savedIgnoredSubs) {
       try { setIgnoredSubscriptions(JSON.parse(savedIgnoredSubs)); } catch (e) { }
+    }
+
+    const savedBankSession = localStorage.getItem('krona_bank_session_v1');
+    if (savedBankSession) {
+      try {
+        const parsedSession = JSON.parse(savedBankSession) as BankSessionInfo;
+        if (parsedSession && parsedSession.sessionId) {
+          const cleanName = formatBankDisplayName(
+            parsedSession.aspspName,
+            parsedSession.accounts?.[0]?.name
+          );
+          const sanitizedSession: BankSessionInfo = {
+            ...parsedSession,
+            aspspName: cleanName,
+          };
+          setBankSession(sanitizedSession);
+          if (cleanName !== parsedSession.aspspName) {
+            localStorage.setItem('krona_bank_session_v1', JSON.stringify(sanitizedSession));
+          }
+        }
+      } catch (e) { }
     }
 
     setIsDataLoaded(true);
@@ -1147,6 +1206,14 @@ export function Dashboard({
           localStorage.setItem('krona_merchant_knowledge', JSON.stringify(mergedRules));
         } catch (e) {}
       }
+
+      const restoredBankSession = payload.settings?.bankSession || payload.bankSession;
+      if (restoredBankSession && restoredBankSession.sessionId) {
+        setBankSession(restoredBankSession);
+        try {
+          localStorage.setItem('krona_bank_session_v1', JSON.stringify(restoredBankSession));
+        } catch (e) {}
+      }
     };
 
     const handleUserSignedOut = () => {
@@ -1154,6 +1221,7 @@ export function Dashboard({
       handleMonthChange(null, false);
       setCategoryBudgets({});
       setIgnoredSubscriptions([]);
+      setBankSession(null);
       setCustomSpendingLimit(null);
       setMonthlyLimitConfig({ type: "amount", value: 0 });
       setIncomeSettings({
@@ -1245,6 +1313,7 @@ export function Dashboard({
       localStorage.removeItem('krona_selected_card');
       localStorage.removeItem('krona_accounts_v1');
       localStorage.removeItem('krona_selected_bank');
+      localStorage.removeItem('krona_bank_session_v1');
       if (user?.id) {
         localStorage.removeItem(`krona_cloud_backup_${user.id}`);
       }
@@ -1254,6 +1323,7 @@ export function Dashboard({
     handleMonthChange(null, false);
     setCategoryBudgets({});
     setIgnoredSubscriptions([]);
+    setBankSession(null);
     setCustomSpendingLimit(null);
     setMonthlyLimitConfig({ type: "amount", value: 0 });
     setIncomeSettings({
@@ -1614,6 +1684,526 @@ export function Dashboard({
       setTimeout(() => setToastMessage(null), 3000);
     }
   };
+
+  const handleBankSync = useCallback(async (overrideSessionId?: string, overrideAccountId?: string) => {
+    try {
+      setIsSyncingBank(true);
+      setImportStep("importing");
+
+      const currentRules = JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}');
+      const currentTxs = JSON.parse(localStorage.getItem('financeTransactions_v1') || '[]') as Transaction[];
+
+      const res = await fetch("/api/bank/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(user?.id ? { "x-krona-user-id": user.id } : {}),
+        },
+        body: JSON.stringify({
+          userId: user?.id || "guest_sandbox_user",
+          sessionId: overrideSessionId || bankSession?.sessionId,
+          accountId: overrideAccountId || bankSession?.accounts?.[0]?.uid,
+          bankSession,
+          refreshTimestamps: bankSession?.refreshTimestamps,
+          learningRules: currentRules,
+          existingTransactions: currentTxs,
+          skipAi: true,
+        }),
+      });
+
+      const data = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        sessionExpired?: boolean;
+        quotaExceeded?: boolean;
+        refreshQuota?: BankRefreshQuota;
+        addedCount?: number;
+        transactions?: Transaction[];
+        allTransactions?: Transaction[];
+        accounts?: AccountInfo[];
+        learningRules?: Record<string, unknown>;
+        bankSession?: BankSessionInfo;
+      };
+
+      if (!res.ok || !data.success) {
+        setImportStep(null);
+        if (res.status === 429 || data.quotaExceeded) {
+          if (data.bankSession) {
+            setBankSession(data.bankSession);
+            try {
+              localStorage.setItem('krona_bank_session_v1', JSON.stringify(data.bankSession));
+            } catch {}
+          } else if (bankSession && data.refreshQuota) {
+            const updatedSession: BankSessionInfo = {
+              ...bankSession,
+              refreshTimestamps: data.refreshQuota.timestamps,
+              refreshQuota: data.refreshQuota,
+            };
+            setBankSession(updatedSession);
+            try {
+              localStorage.setItem('krona_bank_session_v1', JSON.stringify(updatedSession));
+            } catch {}
+          }
+          setToastMessage({
+            text:
+              data.error ||
+              "Limite réglementaire de 4 actualisations quotidiennes atteinte. Réessayez plus tard.",
+            visible: true,
+          });
+          setTimeout(() => setToastMessage(null), 4500);
+          return;
+        }
+        if (data.sessionExpired || res.status === 401) {
+          setBankSession(null);
+          try {
+            localStorage.removeItem('krona_bank_session_v1');
+          } catch {}
+          setToastMessage({
+            text: "Session bancaire expirée. Veuillez reconnecter votre banque.",
+            visible: true,
+          });
+          setTimeout(() => setToastMessage(null), 4000);
+          return;
+        }
+        throw new Error(data.error || "Erreur lors de la synchronisation bancaire.");
+      }
+
+      if (data.bankSession) {
+        setBankSession(data.bankSession);
+        try {
+          localStorage.setItem('krona_bank_session_v1', JSON.stringify(data.bankSession));
+        } catch {}
+      }
+
+      if (Array.isArray(data.accounts) && data.accounts.length > 0) {
+        try {
+          localStorage.setItem('krona_accounts_v1', JSON.stringify(data.accounts));
+        } catch {}
+      }
+
+      if (data.learningRules && typeof data.learningRules === "object") {
+        try {
+          const mergedRules = { ...currentRules, ...data.learningRules };
+          localStorage.setItem('krona_merchant_knowledge', JSON.stringify(mergedRules));
+        } catch {}
+      }
+
+      const incomingTxs = Array.isArray(data.transactions) ? data.transactions : [];
+      const allCloudTxs = Array.isArray(data.allTransactions) ? data.allTransactions : [];
+      const serverTxsSource = allCloudTxs.length > 0 ? allCloudTxs : incomingTxs;
+
+      let combinedTransactions: Transaction[] = [];
+
+      if (serverTxsSource.length > 0) {
+        const serverById = new Map<string, Transaction>();
+        serverTxsSource.forEach(tx => {
+          if (tx && tx.id) serverById.set(tx.id, tx);
+        });
+        incomingTxs.forEach(tx => {
+          if (tx && tx.id) serverById.set(tx.id, tx);
+        });
+
+        if (currentTxs.length === 0) {
+          combinedTransactions = serverTxsSource;
+        } else {
+          // 1. Mettre à jour les transactions existantes avec les versions enrichies du serveur
+          const updatedPrev = currentTxs.map(p => {
+            const serverVersion = serverById.get(p.id);
+            if (serverVersion) {
+              if (
+                p.type === "Autre" ||
+                p.account === "Mock ASPSP" ||
+                (serverVersion.type && serverVersion.type !== "Autre") ||
+                serverVersion.name !== p.name
+              ) {
+                return serverVersion;
+              }
+            }
+            return p;
+          });
+
+          const existingIds = new Set(updatedPrev.map(p => p.id));
+          const existingSigs = new Map<string, number>();
+          updatedPrev.forEach(p => {
+            const sig = `${p.date}_${p.amount}_${normalizeText(p.name).replace(/[^a-z0-9]/g, "").slice(0, 20)}`;
+            existingSigs.set(sig, (existingSigs.get(sig) || 0) + 1);
+          });
+
+          const fresh: Transaction[] = [];
+          serverTxsSource.forEach(tx => {
+            if (existingIds.has(tx.id)) return;
+            const sig = `${tx.date}_${tx.amount}_${normalizeText(tx.name).replace(/[^a-z0-9]/g, "").slice(0, 20)}`;
+            const count = existingSigs.get(sig) || 0;
+            if (count > 0) {
+              existingSigs.set(sig, count - 1);
+              return;
+            }
+            existingIds.add(tx.id);
+            fresh.push(tx);
+          });
+
+          combinedTransactions = [...fresh, ...updatedPrev].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          );
+        }
+
+        try {
+          localStorage.setItem('financeTransactions_v1', JSON.stringify(combinedTransactions));
+        } catch {}
+
+        setTransactions(combinedTransactions);
+
+        const newestMonth = combinedTransactions[0]?.month || serverTxsSource[0]?.month;
+        if (newestMonth) {
+          handleMonthChange(newestMonth);
+        }
+      }
+
+      // Étape C : Appel IA avec le service existant de l'import CSV (/api/categorize)
+      // Ne lui envoie pas les doublons écartés par la déduplication, uniquement les opérations en « Autre »
+      const candidateOrphans = incomingTxs.length > 0
+        ? incomingTxs.filter(tx => tx.type === "Autre")
+        : combinedTransactions.filter(tx => tx.source === "bank" && tx.type === "Autre");
+
+      if (candidateOrphans.length > 0) {
+        setImportStep("categorizing");
+        try {
+          const aiRes = await fetch("/api/categorize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              items: candidateOrphans.map(tx => ({
+                id: tx.id,
+                label: tx.name,
+                amount: tx.amount,
+              })),
+            }),
+          });
+
+          if (aiRes.ok) {
+            const aiData = (await aiRes.json()) as {
+              mapping?: Array<{ id: string; category: string }>;
+              results?: Array<{ id: string; category: string }>;
+            };
+            const resultsList = Array.isArray(aiData.mapping)
+              ? aiData.mapping
+              : Array.isArray(aiData.results)
+                ? aiData.results
+                : [];
+
+            const idToCat = new Map<string, string>();
+            resultsList.forEach(r => {
+              if (r.id && r.category && r.category !== "Autre") {
+                idToCat.set(r.id, r.category);
+              }
+            });
+
+            if (idToCat.size > 0) {
+              const updatedKnowledge = {
+                ...JSON.parse(localStorage.getItem('krona_merchant_knowledge') || '{}'),
+              };
+              const nowIso = new Date().toISOString();
+
+              combinedTransactions = combinedTransactions.map(tx => {
+                const newCat = idToCat.get(tx.id);
+                if (newCat && newCat !== tx.type) {
+                  const isRegul = isRegularisationCategory(newCat);
+                  const isInternal = isInternalTransferCategory(newCat) || isRegul;
+                  const isSub = !isInternal && isSubscriptionCategory(newCat);
+
+                  updatedKnowledge[tx.name] = {
+                    categorie: newCat,
+                    isSubscription: isSub,
+                    isInternalTransfer: isInternal,
+                    excludeFromSpending: isInternal,
+                    excludeFromIncome: isInternal || isRegul,
+                    updatedAt: nowIso,
+                  };
+
+                  return {
+                    ...tx,
+                    type: newCat,
+                    isSubscription: isSub,
+                    isRecurring: isSub,
+                    isInternalTransfer: isInternal,
+                    excludeFromSpending: isInternal,
+                    excludeFromIncome: isInternal || isRegul,
+                    updatedAt: nowIso,
+                  };
+                }
+                return tx;
+              });
+
+              setTransactions(combinedTransactions);
+              try {
+                localStorage.setItem('krona_merchant_knowledge', JSON.stringify(updatedKnowledge));
+                localStorage.setItem('financeTransactions_v1', JSON.stringify(combinedTransactions));
+              } catch {}
+            }
+          } else {
+            console.warn("[Krona AI Bank Sync] Statut non-OK :", aiRes.status);
+          }
+        } catch (aiErr: unknown) {
+          // Si l'appel IA échoue, importe quand même les opérations (en « Autre »), journalise l'erreur et termine le loader sans le bloquer
+          console.error("[Krona AI Bank Sync] Erreur lors de la catégorisation IA :", aiErr);
+        }
+      }
+
+      setImportStep("success");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("krona-local-data-mutated", {
+            detail: { mode: "merge", immediate: true },
+          })
+        );
+      }
+      triggerCloudSync("merge").catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 800));
+      setImportStep(null);
+
+      setToastMessage({
+        text: incomingTxs.length > 0
+          ? `Synchronisation terminée · ${incomingTxs.length} opération${incomingTxs.length > 1 ? "s" : ""} importée${incomingTxs.length > 1 ? "s" : ""}`
+          : "Compte bancaire à jour · Aucune nouvelle opération",
+        visible: true,
+      });
+      setTimeout(() => setToastMessage(null), 3500);
+
+      // Si l'utilisateur n'est pas connecté dans Krona, déclencher automatiquement le popover de compte
+      if (!isAuthenticatedRef.current) {
+        setTimeout(() => {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("krona-open-account-popover", {
+                detail: { open: true, reason: "bank_sync" },
+              })
+            );
+          }
+          if (onOpenAccountPopover) {
+            onOpenAccountPopover();
+          }
+        }, 600);
+      }
+    } catch (err: unknown) {
+      setImportStep(null);
+      const msg = err instanceof Error ? err.message : "Erreur lors de la synchronisation bancaire.";
+      setToastMessage({ text: msg, visible: true });
+      setTimeout(() => setToastMessage(null), 4000);
+    } finally {
+      setIsSyncingBank(false);
+    }
+  }, [user?.id, bankSession, handleMonthChange, triggerCloudSync, onOpenAccountPopover]);
+
+  const handleDisconnectBank = async () => {
+    try {
+      setIsSyncingBank(true);
+
+      const bankNames = new Set<string>();
+      if (bankSession?.aspspName) {
+        bankNames.add(bankSession.aspspName);
+        bankNames.add(formatBankDisplayName(bankSession.aspspName));
+      }
+      if (bankSession?.accountName) {
+        bankNames.add(bankSession.accountName);
+        bankNames.add(formatBankDisplayName(bankSession.accountName));
+      }
+      bankNames.add("BoursoBank");
+      bankNames.add("BoursoBank (Sandbox)");
+      bankNames.add("Mock ASPSP");
+      bankNames.add("Banque Sandbox");
+      if (Array.isArray(bankSession?.accounts)) {
+        bankSession.accounts.forEach((a) => {
+          if (a.name) bankNames.add(a.name);
+        });
+      }
+
+      // 1. Purge locale immédiate des transactions rattachées à la liaison bancaire
+      const remainingTx = transactions.filter(
+        (t) => !isLinkedBankTransaction(t, bankNames)
+      );
+
+      setTransactions(remainingTx);
+      setBankSession(null);
+      setIsBankMenuOpen(false);
+
+      try {
+        localStorage.setItem("financeTransactions_v1", JSON.stringify(remainingTx));
+        localStorage.removeItem("krona_bank_session_v1");
+        localStorage.removeItem("krona_selected_bank");
+
+        let currentAccounts: AccountInfo[] = [];
+        try {
+          const rawAcc = localStorage.getItem("krona_accounts_v1");
+          if (rawAcc) currentAccounts = JSON.parse(rawAcc);
+        } catch {}
+
+        const remainingAccounts = currentAccounts.filter(
+          (a) => !isLinkedBankAccount(a, bankNames)
+        );
+        if (remainingAccounts.length > 0) {
+          localStorage.setItem("krona_accounts_v1", JSON.stringify(remainingAccounts));
+        } else {
+          localStorage.removeItem("krona_accounts_v1");
+        }
+
+        if (remainingTx.length === 0) {
+          localStorage.removeItem("krona_selected_month");
+          handleMonthChange(null, false);
+          setSelectedAccountFilter("all");
+        }
+      } catch (err) {
+        console.warn("[Disconnect] Erreur de mise à jour du stockage local :", err);
+      }
+
+      // 2. Appel serveur de purge et de révocation
+      const res = await fetch("/api/bank/disconnect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(user?.id ? { "x-krona-user-id": user.id } : {}),
+        },
+        body: JSON.stringify({
+          userId: user?.id || "guest_sandbox_user",
+          bankSession,
+          sessionId: bankSession?.sessionId,
+        }),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as {
+          success?: boolean;
+          transactions?: Transaction[];
+          accounts?: AccountInfo[];
+        };
+        if (Array.isArray(data.transactions)) {
+          setTransactions(data.transactions);
+          localStorage.setItem(
+            "financeTransactions_v1",
+            JSON.stringify(data.transactions)
+          );
+          if (data.transactions.length === 0) {
+            handleMonthChange(null, false);
+            localStorage.removeItem("krona_selected_month");
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[Disconnect] Erreur réseau lors de la déconnexion :", err);
+    } finally {
+      setIsSyncingBank(false);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("krona-local-data-mutated", {
+            detail: { mode: "overwrite", immediate: true },
+          })
+        );
+        window.dispatchEvent(new CustomEvent("krona-data-reset"));
+      }
+      triggerCloudSync("overwrite").catch(() => {});
+      setToastMessage({
+        text: "Banque déconnectée · Données synchronisées purgées",
+        visible: true,
+      });
+      setTimeout(() => setToastMessage(null), 3500);
+    }
+  };
+
+  const handleConnectBank = async () => {
+    if (bankSession && bankSession.sessionId) {
+      await handleBankSync(bankSession.sessionId, bankSession.accounts?.[0]?.uid);
+      return;
+    }
+
+    try {
+      setIsConnectingBank(true);
+      const res = await fetch("/api/bank/connect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(user?.id ? { "x-krona-user-id": user.id } : {}),
+        },
+        body: JSON.stringify({
+          aspspTitle: "Boursorama Banque",
+          country: "FR",
+          userId: user?.id || "",
+        }),
+      });
+
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !data.url) {
+        throw new Error(data.error || "Impossible d'obtenir l'URL d'autorisation Enable Banking.");
+      }
+
+      window.location.href = data.url;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur de connexion Enable Banking.";
+      setToastMessage({ text: msg, visible: true });
+      setTimeout(() => setToastMessage(null), 4000);
+      setIsConnectingBank(false);
+    }
+  };
+
+  // Détection du retour de callback Enable Banking (?bank_linked=true ou ?bank_connected=true)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const url = new URL(window.location.href);
+      const bankLinked = url.searchParams.get("bank_linked") || url.searchParams.get("bank_connected");
+      if (!bankLinked) return;
+
+      const sessionIdParam = url.searchParams.get("session_id") || "";
+      const accountIdParam = url.searchParams.get("account_id") || "";
+      const bankErrorParam = url.searchParams.get("bank_error") || "";
+      const isGuestParam = url.searchParams.get("is_guest") === "true";
+
+      url.searchParams.delete("bank_linked");
+      url.searchParams.delete("bank_connected");
+      url.searchParams.delete("session_id");
+      url.searchParams.delete("account_id");
+      url.searchParams.delete("bank_error");
+      url.searchParams.delete("is_guest");
+      window.history.replaceState({}, "", url.toString());
+
+      if (bankLinked === "true") {
+        if (sessionIdParam) {
+          const newSession: BankSessionInfo = {
+            sessionId: sessionIdParam,
+            aspspName: "BoursoBank",
+            aspspCountry: "FR",
+            accounts: accountIdParam ? [{ uid: accountIdParam }] : [],
+            connectedAt: new Date().toISOString(),
+            lastSyncedAt: new Date().toISOString(),
+          };
+          setBankSession(newSession);
+          try {
+            localStorage.setItem('krona_bank_session_v1', JSON.stringify(newSession));
+          } catch {}
+        }
+        handleBankSync(sessionIdParam || undefined, accountIdParam || undefined).then(() => {
+          if (isGuestParam || !isAuthenticatedRef.current) {
+            setTimeout(() => {
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("krona-open-account-popover", {
+                    detail: { open: true, reason: "bank_sync" },
+                  })
+                );
+              }
+              if (onOpenAccountPopover) {
+                onOpenAccountPopover();
+              }
+            }, 600);
+          }
+        });
+      } else if (bankErrorParam) {
+        setToastMessage({
+          text: `Connexion bancaire interrompue (${bankErrorParam})`,
+          visible: true,
+        });
+        setTimeout(() => setToastMessage(null), 4000);
+      }
+    } catch {}
+  }, [handleBankSync, onOpenAccountPopover]);
 
   const handleIgnoreSubscription = (merchantName: string) => {
     setIgnoredSubscriptions(prev => {
@@ -2648,140 +3238,86 @@ export function Dashboard({
               </div>
             </div>
 
-            <div className="relative" ref={importMenuRef}>
-              <motion.button
-                type="button"
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setIsImportMenuOpen((prev) => !prev)}
-                className="h-9 px-3.5 sm:px-4 rounded-full bg-foreground text-background font-medium text-xs sm:text-sm flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all shadow-sm cursor-pointer font-sans shrink-0 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none"
-                aria-label="Importer un fichier CSV"
-              >
-                <Plus size={16} strokeWidth={2.5} className="shrink-0" />
-                <span className="font-medium">Importer un CSV</span>
-              </motion.button>
+            {/* Machine à états de la barre supérieure : Banque connectée vs Sans banque liée */}
+            {bankSession ? (
+              /* ÉTAT 3 : BANQUE CONNECTÉE (Gélule de statut sombre + Popover de gestion) */
+              <div className="relative">
+                <button
+                  type="button"
+                  data-bank-status-pill="true"
+                  disabled={isConnectingBank}
+                  onClick={() => setIsBankMenuOpen((prev) => !prev)}
+                  className="h-9 px-3.5 sm:px-4 rounded-full bg-black/5 dark:bg-white/[0.06] hover:bg-black/10 dark:hover:bg-white/[0.1] border border-border text-xs sm:text-sm font-medium text-foreground flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer font-sans shrink-0"
+                  aria-label={`Menu de gestion ${formatBankDisplayName(bankSession.aspspName, bankSession.accounts?.[0]?.name)}`}
+                  aria-expanded={isBankMenuOpen}
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                  <span className="font-medium tracking-tight">
+                    {formatBankDisplayName(bankSession.aspspName, bankSession.accounts?.[0]?.name)}
+                    {(() => {
+                      if (!bankSession.lastSyncedAt) return "";
+                      try {
+                        const d = new Date(bankSession.lastSyncedAt);
+                        if (isNaN(d.getTime())) return "";
+                        const h = String(d.getHours()).padStart(2, "0");
+                        const m = String(d.getMinutes()).padStart(2, "0");
+                        return ` · ${h}:${m}`;
+                      } catch {
+                        return "";
+                      }
+                    })()}
+                  </span>
+                  <ChevronDown size={13} className="text-muted-foreground shrink-0" />
+                </button>
 
-              {/* Menu Pop-up compact harmonisé avec le pop-up des notifications */}
-              <AnimatePresence>
-                {isImportMenuOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
-                    transition={{ type: "spring", stiffness: 420, damping: 30 }}
-                    className="absolute top-full right-0 mt-2 w-72 sm:w-80 bg-card/95 backdrop-blur-2xl border border-border shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] rounded-2xl z-[101] overflow-hidden select-none flex flex-col"
-                  >
-                    <div className="pt-3 px-3.5 pb-1 flex items-center justify-between shrink-0">
-                      <span className="text-sm font-semibold text-foreground tracking-tight font-sans">
-                        Sélectionner la banque
-                      </span>
-                      <CloseButton onClick={() => setIsImportMenuOpen(false)} iconSize={15} />
-                    </div>
+                <LinkedBankMenuPopover
+                  isOpen={isBankMenuOpen}
+                  onClose={() => setIsBankMenuOpen(false)}
+                  bankSession={bankSession}
+                  isSyncing={isSyncingBank}
+                  onRefresh={() => handleBankSync()}
+                  onDisconnect={() => setShowDisconnectModal(true)}
+                />
+              </div>
+            ) : (
+              /* ÉTAT 1 & 2 : SANS BANQUE LIÉE (Bouton blanc unique en gélule « + Importer », ouvre ImportMethodPopover) */
+              <div className="relative" ref={importMenuRef}>
+                <motion.button
+                  type="button"
+                  data-import-trigger="true"
+                  whileTap={{ scale: 0.95 }}
+                  aria-haspopup="menu"
+                  aria-expanded={isImportMethodOpen}
+                  disabled={isConnectingBank || isSyncingBank}
+                  onClick={() => setIsImportMethodOpen((prev) => !prev)}
+                  className="h-9 px-3.5 sm:px-4 rounded-full bg-foreground text-background font-medium text-xs sm:text-sm flex items-center gap-1.5 hover:opacity-90 active:scale-95 transition-all shadow-sm cursor-pointer font-sans shrink-0 focus-visible:ring-2 focus-visible:ring-foreground/20 focus-visible:outline-none disabled:opacity-80"
+                  aria-label={isConnectingBank || isSyncingBank ? "Synchronisation en cours" : "Importer"}
+                >
+                  {isConnectingBank || isSyncingBank ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin shrink-0" />
+                      <span className="font-medium">Synchronisation…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={16} strokeWidth={2.5} className="shrink-0" />
+                      <span className="font-medium">Importer</span>
+                    </>
+                  )}
+                </motion.button>
 
-                    <div className="p-2.5 pt-1 space-y-1.5">
-                      {/* Option 1 : Crédit Agricole */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsImportMenuOpen(false);
-                          localStorage.setItem("krona_selected_bank", "ca");
-                          window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: "ca" } }));
-                          window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: "ca" } }));
-                        }}
-                        className="w-full flex items-center gap-3 p-2.5 bg-neutral-50 dark:bg-white/[0.03] rounded-2xl border border-border hover:bg-neutral-100 dark:hover:bg-white/[0.06] hover:border-foreground/20 active:scale-[0.98] transition-all text-left group cursor-pointer"
-                      >
-                        <div className="w-8.5 h-8.5 rounded-xl bg-card border border-border flex items-center justify-center text-foreground shrink-0 group-hover:scale-105 transition-transform shadow-xs">
-                          <CreditAgricoleLogo className="w-5 h-4 text-foreground" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold text-foreground tracking-tight font-sans">
-                            Crédit Agricole
-                          </div>
-                          <div className="text-xs text-muted-foreground font-sans truncate mt-0.5">
-                            Relevé de compte CSV
-                          </div>
-                        </div>
-                        <ChevronRight size={15} className="text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all shrink-0 ml-auto" />
-                      </button>
-
-                      {/* Option 2 : BoursoBank */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsImportMenuOpen(false);
-                          localStorage.setItem("krona_selected_bank", "bourso");
-                          window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: "bourso" } }));
-                          window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: "bourso" } }));
-                        }}
-                        className="w-full flex items-center gap-3 p-2.5 bg-neutral-50 dark:bg-white/[0.03] rounded-2xl border border-border hover:bg-neutral-100 dark:hover:bg-white/[0.06] hover:border-foreground/20 active:scale-[0.98] transition-all text-left group cursor-pointer"
-                      >
-                        <div className="w-8.5 h-8.5 rounded-xl bg-card border border-border flex items-center justify-center text-foreground shrink-0 group-hover:scale-105 transition-transform shadow-xs">
-                          <BoursoBankLogo className="w-4.5 h-4.5 text-foreground" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold text-foreground tracking-tight font-sans">
-                            BoursoBank
-                          </div>
-                          <div className="text-xs text-muted-foreground font-sans truncate mt-0.5">
-                            Relevé de compte CSV
-                          </div>
-                        </div>
-                        <ChevronRight size={15} className="text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all shrink-0 ml-auto" />
-                      </button>
-
-                      {/* Option 3 : Caisse d'Épargne */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsImportMenuOpen(false);
-                          localStorage.setItem("krona_selected_bank", "ce");
-                          window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: "ce" } }));
-                          window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: "ce" } }));
-                        }}
-                        className="w-full flex items-center gap-3 p-2.5 bg-neutral-50 dark:bg-white/[0.03] rounded-2xl border border-border hover:bg-neutral-100 dark:hover:bg-white/[0.06] hover:border-foreground/20 active:scale-[0.98] transition-all text-left group cursor-pointer"
-                      >
-                        <div className="w-8.5 h-8.5 rounded-xl bg-card border border-border flex items-center justify-center text-foreground shrink-0 group-hover:scale-105 transition-transform shadow-xs">
-                          <CaisseEpargneLogo className="w-4.5 h-4.5" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold text-foreground tracking-tight font-sans">
-                            Caisse d'Épargne
-                          </div>
-                          <div className="text-xs text-muted-foreground font-sans truncate mt-0.5">
-                            Relevé de compte CSV
-                          </div>
-                        </div>
-                        <ChevronRight size={15} className="text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all shrink-0 ml-auto" />
-                      </button>
-
-                      {/* Option 4 : LCL */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsImportMenuOpen(false);
-                          localStorage.setItem("krona_selected_bank", "lcl");
-                          window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: "lcl" } }));
-                          window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: "lcl" } }));
-                        }}
-                        className="w-full flex items-center gap-3 p-2.5 bg-neutral-50 dark:bg-white/[0.03] rounded-2xl border border-border hover:bg-neutral-100 dark:hover:bg-white/[0.06] hover:border-foreground/20 active:scale-[0.98] transition-all text-left group cursor-pointer"
-                      >
-                        <div className="w-8.5 h-8.5 rounded-xl bg-card border border-border flex items-center justify-center text-foreground shrink-0 group-hover:scale-105 transition-transform shadow-xs">
-                          <LCLLogo className="w-4.5 h-4.5" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold text-foreground tracking-tight font-sans">
-                            LCL
-                          </div>
-                          <div className="text-xs text-muted-foreground font-sans truncate mt-0.5">
-                            Relevé de compte CSV / TSV
-                          </div>
-                        </div>
-                        <ChevronRight size={15} className="text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all shrink-0 ml-auto" />
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+                <ImportMethodPopover
+                  isOpen={isImportMethodOpen}
+                  onClose={() => setIsImportMethodOpen(false)}
+                  onSelectCsv={(bankKey = "bourso") => {
+                    localStorage.setItem("krona_selected_bank", bankKey);
+                    window.dispatchEvent(new CustomEvent("krona-bank-changed", { detail: { bank: bankKey } }));
+                    window.dispatchEvent(new CustomEvent("trigger-csv-upload", { detail: { bank: bankKey } }));
+                  }}
+                  onSelectBankConnect={handleConnectBank}
+                />
+              </div>
+            )}
 
             <button
               type="button"
@@ -3896,6 +4432,60 @@ export function Dashboard({
                     className="h-10 bg-rose-500 hover:bg-rose-600 text-white rounded-full px-4 text-xs sm:text-sm font-medium transition-all flex-1 text-center select-none active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-rose-400/40 focus-visible:outline-none cursor-pointer shadow-sm font-sans"
                   >
                     Tout réinitialiser
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Modal de confirmation de déconnexion bancaire */}
+        <AnimatePresence>
+          {showDisconnectModal && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-md"
+                onClick={() => setShowDisconnectModal(false)}
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+                className="bg-card border border-border p-6 rounded-3xl shadow-2xl w-full max-w-sm relative z-10 mx-4 font-sans"
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div className="w-10 h-10 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-500 dark:text-rose-400 flex items-center justify-center shrink-0">
+                    <Unlink size={18} />
+                  </div>
+                  <CloseButton onClick={() => setShowDisconnectModal(false)} iconSize={16} />
+                </div>
+                <h3 className="text-lg font-semibold tracking-[-0.015em] text-foreground mb-2 font-sans">
+                  Déconnecter la banque
+                </h3>
+                <p className="text-sm text-muted-foreground mb-6 leading-relaxed font-sans">
+                  Es-tu sûr de vouloir déconnecter ta banque ? Les opérations synchronisées automatiquement seront supprimées. Tes relevés CSV manuels seront conservés.
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowDisconnectModal(false)}
+                    className="h-10 bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/15 border border-border text-foreground rounded-full px-4 text-xs sm:text-sm font-medium transition-all flex-1 text-center select-none active:scale-[0.98] cursor-pointer font-sans"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDisconnectModal(false);
+                      handleDisconnectBank();
+                    }}
+                    className="h-10 bg-rose-500 hover:bg-rose-600 text-white rounded-full px-4 text-xs sm:text-sm font-medium transition-all flex-1 text-center select-none active:scale-[0.98] cursor-pointer shadow-sm font-sans"
+                  >
+                    Déconnecter
                   </button>
                 </div>
               </motion.div>

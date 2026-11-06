@@ -13,6 +13,7 @@ export type Transaction = {
   account?: "BoursoBank" | "Crédit Agricole" | "Caisse d'Épargne" | "LCL" | string;
   rawName?: string;
   updatedAt?: string;
+  source?: "csv" | "bank" | "manual";
 };
 
 export type FixedIncomeSettings = {
@@ -23,6 +24,32 @@ export type FixedIncomeSettings = {
   rent?: number;
   loans?: number;
   utilities?: number;
+};
+
+export type BankRefreshQuota = {
+  limit: number;
+  used: number;
+  remaining: number;
+  timestamps: string[];
+  resetAt?: string | null;
+};
+
+export type BankSessionInfo = {
+  sessionId: string;
+  aspspName: string;
+  aspspCountry: string;
+  accountName?: string;
+  accounts: Array<{
+    uid: string;
+    iban?: string;
+    name?: string;
+    currency?: string;
+    balance?: number;
+  }>;
+  connectedAt: string;
+  lastSyncedAt?: string;
+  refreshTimestamps?: string[];
+  refreshQuota?: BankRefreshQuota;
 };
 
 export type AccountInfo = {

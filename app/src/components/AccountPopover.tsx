@@ -13,6 +13,7 @@ import {
 import clsx from "clsx";
 import { useAuth } from "./AuthProvider";
 import { GoogleUserProfile, resolveUserAvatarUrl } from "@/lib/cloudSync";
+import { formatBankDisplayName } from "@/lib/bankFormatting";
 import { CloseButton } from "./ui/CloseButton";
 
 export const GoogleGLogo = ({ className = "w-4 h-4" }: { className?: string }) => (
@@ -120,6 +121,7 @@ export function AccountPopover({ isOpen, onClose }: AccountPopoverProps) {
   } = useAuth();
   const [isConnecting, setIsConnecting] = useState(false);
   const [hasLocalData, setHasLocalData] = useState(false);
+  const [linkedBankName, setLinkedBankName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -131,8 +133,23 @@ export function AccountPopover({ isOpen, onClose }: AccountPopoverProps) {
       } else {
         setHasLocalData(false);
       }
+
+      const storedBank = localStorage.getItem("krona_bank_session_v1");
+      if (storedBank) {
+        const parsedBank = JSON.parse(storedBank);
+        if (parsedBank && parsedBank.sessionId) {
+          setLinkedBankName(
+            formatBankDisplayName(parsedBank.aspspName, parsedBank.accounts?.[0]?.name)
+          );
+        } else {
+          setLinkedBankName(null);
+        }
+      } else {
+        setLinkedBankName(null);
+      }
     } catch {
       setHasLocalData(false);
+      setLinkedBankName(null);
     }
   }, [isOpen]);
 
@@ -209,7 +226,11 @@ export function AccountPopover({ isOpen, onClose }: AccountPopoverProps) {
                     <div className="flex items-center gap-1.5 mt-0.5 font-sans">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400 shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.4)]" />
                       <span className="text-xs text-muted-foreground truncate font-sans">
-                        {hasLocalData ? "Mode invité · Données locales" : "Mode invité"}
+                        {linkedBankName
+                          ? `Mode invité · ${linkedBankName}`
+                          : hasLocalData
+                            ? "Mode invité · Données locales"
+                            : "Mode invité"}
                       </span>
                     </div>
                   </div>
@@ -218,7 +239,9 @@ export function AccountPopover({ isOpen, onClose }: AccountPopoverProps) {
               </div>
 
               <p className="text-xs text-muted-foreground leading-relaxed px-1 shrink-0 font-sans">
-                Connectez votre compte Google pour synchroniser vos finances et y accéder sur tous vos appareils.
+                {linkedBankName
+                  ? "Banque connectée. Connectez votre compte Google pour sauvegarder et synchroniser vos accès bancaires dans le cloud."
+                  : "Connectez votre compte Google pour synchroniser vos finances et y accéder sur tous vos appareils."}
               </p>
 
               <div className="rounded-xl bg-muted/60 border border-border px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground min-h-[36px] shrink-0 font-sans">

@@ -319,14 +319,29 @@ export function categorizeLocally({
   const normRaw = normalizeText(rawLabel || "");
   const normCat = normalizeText(bankCategory || categoryBourso || "");
   const normSub = normalizeText(subCategory || "");
-  const combined = `${normLabel} ${normRaw}`;
+  const combined = `${normLabel} ${normRaw}`
+    .replace(/[*_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   // 1. RÈGLE APPRISE UTILISATEUR (learningRules / cache local prioritaire)
-  const cachedRule =
+  const stemLabel = normLabel.replace(/[*_]+/g, " ").replace(/\s+\d+$/, "").replace(/\s+/g, " ").trim();
+  let cachedRule =
     cache[label] ||
     cache[normLabel] ||
+    cache[stemLabel] ||
     (rawLabel ? cache[rawLabel] : undefined) ||
     (rawLabel ? cache[normRaw] : undefined);
+
+  if (!cachedRule && cache && typeof cache === "object") {
+    for (const [ruleKey, ruleVal] of Object.entries(cache)) {
+      const normKey = normalizeText(ruleKey).replace(/[*_]+/g, " ").replace(/\s+/g, " ").trim();
+      if (normKey && (normKey === normLabel || normKey === stemLabel || (normKey.length >= 4 && stemLabel.startsWith(normKey)))) {
+        cachedRule = ruleVal;
+        break;
+      }
+    }
+  }
   if (
     cachedRule?.categorie &&
     (OFFICIAL_CATEGORIES.includes(cachedRule.categorie) ||
@@ -375,6 +390,8 @@ export function categorizeLocally({
   // 2b. EXCLUSION BUDGÉTAIRE DES FLUX NEUTRES (Virements compte à compte & Mouvements internes)
   if (
     combined.includes("virement interne") ||
+    combined.includes("virement depuis") ||
+    combined.includes("virement vers") ||
     combined.includes("comptes a comptes") ||
     combined.includes("compte a compte") ||
     combined.includes("mouvements internes") ||
@@ -412,8 +429,12 @@ export function categorizeLocally({
     };
   }
 
-  // RÈGLE SPÉCIFIQUE : Galeries Lafayette (Shopping vs Salaire selon le signe)
-  if (combined.includes("galeries lafayette") || combined.includes("societe anonyme des galeries la")) {
+  // RÈGLE SPÉCIFIQUE : Galeries Lafayette (Shopping vs Salaire selon le signe, y compris libellé CB tronqué à 16 car.)
+  if (
+    combined.includes("galeries lafayette") ||
+    combined.includes("galeries lafayet") ||
+    combined.includes("societe anonyme des galeries la")
+  ) {
     if (amount > 0) {
       return { category: "Revenus & Aides", isSubscription: false, isInternalTransfer: false, excludeFromSpending: false };
     } else {
@@ -472,7 +493,7 @@ export function categorizeLocally({
   }
 
   // --- ALIMENTATION & COURSES (boulangerie avant boulanger) ---
-  // carrefour, auchan, lidl, aldi, monoprix, franprix, intermarche, e.leclerc, leclerc, super u, biocoop, naturalia, picard, boulangerie, paul, marie blachere
+  // carrefour, auchan, lidl, aldi, monoprix, franprix, intermarche, e.leclerc, leclerc, super u, biocoop, naturalia, picard, coccinelle, boulangerie, paul, marie blachere
   if (
     combined.includes("boulangerie") ||
     combined.includes("marie blachere") ||
@@ -487,6 +508,7 @@ export function categorizeLocally({
     combined.includes("carrefour") ||
     combined.includes("auchan") ||
     combined.includes("picard") ||
+    combined.includes("coccinelle") ||
     combined.includes("lidl") ||
     combined.includes("aldi") ||
     /\b(leclerc|epicerie|hyper u)\b/.test(combined)
@@ -495,11 +517,12 @@ export function categorizeLocally({
   }
 
   // --- RESTAURANTS, CAFÉS & FAST-FOOD ---
-  // mcdonalds, mcdo, burger king, kfc, subway, starbucks, columbus, uber eats, deliveroo, just eat, dominos, pizza, kebab, tacos, sushi, brasserie, bistrot, cafe, bar
+  // mcdonalds, mc donald, mcdo, burger king, kfc, subway, starbucks, columbus, uber eats, deliveroo, just eat, dominos, pizza, kebab, tacos, sushi, brasserie, bistrot, cafe, bar
   if (
     combined.includes("uber eats") ||
     combined.includes("burger king") ||
     combined.includes("mcdonald") ||
+    combined.includes("mc donald") ||
     combined.includes("mcdo") ||
     combined.includes("just eat") ||
     combined.includes("deliveroo") ||
@@ -508,7 +531,15 @@ export function categorizeLocally({
     combined.includes("dominos") ||
     combined.includes("subway") ||
     combined.includes("kfc") ||
-    /\b(pizza|kebab|tacos|sushi|brasserie|bistrot|bistro|cafe|bar|crous|tasty|restaurant|cantine)\b/.test(combined)
+    combined.includes("goodnews") ||
+    combined.includes("good news") ||
+    combined.includes("vic co") ||
+    combined.includes("vicco") ||
+    combined.includes("elf food") ||
+    combined.includes("supernature") ||
+    combined.includes("ab copains") ||
+    combined.includes("au chat qui") ||
+    /\b(pizza|kebab|tacos|sushi|brasserie|bistrot|bistro|cafe|bar|crous|tasty|restaurant|resto|cantine|danu|liebe|kisoro)\b/.test(combined)
   ) {
     return { category: "Restos & Fast-Food", isSubscription: false, isInternalTransfer: false };
   }
@@ -541,7 +572,7 @@ export function categorizeLocally({
   }
 
   // Santé -> Santé & Soins
-  // pharmacie, doctolib, laboratoire, dentiste, optique, cpam, secu, ameli
+  // pharmacie, doctolib, laboratoire, dentiste, optique, cpam, secu, ameli, kry.fr, livi
   if (
     combined.includes("pharmacie") ||
     combined.includes("doctolib") ||
@@ -549,6 +580,7 @@ export function categorizeLocally({
     combined.includes("dentiste") ||
     combined.includes("optique") ||
     combined.includes("livi") ||
+    combined.includes("kry.fr") ||
     combined.includes("cpam") ||
     combined.includes("ameli") ||
     combined.includes("secu") ||
@@ -585,6 +617,10 @@ export function categorizeLocally({
   // zara, h&m, uniqlo, asos, zalando, fnac, darty, boulanger, action, primark, ikea, leroy merlin
   if (
     combined.includes("leroy merlin") ||
+    combined.includes("bricomarche") ||
+    combined.includes("bricomarc") ||
+    combined.includes("castorama") ||
+    combined.includes("mr bricolage") ||
     combined.includes("h&m") ||
     combined.includes("uniqlo") ||
     combined.includes("zalando") ||
@@ -605,7 +641,7 @@ export function categorizeLocally({
   }
 
   // --- TRANSPORTS & MOBILITÉ ---
-  // sncf, ratp, ile-de-france mobilites, transpole, ilevia, uber, bolt, total, totalenergies, bp, esso, shell, station, peage, aprr, sanef, vinci autoroutes, parking
+  // sncf, ratp, ile-de-france mobilites, imagine r, navigo, transpole, ilevia, uber, bolt, total, totalenergies, bp, esso, shell, station, peage, aprr, sanef, vinci autoroutes, parking
   if (
     combined.includes("ile-de-france mobilites") ||
     combined.includes("vinci autoroutes") ||
@@ -618,12 +654,13 @@ export function categorizeLocally({
     combined.includes("ratp") ||
     combined.includes("idfm") ||
     combined.includes("navigo") ||
+    combined.includes("imagine r") ||
     combined.includes("bolt") ||
     combined.includes("esso") ||
     combined.includes("shell") ||
     combined.includes("peage") ||
     combined.includes("parking") ||
-    (/\b(uber|bp|total|station|vinci)\b/.test(combined) && !combined.includes("uber eats"))
+    (/\b(uber|bp|total|station|vinci)\b/.test(combined) && !combined.includes("uber eats") && !combined.includes("uber one"))
   ) {
     return { category: "Transports", isSubscription: false, isInternalTransfer: false };
   }
@@ -634,6 +671,8 @@ export function categorizeLocally({
     combined.includes("pacha club") ||
     combined.includes("pamela club") ||
     combined.includes("fluctuart") ||
+    combined.includes("shotgun") ||
+    combined.includes("centre de loisir") ||
     /\b(discotheque|boite de nuit|nightclub)\b/.test(combined)
   ) {
     return { category: "Sorties & Soirées", isSubscription: false, isInternalTransfer: false };
@@ -644,6 +683,7 @@ export function categorizeLocally({
     combined.includes("lydia") || 
     combined.includes("paylib") || 
     combined.includes("vir inst") ||
+    combined.includes("virement de ") ||
     combined.includes("remboursement") ||
     combined.includes("avoir")
   ) {

@@ -6,6 +6,7 @@ import { categorizeLocally } from "@/lib/categorization";
 interface TransactionItem {
   id: string;
   label: string;
+  amount?: number;
 }
 
 // Catégories officielles exactes de l'application
@@ -29,7 +30,7 @@ const VALID_CATEGORIES = [
 function normalizeCategory(cat: string): string {
   if (!cat) return "Autre";
   const cleaned = cat.trim();
-  if (OFFICIAL_CATEGORIES.includes(cleaned as any)) return cleaned;
+  if ((OFFICIAL_CATEGORIES as readonly string[]).includes(cleaned)) return cleaned;
 
   const lower = cleaned.toLowerCase();
   if (lower.includes("virement interne") || lower.includes("vir interne") || lower.includes("interne") || lower.includes("regul") || lower.includes("ajustement")) return "Virement interne";
@@ -54,7 +55,7 @@ function localFallbackCategorize(items: TransactionItem[]): Array<{ id: string; 
     const res = categorizeLocally({
       label: item.label,
       rawLabel: item.label,
-      amount: 0,
+      amount: typeof item.amount === "number" ? item.amount : 0,
       cache: {}
     });
     return {
@@ -68,18 +69,32 @@ export async function POST(req: NextRequest) {
   const items: TransactionItem[] = [];
 
   try {
-    const body = await req.json();
+    const body = (await req.json()) as Record<string, unknown>;
 
-    // Support de la payload compacte [{ id, label }]
+    // Support de la payload compacte [{ id, label, amount }]
     if (body.items && Array.isArray(body.items)) {
-      body.items.forEach((it: any) => {
-        if (it && it.id && it.label) {
-          items.push({ id: String(it.id), label: String(it.label).trim() });
+      body.items.forEach((it: unknown) => {
+        if (it && typeof it === "object" && "id" in it && "label" in it) {
+          const itemObj = it as { id: unknown; label: unknown; amount?: unknown };
+          items.push({
+            id: String(itemObj.id),
+            label: String(itemObj.label).trim(),
+            amount: typeof itemObj.amount === "number" ? itemObj.amount : undefined,
+          });
         }
       });
     } else if (body.transactions && Array.isArray(body.transactions)) {
-      body.transactions.forEach((tx: string, idx: number) => {
-        if (tx) items.push({ id: `legacy_${idx}`, label: String(tx).trim() });
+      body.transactions.forEach((tx: unknown, idx: number) => {
+        if (typeof tx === "string") {
+          items.push({ id: `legacy_${idx}`, label: tx.trim() });
+        } else if (tx && typeof tx === "object" && "label" in tx) {
+          const txObj = tx as { id?: unknown; label: unknown; amount?: unknown };
+          items.push({
+            id: String(txObj.id || `legacy_${idx}`),
+            label: String(txObj.label).trim(),
+            amount: typeof txObj.amount === "number" ? txObj.amount : undefined,
+          });
+        }
       });
     }
 
@@ -91,10 +106,13 @@ export async function POST(req: NextRequest) {
     if (!apiKey) {
       console.error("[AI Categorization Error] GEMINI_API_KEY absente. Activation du fallback local par mots-clés.");
       const fallbackResults = localFallbackCategorize(items);
+      const assignedCount = fallbackResults.filter(r => r.category && r.category !== "Autre").length;
+      console.log(`[AI Categorization] Transactions envoyées à l'IA : ${items.length}`);
+      console.log(`[AI Categorization] Catégories attribuées par l'IA : ${assignedCount}`);
       return NextResponse.json({ results: fallbackResults, mapping: fallbackResults, fallback: true }, { status: 200 });
     }
 
-    console.log(`[Krona AI] Catégorisation de ${items.length} transactions...`);
+    console.log(`[AI Categorization] Transactions envoyées à l'IA : ${items.length}`);
 
     const prompt = `
 Tu es un moteur FinTech expert de catégorisation bancaire française.
@@ -160,14 +178,17 @@ Réponds STRICTEMENT sous la forme d'un tableau JSON brut valide, sans balises M
           responseText = response.text;
           break;
         }
-      } catch (err: any) {
-        console.error(`[AI Categorization Error] Modèle ${model} indisponible :`, err?.message || err);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[AI Categorization Error] Modèle ${model} indisponible :`, msg);
       }
     }
 
     if (!responseText) {
       console.error("[AI Categorization Error] Tous les modèles IA ont échoué. Activation du fallback local.");
       const fallbackResults = localFallbackCategorize(items);
+      const assignedCount = fallbackResults.filter(r => r.category && r.category !== "Autre").length;
+      console.log(`[AI Categorization] Catégories attribuées par l'IA : ${assignedCount}`);
       return NextResponse.json({ results: fallbackResults, mapping: fallbackResults, fallback: true }, { status: 200 });
     }
 
@@ -175,28 +196,32 @@ Réponds STRICTEMENT sous la forme d'un tableau JSON brut valide, sans balises M
     const cleanedText = responseText.replace(/```json/gi, "").replace(/```/g, "").trim();
 
     // Extraction robuste du tableau JSON
-    let rawArray: any[] = [];
+    let rawArray: unknown[] = [];
     try {
-      const parsed = JSON.parse(cleanedText);
+      const parsed = JSON.parse(cleanedText) as unknown;
       if (Array.isArray(parsed)) {
         rawArray = parsed;
-      } else if (parsed && Array.isArray(parsed.results)) {
-        rawArray = parsed.results;
-      } else if (parsed && Array.isArray(parsed.mapping)) {
-        rawArray = parsed.mapping;
       } else if (parsed && typeof parsed === "object") {
-        const firstVal = Object.values(parsed)[0];
-        if (Array.isArray(firstVal)) {
-          rawArray = firstVal;
+        const parsedRecord = parsed as Record<string, unknown>;
+        if (Array.isArray(parsedRecord.results)) {
+          rawArray = parsedRecord.results;
+        } else if (Array.isArray(parsedRecord.mapping)) {
+          rawArray = parsedRecord.mapping;
+        } else {
+          const firstVal = Object.values(parsedRecord)[0];
+          if (Array.isArray(firstVal)) {
+            rawArray = firstVal;
+          }
         }
       }
-    } catch (parseErr: any) {
-      console.error("[AI Categorization Error] Erreur lors du parse JSON brut :", parseErr?.message || parseErr);
+    } catch (parseErr: unknown) {
+      const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+      console.error("[AI Categorization Error] Erreur lors du parse JSON brut :", msg);
       const firstBracket = cleanedText.indexOf("[");
       const lastBracket = cleanedText.lastIndexOf("]");
       if (firstBracket !== -1 && lastBracket > firstBracket) {
         try {
-          rawArray = JSON.parse(cleanedText.slice(firstBracket, lastBracket + 1));
+          rawArray = JSON.parse(cleanedText.slice(firstBracket, lastBracket + 1)) as unknown[];
         } catch { }
       }
     }
@@ -204,31 +229,38 @@ Réponds STRICTEMENT sous la forme d'un tableau JSON brut valide, sans balises M
     if (!rawArray || rawArray.length === 0) {
       console.warn("[AI Categorization Error] Tableau vide extrait. Repli sur le fallback local.");
       const fallbackResults = localFallbackCategorize(items);
+      const assignedCount = fallbackResults.filter(r => r.category && r.category !== "Autre").length;
+      console.log(`[AI Categorization] Catégories attribuées par l'IA : ${assignedCount}`);
       return NextResponse.json({ results: fallbackResults, mapping: fallbackResults, fallback: true }, { status: 200 });
     }
 
     const finalResults: Array<{ id: string; category: string }> = [];
 
-    rawArray.forEach((item: any) => {
-      if (item && item.id) {
-        const cat = normalizeCategory(item.category);
+    rawArray.forEach((item: unknown) => {
+      if (item && typeof item === "object" && "id" in item) {
+        const itemObj = item as { id: unknown; category?: unknown };
+        const cat = normalizeCategory(String(itemObj.category || ""));
         finalResults.push({
-          id: String(item.id),
+          id: String(itemObj.id),
           category: cat,
         });
       }
     });
 
-    console.log('[Krona AI] Réponse reçue:', finalResults);
+    const assignedCount = finalResults.filter(r => r.category && r.category !== "Autre").length;
+    console.log(`[AI Categorization] Catégories attribuées par l'IA : ${assignedCount}`);
 
     return NextResponse.json({
       results: finalResults,
       mapping: finalResults,
       fallback: false,
     }, { status: 200 });
-  } catch (error: any) {
-    console.error("[AI Categorization Error]", error?.message || error);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[AI Categorization Error]", msg);
     const fallbackResults = items.length > 0 ? localFallbackCategorize(items) : [];
+    const assignedCount = fallbackResults.filter(r => r.category && r.category !== "Autre").length;
+    console.log(`[AI Categorization] Catégories attribuées par l'IA : ${assignedCount}`);
     return NextResponse.json({ results: fallbackResults, mapping: fallbackResults, fallback: true }, { status: 200 });
   }
 }

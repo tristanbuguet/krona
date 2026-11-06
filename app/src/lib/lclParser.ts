@@ -13,6 +13,7 @@ export interface RawTransaction {
   rawLabel?: string; // Libellé brut d'origine
   account?: string;
   month?: string; // YYYY-MM
+  source?: "csv" | "bank" | "manual";
 }
 
 /**

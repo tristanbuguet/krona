@@ -37,7 +37,7 @@ export function CsvAnalysisModal({ step }: CsvAnalysisModalProps) {
     step === "success"
       ? "Relevé importé"
       : step === "categorizing"
-        ? "Catégorisation IA..."
+        ? "Catégorisation avec l'IA..."
         : "Importation...";
 
   return (
@@ -57,7 +57,7 @@ export function CsvAnalysisModal({ step }: CsvAnalysisModalProps) {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ type: "spring", stiffness: 380, damping: 28 }}
-            className="w-full max-w-[210px] sm:max-w-[220px] p-6 bg-card/95 backdrop-blur-2xl border border-border rounded-2xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] flex flex-col items-center justify-center text-center gap-4"
+            className="w-full max-w-[240px] sm:max-w-[250px] p-6 bg-card/95 backdrop-blur-2xl border border-border rounded-2xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] flex flex-col items-center justify-center text-center gap-4"
           >
             {/* Élément central : Logo Krona + Anneau fluide de chargement ou Coche discrète */}
             <div className="relative w-14 h-14 flex items-center justify-center">

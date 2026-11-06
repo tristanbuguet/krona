@@ -1,4 +1,4 @@
-import { Transaction, FixedIncomeSettings, AccountInfo, isRegularisationCategory } from "./types";
+import { Transaction, FixedIncomeSettings, AccountInfo, BankSessionInfo, isRegularisationCategory } from "./types";
 
 export interface GoogleUserProfile {
   id: string;
@@ -46,6 +46,7 @@ export interface UserFinancialSettings {
   ignoredSubscriptions?: string[];
   selectedBank?: "bourso" | "ca";
   selectedMonth?: string | null;
+  bankSession?: BankSessionInfo | null;
 }
 
 export type LearningRuleMap = Record<
@@ -71,6 +72,7 @@ export interface UserFinancialPayload {
   lastUpdated: string;
   monthlyCap?: number | null;
   incomeSettings?: FixedIncomeSettings;
+  bankSession?: BankSessionInfo | null;
   // Champs de compatibilité directe à la racine
   categoryBudgets: Record<string, number>;
   fixedIncomeSettings: FixedIncomeSettings;
@@ -295,6 +297,19 @@ export function mergeCloudAndLocalData(
     cloud?.selectedMonth ||
     null;
 
+  const localBankSession =
+    local.settings?.bankSession !== undefined
+      ? local.settings.bankSession
+      : local.bankSession;
+  const cloudBankSession =
+    cloud?.settings?.bankSession !== undefined
+      ? cloud.settings.bankSession
+      : cloud?.bankSession;
+  const mergedBankSession =
+    localBankSession !== undefined
+      ? localBankSession
+      : (cloudBankSession ?? null);
+
   const nowIso = new Date().toISOString();
 
   return {
@@ -308,11 +323,13 @@ export function mergeCloudAndLocalData(
       ignoredSubscriptions: mergedIgnoredSubs,
       selectedBank: mergedBank,
       selectedMonth: mergedMonth,
+      bankSession: mergedBankSession,
     },
     learningRules: mergedKnowledge,
     lastUpdated: nowIso,
     monthlyCap: mergedSpendingLimit,
     incomeSettings: mergedIncomeSettings,
+    bankSession: mergedBankSession,
     // Champs racine rétrocompatibles
     categoryBudgets: mergedBudgets,
     fixedIncomeSettings: mergedIncomeSettings,
@@ -388,6 +405,7 @@ export function readLocalFinancialData(): Partial<UserFinancialPayload> {
   );
   const accounts = safeParse<AccountInfo[]>("krona_accounts_v1", []);
   const selectedMonth = localStorage.getItem("krona_selected_month");
+  const bankSession = safeParse<BankSessionInfo | null>("krona_bank_session_v1", null);
   const nowIso = new Date().toISOString();
 
   const fallbackLimitConfig = { type: "amount" as const, value: 0 };
@@ -398,6 +416,7 @@ export function readLocalFinancialData(): Partial<UserFinancialPayload> {
     learningRules: merchantKnowledge,
     monthlyCap: resolvedMonthlyCap,
     incomeSettings: fixedIncomeSettings,
+    bankSession,
     settings: {
       monthlyCap: resolvedMonthlyCap,
       monthlyLimitConfig: monthlyLimitConfig ?? fallbackLimitConfig,
@@ -406,6 +425,7 @@ export function readLocalFinancialData(): Partial<UserFinancialPayload> {
       ignoredSubscriptions,
       selectedBank,
       selectedMonth,
+      bankSession,
     },
     lastUpdated: nowIso,
     categoryBudgets,
@@ -433,6 +453,7 @@ export const LOCAL_FINANCIAL_STORAGE_KEYS = [
   "krona_accounts_v1",
   "krona_selected_bank",
   "krona_onboarding_sync_dismissed",
+  "krona_bank_session_v1",
 ] as const;
 
 /**
@@ -456,11 +477,14 @@ export function clearLocalFinancialData(): void {
 export function writeLocalFinancialData(payload: UserFinancialPayload): void {
   if (typeof window === "undefined") return;
   try {
-    if (Array.isArray(payload.transactions) && payload.transactions.length > 0) {
+    if (Array.isArray(payload.transactions)) {
       localStorage.setItem(
         "financeTransactions_v1",
         JSON.stringify(payload.transactions)
       );
+      if (payload.transactions.length === 0) {
+        localStorage.removeItem("krona_selected_month");
+      }
     }
 
     const budgets =
@@ -503,11 +527,15 @@ export function writeLocalFinancialData(payload: UserFinancialPayload): void {
       localStorage.setItem("krona_monthly_spending_limit", String(monthlyCap));
     }
 
-    if (Array.isArray(payload.accounts) && payload.accounts.length > 0) {
-      localStorage.setItem(
-        "krona_accounts_v1",
-        JSON.stringify(payload.accounts)
-      );
+    if (Array.isArray(payload.accounts)) {
+      if (payload.accounts.length > 0) {
+        localStorage.setItem(
+          "krona_accounts_v1",
+          JSON.stringify(payload.accounts)
+        );
+      } else {
+        localStorage.removeItem("krona_accounts_v1");
+      }
     }
 
     const selectedBank =
@@ -520,6 +548,19 @@ export function writeLocalFinancialData(payload: UserFinancialPayload): void {
       payload.settings?.selectedMonth || payload.selectedMonth;
     if (selectedMonth) {
       localStorage.setItem("krona_selected_month", selectedMonth);
+    }
+
+    const bankSession =
+      payload.settings?.bankSession !== undefined
+        ? payload.settings.bankSession
+        : payload.bankSession;
+    if (bankSession) {
+      localStorage.setItem(
+        "krona_bank_session_v1",
+        JSON.stringify(bankSession)
+      );
+    } else {
+      localStorage.removeItem("krona_bank_session_v1");
     }
   } catch (e) {
     console.warn("[Krona Sync] Impossible d'écrire dans le stockage local:", e);
