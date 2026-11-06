@@ -1,4 +1,7 @@
 import { Transaction, FixedIncomeSettings, AccountInfo, BankSessionInfo, isRegularisationCategory } from "./types";
+import { computeBankRefreshQuota, sanitizeAndDeduplicateTransactions } from "./bankDeduplication";
+
+export { sanitizeAndDeduplicateTransactions };
 
 export interface GoogleUserProfile {
   id: string;
@@ -130,9 +133,9 @@ export function mergeTransactionsLossless(
     }
   }
 
-  return Array.from(byId.values()).sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  // 3. Déduplication par signature comptable et assainissement des doublons historiques
+  const mergedList = Array.from(byId.values());
+  return sanitizeAndDeduplicateTransactions(mergedList);
 }
 
 /**
@@ -305,10 +308,30 @@ export function mergeCloudAndLocalData(
     cloud?.settings?.bankSession !== undefined
       ? cloud.settings.bankSession
       : cloud?.bankSession;
-  const mergedBankSession =
-    localBankSession !== undefined
-      ? localBankSession
-      : (cloudBankSession ?? null);
+
+  let mergedBankSession: BankSessionInfo | null = null;
+  if (localBankSession && cloudBankSession) {
+    // Si la session existe des deux côtés, fusionner les horodatages de quota
+    // et privilégier la version la plus récemment synchronisée ou connectée
+    const localTime = Date.parse(localBankSession.lastSyncedAt || localBankSession.connectedAt || "0");
+    const cloudTime = Date.parse(cloudBankSession.lastSyncedAt || cloudBankSession.connectedAt || "0");
+    const primary = localTime >= cloudTime ? localBankSession : cloudBankSession;
+    const secondary = localTime >= cloudTime ? cloudBankSession : localBankSession;
+    const combinedTimestamps = Array.from(new Set([
+      ...(primary.refreshTimestamps || primary.refreshQuota?.timestamps || []),
+      ...(secondary.refreshTimestamps || secondary.refreshQuota?.timestamps || []),
+    ]));
+    const quota = computeBankRefreshQuota(combinedTimestamps);
+    mergedBankSession = {
+      ...primary,
+      refreshTimestamps: quota.timestamps,
+      refreshQuota: quota,
+    };
+  } else {
+    // Si l'un des deux seulement a une session (ex. premier login Google sur nouvel appareil),
+    // ne pas écraser une session active par un null local !
+    mergedBankSession = localBankSession || cloudBankSession || null;
+  }
 
   const nowIso = new Date().toISOString();
 

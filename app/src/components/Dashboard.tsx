@@ -41,7 +41,7 @@ import {
   isRegularisationTransaction,
   INTERNAL_TRANSFER_CATEGORY
 } from "@/lib/types";
-import { UserFinancialPayload } from "@/lib/cloudSync";
+import { UserFinancialPayload, sanitizeAndDeduplicateTransactions } from "@/lib/cloudSync";
 
 function parseAndFormatDate(dateStr: string) {
   let parsedDate = new Date(dateStr);
@@ -1005,6 +1005,13 @@ export function Dashboard({
         return tx;
       });
 
+      // Assainissement immédiat de tout doublon historique résiduel au chargement
+      const sanitized = sanitizeAndDeduplicateTransactions(parsed);
+      if (sanitized.length !== parsed.length) {
+        hasMutated = true;
+        parsed = sanitized;
+      }
+
       setTransactions(parsed);
 
       const months = Array.from(new Set(parsed.map(tx => tx.month))).sort().reverse();
@@ -1107,9 +1114,10 @@ export function Dashboard({
           }
           return tx;
         });
-        setTransactions(sanitized);
+        const cleanTxs = sanitizeAndDeduplicateTransactions(sanitized);
+        setTransactions(cleanTxs);
         const months = Array.from(
-          new Set(sanitized.map((tx: Transaction) => tx.month))
+          new Set(cleanTxs.map((tx: Transaction) => tx.month))
         )
           .sort()
           .reverse() as string[];
@@ -1584,8 +1592,9 @@ export function Dashboard({
           const res = await fetch("/api/categorize", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(6000),
             body: JSON.stringify({
-              items: orphanTransactions.map(tx => ({
+              items: orphanTransactions.slice(0, 25).map(tx => ({
                 id: tx.id,
                 label: tx.name,
               })),
@@ -1871,10 +1880,14 @@ export function Dashboard({
             fresh.push(tx);
           });
 
-          combinedTransactions = [...fresh, ...updatedPrev].sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          combinedTransactions = sanitizeAndDeduplicateTransactions(
+            [...fresh, ...updatedPrev].sort(
+              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+            )
           );
         }
+
+        combinedTransactions = sanitizeAndDeduplicateTransactions(combinedTransactions);
 
         try {
           localStorage.setItem('financeTransactions_v1', JSON.stringify(combinedTransactions));
@@ -1900,8 +1913,9 @@ export function Dashboard({
           const aiRes = await fetch("/api/categorize", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(6000),
             body: JSON.stringify({
-              items: candidateOrphans.map(tx => ({
+              items: candidateOrphans.slice(0, 25).map(tx => ({
                 id: tx.id,
                 label: tx.name,
                 amount: tx.amount,
@@ -3215,7 +3229,7 @@ export function Dashboard({
       </AnimatePresence>
 
       {/* Modern Apple/Linear style AI Analysis Modal */}
-      <CsvAnalysisModal step={importStep} />
+      <CsvAnalysisModal step={importStep} onDismiss={() => setImportStep(null)} />
       <CSVUploader
         onStart={() => {
           setIsImportMenuOpen(false);

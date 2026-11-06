@@ -9,6 +9,7 @@ import {
   fetchAccountBalance,
   authorizeOrGetSession,
   normalizeEnableBankingTransactions,
+  deduplicateCrossAccountBankTransactions,
   formatBankDisplayName,
   computeBankRefreshQuota,
   consumeBankRefreshQuota,
@@ -248,6 +249,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Déduplication multi-comptes : si une opération carte apparaît sur le compte courant et le compte carte,
+    // éliminer les doublons miroirs en faveur du compte courant
+    const cleanRawList = deduplicateCrossAccountBankTransactions(
+      rawTransactionsList,
+      sessionAccountsMeta
+    );
+
     const existingTransactions: Transaction[] = existingPayload?.transactions || [];
     const learningRules: LearningRuleMap = {
       ...(existingPayload?.learningRules || existingPayload?.merchantKnowledge || {}),
@@ -277,7 +285,7 @@ export async function POST(req: NextRequest) {
       rawAspspLabel.toLowerCase().includes("sandbox");
 
     const pipelineResult = await executeBankIngestionPipeline({
-      rawTransactions: rawTransactionsList,
+      rawTransactions: cleanRawList,
       existingTransactions: combinedExisting,
       learningRules,
       aspspLabel,

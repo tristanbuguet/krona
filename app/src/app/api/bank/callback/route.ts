@@ -9,6 +9,7 @@ import {
   fetchTransactions,
   fetchAccountBalance,
   normalizeEnableBankingTransactions,
+  deduplicateCrossAccountBankTransactions,
   formatBankDisplayName,
   computeBankRefreshQuota,
   ENABLE_BANKING_DEFAULT_ASPSP,
@@ -203,13 +204,18 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const cleanRawList = deduplicateCrossAccountBankTransactions(
+      rawTransactionsList,
+      mappedAccounts
+    );
+
     const existingTransactions: Transaction[] = existingCloud?.transactions || [];
     const existingRules = existingCloud?.learningRules || existingCloud?.merchantKnowledge || {};
 
     // 2. Passer l'ensemble des transactions dans le pipeline standard
     const isSandboxSession = rawAspspName.toLowerCase().includes("mock") || rawAspspName.toLowerCase().includes("sandbox");
     const pipelineResult = await executeBankIngestionPipeline({
-      rawTransactions: rawTransactionsList,
+      rawTransactions: cleanRawList,
       existingTransactions,
       learningRules: existingRules,
       aspspLabel: aspspName,

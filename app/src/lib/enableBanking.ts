@@ -1,20 +1,49 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import { cleanMerchantName, normalizeText } from "./categorization";
 import { RawTransaction } from "./lclParser";
 import { parseDateToIso } from "./boursoParser";
 import { formatBankDisplayName, isLinkedBankTransaction, isLinkedBankAccount } from "./bankFormatting";
-import { BankRefreshQuota, BankSessionInfo } from "./types";
+import {
+  ENABLE_BANKING_MAX_DAILY_REFRESHES,
+  ENABLE_BANKING_QUOTA_WINDOW_MS,
+  ENABLE_BANKING_HISTORY_DAYS,
+  computeBankRefreshQuota,
+  consumeBankRefreshQuota,
+  cleanOpenBankingMerchantLabel,
+  stripTerminalNoise,
+  buildDeduplicationSignature,
+  deduplicateCrossAccountBankTransactions,
+  sanitizeAndDeduplicateTransactions,
+  isStrictRecurringSubscription,
+  pickBestTransaction,
+  mapCashAccountType,
+  daysUntilConsentExpiry,
+} from "./bankDeduplication";
 
-export { formatBankDisplayName, isLinkedBankTransaction, isLinkedBankAccount };
+export {
+  formatBankDisplayName,
+  isLinkedBankTransaction,
+  isLinkedBankAccount,
+  ENABLE_BANKING_MAX_DAILY_REFRESHES,
+  ENABLE_BANKING_QUOTA_WINDOW_MS,
+  ENABLE_BANKING_HISTORY_DAYS,
+  computeBankRefreshQuota,
+  consumeBankRefreshQuota,
+  cleanOpenBankingMerchantLabel,
+  stripTerminalNoise,
+  buildDeduplicationSignature,
+  deduplicateCrossAccountBankTransactions,
+  sanitizeAndDeduplicateTransactions,
+  isStrictRecurringSubscription,
+  pickBestTransaction,
+  mapCashAccountType,
+  daysUntilConsentExpiry,
+};
 
 export const ENABLE_BANKING_APP_ID = "c1ad2bc2-df1a-460a-9497-4b1b29094600";
 export const ENABLE_BANKING_BASE_URL = "https://api.enablebanking.com";
 export const ENABLE_BANKING_AUDIENCE = "api.enablebanking.com";
 export const ENABLE_BANKING_DEFAULT_ASPSP = "Boursorama Banque";
-export const ENABLE_BANKING_MAX_DAILY_REFRESHES = 4;
-export const ENABLE_BANKING_QUOTA_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export interface EnableBankingBalanceAmount {
   amount: string | number;
@@ -31,74 +60,6 @@ export interface EnableBankingBalanceItem {
 
 export interface EnableBankingBalancesResponse {
   balances: EnableBankingBalanceItem[];
-}
-
-/**
- * Calcule le quota d'actualisations DSP2 restantes sur les dernières 24 heures (max 4 consultations).
- */
-export function computeBankRefreshQuota(
-  timestamps?: string[] | null,
-  nowMs: number = Date.now(),
-  limit: number = ENABLE_BANKING_MAX_DAILY_REFRESHES
-): BankRefreshQuota {
-  const rawList = Array.isArray(timestamps) ? timestamps : [];
-  const validRecent = rawList
-    .map((ts) => {
-      const parsed = Date.parse(ts);
-      return isNaN(parsed) ? null : { iso: new Date(parsed).toISOString(), ms: parsed };
-    })
-    .filter((item): item is { iso: string; ms: number } => {
-      if (!item) return false;
-      const age = nowMs - item.ms;
-      return age >= -60_000 && age < ENABLE_BANKING_QUOTA_WINDOW_MS;
-    })
-    .sort((a, b) => a.ms - b.ms);
-
-  const used = Math.min(limit, validRecent.length);
-  const remaining = Math.max(0, limit - used);
-  const resetAt =
-    validRecent.length >= limit
-      ? new Date(validRecent[validRecent.length - limit].ms + ENABLE_BANKING_QUOTA_WINDOW_MS).toISOString()
-      : validRecent.length > 0
-        ? new Date(validRecent[0].ms + ENABLE_BANKING_QUOTA_WINDOW_MS).toISOString()
-        : null;
-
-  return {
-    limit,
-    used,
-    remaining,
-    timestamps: validRecent.map((v) => v.iso),
-    resetAt,
-  };
-}
-
-/**
- * Enregistre une nouvelle actualisation bancaire dans le quota 24h si la limite DSP2 (4/jour) n'est pas atteinte.
- */
-export function consumeBankRefreshQuota(
-  session?: Pick<BankSessionInfo, "refreshTimestamps" | "refreshQuota"> | null,
-  nowMs: number = Date.now(),
-  limit: number = ENABLE_BANKING_MAX_DAILY_REFRESHES
-): { allowed: boolean; quota: BankRefreshQuota } {
-  const existingTimestamps =
-    session?.refreshTimestamps || session?.refreshQuota?.timestamps || [];
-  const currentQuota = computeBankRefreshQuota(existingTimestamps, nowMs, limit);
-
-  if (currentQuota.remaining <= 0) {
-    return {
-      allowed: false,
-      quota: currentQuota,
-    };
-  }
-
-  const nowIso = new Date(nowMs).toISOString();
-  const nextTimestamps = [...currentQuota.timestamps, nowIso];
-  const updatedQuota = computeBankRefreshQuota(nextTimestamps, nowMs, limit);
-
-  return {
-    allowed: true,
-    quota: updatedQuota,
-  };
 }
 
 export interface EnableBankingJwtHeader {
@@ -251,23 +212,31 @@ export function getEnableBankingPrivateKey(): string {
   }
 
   // Solution de secours en local uniquement via fs.existsSync
-  const candidatePaths = [
-    path.join(process.cwd(), "enablebanking-key.pem"),
-    path.join(process.cwd(), "..", "enablebanking-key.pem"),
-  ];
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require("node:fs");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require("node:path");
+    const candidatePaths = [
+      path.join(process.cwd(), "enablebanking-key.pem"),
+      path.join(process.cwd(), "..", "enablebanking-key.pem"),
+    ];
 
-  for (const filePath of candidatePaths) {
-    try {
-      if (fs.existsSync(/*turbopackIgnore: true*/ filePath)) {
-        const raw = fs.readFileSync(/*turbopackIgnore: true*/ filePath, "utf-8").trim();
-        const cleaned = cleanPrivateKeyString(raw);
-        if (cleaned.includes("PRIVATE KEY")) {
-          return cleaned;
+    for (const filePath of candidatePaths) {
+      try {
+        if (fs.existsSync(/*turbopackIgnore: true*/ filePath)) {
+          const raw = fs.readFileSync(/*turbopackIgnore: true*/ filePath, "utf-8").trim();
+          const cleaned = cleanPrivateKeyString(raw);
+          if (cleaned.includes("PRIVATE KEY")) {
+            return cleaned;
+          }
         }
+      } catch {
+        // Ignorer les erreurs d'accès fichiers et continuer
       }
-    } catch {
-      // Ignorer les erreurs d'accès fichiers et continuer
     }
+  } catch {
+    // fs non disponible dans l'environnement
   }
 
   throw new Error(
@@ -449,9 +418,6 @@ export async function deleteSession(sessionId: string): Promise<boolean> {
     return false;
   }
 }
-
-/** Profondeur d'historique DSP2 garantie sans réauthentification forte (90 jours, marge de 1 jour). */
-export const ENABLE_BANKING_HISTORY_DAYS = 89;
 
 /**
  * Erreur typée Enable Banking : permet de distinguer une session expirée/révoquée (reconnexion requise)
@@ -646,120 +612,6 @@ export async function fetchAccountBalance(accountId: string): Promise<number | n
 }
 
 /**
- * Nettoie un libellé issu d'Open Banking (Enable Banking) :
- * - Supprime les préfixes techniques de carte (CARTE DD/MM/YY ... CB*XXXX)
- * - Normalise les caractères spéciaux parasites d'enseignes (UBER *EATS -> Uber Eats, SHOTGUN* -> Shotgun)
- * - Corrige les noms d'enseignes tronqués à 16 caractères (GALERIES LAFAYET -> Galeries Lafayette)
- * - Supprime les codes de caisse/département isolés en fin de libellé carte (ex. PICARD 2 -> Picard)
- */
-export function cleanOpenBankingMerchantLabel(raw: string, isCardLabel: boolean = false): string {
-  if (!raw) return "";
-  let s = raw.replace(/[\r\n\t]+/g, " ").trim();
-
-  const looksLikeCard = isCardLabel || /^(CARTE|PAIEMENT\s+CB|PAIEMENT\s+CARTE|ACHAT\s+CB|CB\b)/i.test(s) || /\bCB\*\d+/i.test(s);
-
-  // Supprimer les codes cartes CB*XXXX avant de nettoyer les suffixes numériques
-  s = s.replace(/\bCB\*\d+\b/gi, " ").trim();
-
-  // Nettoyer les préfixes redondants "VIR Virement" -> "Virement"
-  s = s.replace(/^VIR(EMENT)?\s+(?=VIREMENT\b)/i, "").trim();
-
-  // Normaliser les séparateurs techniques d'enseignes (ex. UBER *EATS HELP.U, UBER *ONE MEMBE, SHOTGUN* VOLANGE)
-  s = s.replace(/\bUBER\s*\*\s*EATS(?:\s+HELP\.U\w*)?/gi, "Uber Eats");
-  s = s.replace(/\bUBER\s*\*\s*ONE(?:\s+MEMBE\w*)?/gi, "Uber One");
-  s = s.replace(/\bSHOTGUN\s*\*/gi, "Shotgun ");
-  s = s.replace(/\bMC\s+DONALD\s*S\b/gi, "McDonald's");
-  s = s.replace(/\bGALERIES\s+LAFAYET(?:TE)?\b/gi, "Galeries Lafayette");
-  s = s.replace(/\bGOOD\s*NEWS(?:\s+LA\s+FAYE\w*)?/gi, "Goodnews");
-  s = s.replace(/\bVIC\s+CO\b/gi, "Vicco");
-  s = s.replace(/\bBOUYGUES\s+TELECOM\s+BOUYGUES\s+TELE\w*/gi, "Bouygues Telecom");
-  s = s.replace(/\bSC\.?AUT\.?TASTY\s+CROU\w*/gi, "Tasty Crous");
-
-  // Si c'est un libellé carte (CARTE DD/MM/YY <MARCHAND> <CHIFFRE> CB*XXXX), retirer le chiffre de caisse/zone final isolé
-  if (looksLikeCard) {
-    s = s.replace(/\s+(?:SC\s+)?\d{1,2}\s*$/i, "").trim();
-  }
-
-  s = stripTerminalNoise(s);
-
-  const cleaned = cleanMerchantName(s);
-  return applyMerchantAlias(cleaned);
-}
-
-/**
- * Préfixes d'agrégateurs / terminaux de paiement (SumUp, Square, Zettle, PayPal, Stripe…)
- * qui précèdent le vrai nom du commerçant : "SNP*MLG EVENTS" -> "MLG EVENTS", "SQ *CAFE" -> "CAFE".
- */
-const PAYMENT_PROCESSOR_PREFIX =
-  /^(?:SNP|SQ|SP|SUMUP|SUM\s?UP|ZTL|IZ|IZETTLE|PP|PAYPAL|STRIPE|STR|MOLLIE|ADY|ADYEN|PAYPLUG|DRI|GOOGLE|APPLE\.COM\/BILL|HELLOASSO|WWW|TPE)\s*\*\s*/i;
-
-/**
- * Supprime les scories techniques des terminaux et passerelles :
- * - "Ebay 0*04-15396-3" (référence de commande après un astérisque)
- * - "Bolt.eu/o/2611010" (domaine + chemin de reçu)
- * - "Snp*mlg Events" (préfixe d'agrégateur)
- * Idempotent : peut être appliquée plusieurs fois sans altérer un libellé déjà propre.
- */
-export function stripTerminalNoise(raw: string): string {
-  let s = (raw || "").trim();
-  if (!s) return s;
-
-  for (let i = 0; i < 2; i++) s = s.replace(PAYMENT_PROCESSOR_PREFIX, "").trim();
-
-  // Chemins d'URL / reçus : "BOLT.EU/O/2611010" -> "BOLT.EU"
-  s = s.replace(/(\.[a-z]{2,4})\/\S*/gi, "$1");
-  // Domaines : "BOLT.EU" -> "BOLT", "NETFLIX.COM" -> "NETFLIX", "WWW.AMAZON.FR" -> "AMAZON"
-  s = s.replace(/^WWW\./i, "");
-  s = s.replace(/\.(?:com|eu|fr|net|org|io|co|uk|de|es|it|nl|be|app|me)\b\.?/gi, " ");
-  // Référence après astérisque : "EBAY 0*04-15396-3", "AMAZON*2K3L49", "UBER *TRIP 8DJ2"
-  s = s.replace(/\s*[A-Z0-9]*\*[A-Z0-9][A-Z0-9\-\/.]*$/i, "");
-  s = s.replace(/\s*\*+\s*$/, "");
-  // Références numériques à tirets / longues séries de chiffres en fin de libellé : "04-15396-3", "2611010"
-  s = s.replace(/\s+[0-9][0-9\-\/.]{4,}$/g, "");
-  s = s.replace(/\s+\d{5,}\b/g, " ");
-  // Séparateurs orphelins
-  s = s.replace(/[*_#]+/g, " ").replace(/\s+-\s*$/, "").replace(/\s+/g, " ").trim();
-
-  return s || (raw || "").trim();
-}
-
-/** Graphies officielles des marques dont le Title Case générique est incorrect. */
-const MERCHANT_ALIASES: Array<[RegExp, string]> = [
-  [/^ebay\b.*$/i, "eBay"],
-  [/^bolt\b(?!\s+food).*$/i, "Bolt"],
-  [/^bolt\s+food\b.*$/i, "Bolt Food"],
-  [/^paypal\b.*$/i, "PayPal"],
-  [/^amazon\s*(prime|prime video)\b.*$/i, "Amazon Prime"],
-  [/^(amazon|amzn)(\s*(mktp|mktplace|marketplace|eu|payments|digital|fr))*\b.*$/i, "Amazon"],
-  [/^netflix\b.*$/i, "Netflix"],
-  [/^spotify\b.*$/i, "Spotify"],
-  [/^uber\s+eats\b.*$/i, "Uber Eats"],
-  [/^uber\s+one\b.*$/i, "Uber One"],
-  [/^uber(\s+trip|\s+bv|\s+help)?\b(?!\s+(eats|one)).*$/i, "Uber"],
-  [/^deliveroo\b.*$/i, "Deliveroo"],
-  [/^sncf\b.*$/i, "SNCF"],
-  [/^ratp\b.*$/i, "RATP"],
-  [/^(free\s+mobile|freemobile)\b.*$/i, "Free Mobile"],
-  [/^sfr\b.*$/i, "SFR"],
-  [/^edf\b.*$/i, "EDF"],
-  [/^ikea\b.*$/i, "IKEA"],
-  [/^lidl\b.*$/i, "Lidl"],
-  [/^apple\b.*$/i, "Apple"],
-  [/^google\b.*$/i, "Google"],
-  [/^vinted\b.*$/i, "Vinted"],
-  [/^lydia\b.*$/i, "Lydia"],
-  [/^mlg\s+events?\b.*$/i, "MLG Events"],
-];
-
-export function applyMerchantAlias(name: string): string {
-  const trimmed = (name || "").trim();
-  for (const [rx, alias] of MERCHANT_ALIASES) {
-    if (rx.test(trimmed)) return alias;
-  }
-  return trimmed;
-}
-
-/**
  * Normalise une liste de transactions Enable Banking vers l'interface `RawTransaction` de Krona
  * (`id`, `date`, `month`, `label`, `rawLabel`, `amount`, `account`) avec déduplication déterministe compatible CSV.
  */
@@ -851,10 +703,9 @@ export function normalizeEnableBankingTransactions(
     const occurrence = (occurrenceMap.get(baseKey) || 0) + 1;
     occurrenceMap.set(baseKey, occurrence);
 
-    // Identifiant 100 % déterministe (date + montant signé + commerçant nettoyé + rang d'occurrence) :
-    // les entry_reference / transaction_id sont éphémères chez certaines banques (changent entre PEND et BOOK
-    // ou d'une session à l'autre) et provoquaient des doublons à chaque synchronisation.
-    const uniqueId = `eb_${accountSlug ? `${accountSlug}_` : ""}${baseKey}_${occurrence}`;
+    // Identifiant 100 % déterministe et canonique (date + montant signé + commerçant nettoyé + rang d'occurrence) :
+    // indépendant des identifiants techniques éphémères et invariant d'une synchronisation à l'autre.
+    const uniqueId = `eb_${baseKey}_${occurrence}`;
 
     normalized.push({
       id: uniqueId,
@@ -974,29 +825,4 @@ export function generateSandboxMockTransactions(
       source: "bank",
     };
   });
-}
-
-/**
- * Traduit le type de compte DSP2 (cash_account_type ISO 20022) vers les types de comptes Krona.
- */
-export function mapCashAccountType(
-  cashAccountType?: string,
-  accountName?: string
-): "Compte courant" | "Livret d'épargne" | "Carte bancaire" {
-  const t = (cashAccountType || "").toUpperCase();
-  const n = (accountName || "").toLowerCase();
-  if (t === "SVGS" || t === "MOMA" || t === "ONDP" || /livret|epargne|épargne|ldd|lep|pel|cel|savings/.test(n))
-    return "Livret d'épargne";
-  if (t === "CARD" || /carte|card/.test(n)) return "Carte bancaire";
-  return "Compte courant";
-}
-
-/**
- * Durée restante avant expiration du consentement DSP2 (en jours, arrondi inférieur). null si inconnue.
- */
-export function daysUntilConsentExpiry(validUntil?: string | null, nowMs: number = Date.now()): number | null {
-  if (!validUntil) return null;
-  const ms = Date.parse(validUntil);
-  if (isNaN(ms)) return null;
-  return Math.floor((ms - nowMs) / (24 * 3600 * 1000));
 }

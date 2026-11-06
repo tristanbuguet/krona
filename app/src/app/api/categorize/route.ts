@@ -112,7 +112,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ results: fallbackResults, mapping: fallbackResults, fallback: true }, { status: 200 });
     }
 
-    console.log(`[AI Categorization] Transactions envoyées à l'IA : ${items.length}`);
+    console.log(`[AI Categorization] Transactions reçues pour catégorisation : ${items.length}`);
+
+    // Si le lot est important, envoyer les 25 premières à l'IA et pré-catégoriser le reste localement
+    const aiBatch = items.slice(0, 25);
+    const overflowBatch = items.slice(25);
+    const preCategorizedOverflow = overflowBatch.length > 0 ? localFallbackCategorize(overflowBatch) : [];
 
     const prompt = `
 Tu es un moteur FinTech expert de catégorisation bancaire française.
@@ -147,7 +152,7 @@ Règles de catégorisation :
 - Si indéterminé ou trop générique -> "Autre"
 
 Opérations à catégoriser (avec ID et libellé) :
-${JSON.stringify(items)}
+${JSON.stringify(aiBatch)}
 
 Réponds STRICTEMENT sous la forme d'un tableau JSON brut valide, sans balises Markdown (aucun \`\`\`json) ni texte d'introduction ni explications :
 [
@@ -157,22 +162,28 @@ Réponds STRICTEMENT sous la forme d'un tableau JSON brut valide, sans balises M
 
     const ai = new GoogleGenAI({ apiKey });
     const candidateModels = [
-      "gemini-flash-lite-latest",
-      "gemini-2.5-flash-lite",
-      "gemini-2.5-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-3.8-flash",
       "gemini-flash-latest",
+      "gemini-flash-lite-latest",
     ];
     let responseText = "";
 
     for (const model of candidateModels) {
       try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-          },
-        });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout IA modèle ${model} (4500ms)`)), 4500)
+        );
+        const response = await Promise.race([
+          ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+              responseMimeType: "application/json",
+            },
+          }),
+          timeoutPromise,
+        ]);
 
         if (response.text) {
           responseText = response.text;
@@ -180,7 +191,7 @@ Réponds STRICTEMENT sous la forme d'un tableau JSON brut valide, sans balises M
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[AI Categorization Error] Modèle ${model} indisponible :`, msg);
+        console.warn(`[AI Categorization] Modèle ${model} indisponible, test du suivant...`, msg);
       }
     }
 
@@ -247,12 +258,13 @@ Réponds STRICTEMENT sous la forme d'un tableau JSON brut valide, sans balises M
       }
     });
 
-    const assignedCount = finalResults.filter(r => r.category && r.category !== "Autre").length;
-    console.log(`[AI Categorization] Catégories attribuées par l'IA : ${assignedCount}`);
+    const combinedResults = [...finalResults, ...preCategorizedOverflow];
+    const assignedCount = combinedResults.filter(r => r.category && r.category !== "Autre").length;
+    console.log(`[AI Categorization] Catégories attribuées au total : ${assignedCount}`);
 
     return NextResponse.json({
-      results: finalResults,
-      mapping: finalResults,
+      results: combinedResults,
+      mapping: combinedResults,
       fallback: false,
     }, { status: 200 });
   } catch (error: unknown) {

@@ -1,13 +1,14 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check } from "lucide-react";
+import { Check, X } from "lucide-react";
 
 export type ImportStep = "importing" | "reading" | "categorizing" | "success";
 
 interface CsvAnalysisModalProps {
   step: ImportStep | null;
+  onDismiss?: () => void;
 }
 
 function KronaLogo({ className = "w-6 h-6" }: { className?: string }) {
@@ -31,7 +32,7 @@ function KronaLogo({ className = "w-6 h-6" }: { className?: string }) {
   );
 }
 
-export function CsvAnalysisModal({ step }: CsvAnalysisModalProps) {
+export function CsvAnalysisModal({ step, onDismiss }: CsvAnalysisModalProps) {
   const isSuccess = step === "success";
   const label =
     step === "success"
@@ -39,6 +40,28 @@ export function CsvAnalysisModal({ step }: CsvAnalysisModalProps) {
       : step === "categorizing"
         ? "Catégorisation avec l'IA..."
         : "Importation...";
+
+  // Garde-fou automatique : si le modal reste affiché plus de 8 secondes sans transition,
+  // fermer automatiquement pour ne jamais bloquer l'interface
+  useEffect(() => {
+    if (!step) return;
+    const safetyTimer = setTimeout(() => {
+      console.warn("[CsvAnalysisModal] Durée maximale atteinte (8s) - Déblocage de sécurité.");
+      onDismiss?.();
+    }, 8000);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onDismiss?.();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      clearTimeout(safetyTimer);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [step, onDismiss]);
 
   return (
     <AnimatePresence>
@@ -57,8 +80,19 @@ export function CsvAnalysisModal({ step }: CsvAnalysisModalProps) {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ type: "spring", stiffness: 380, damping: 28 }}
-            className="w-full max-w-[240px] sm:max-w-[250px] p-6 bg-card/95 backdrop-blur-2xl border border-border rounded-2xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] flex flex-col items-center justify-center text-center gap-4"
+            className="relative w-full max-w-[240px] sm:max-w-[250px] p-6 bg-card/95 backdrop-blur-2xl border border-border rounded-2xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5),inset_0_1px_0_0_rgba(255,255,255,0.08)] flex flex-col items-center justify-center text-center gap-4"
           >
+            {/* Bouton de fermeture d'urgence si latence réseau */}
+            {onDismiss && !isSuccess && (
+              <button
+                type="button"
+                onClick={onDismiss}
+                aria-label="Fermer le chargement"
+                className="absolute top-2.5 right-2.5 w-6 h-6 rounded-full flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-neutral-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            )}
             {/* Élément central : Logo Krona + Anneau fluide de chargement ou Coche discrète */}
             <div className="relative w-14 h-14 flex items-center justify-center">
               <AnimatePresence mode="wait">

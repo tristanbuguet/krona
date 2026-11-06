@@ -13,6 +13,13 @@ import {
   cleanOpenBankingMerchantLabel,
   formatBankDisplayName,
 } from "./enableBanking";
+import {
+  sanitizeAndDeduplicateTransactions,
+  isStrictRecurringSubscription,
+  pickBestTransaction,
+} from "./bankDeduplication";
+
+export { sanitizeAndDeduplicateTransactions, isStrictRecurringSubscription, pickBestTransaction };
 
 export function normalizeAiCategory(aiCategory: string): string {
   const cleaned = (aiCategory || "").trim();
@@ -97,6 +104,23 @@ export async function enrichOrphansWithGemini(
   }
 
   try {
+    // Si la liste d'orphelines est volumineuse, envoyer les 25 premières à l'IA et résoudre le reste localement
+    const aiBatch = orphans.slice(0, 25);
+    const localBatch = orphans.slice(25);
+
+    for (const item of localBatch) {
+      const cleaned = cleanOpenBankingMerchantLabel(item.label, true);
+      const local = categorizeLocally({
+        label: cleaned || item.label,
+        rawLabel: item.label,
+        amount: item.amount ?? 0,
+        cache: {},
+      });
+      if (local.category && local.category !== "Autre") {
+        resultMap.set(item.id, local.category);
+      }
+    }
+
     const prompt = `
 Tu es un moteur FinTech expert de catégorisation bancaire française.
 Pour chaque opération ci-dessous (comportant id, label et montant en euros), identifie le commerçant ou la nature de la dépense et associe STRICTEMENT une catégorie parmi cette liste FINIE et exacte (et AUCUNE autre) :
@@ -130,27 +154,33 @@ Règles d'association :
 - Si indéterminé ou trop générique -> "Autre"
 
 Opérations à catégoriser :
-${JSON.stringify(orphans)}
+${JSON.stringify(aiBatch)}
 
 Réponds uniquement en JSON valide sans balises Markdown : [{ "id": "...", "category": "..." }]
 `.trim();
 
     const ai = new GoogleGenAI({ apiKey });
     const candidateModels = [
-      "gemini-flash-lite-latest",
-      "gemini-2.5-flash-lite",
-      "gemini-2.5-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-3.8-flash",
       "gemini-flash-latest",
+      "gemini-flash-lite-latest",
     ];
 
     let responseText = "";
     for (const model of candidateModels) {
       try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          config: { responseMimeType: "application/json" },
-        });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout IA modèle ${model} (4500ms)`)), 4500)
+        );
+        const response = await Promise.race([
+          ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: { responseMimeType: "application/json" },
+          }),
+          timeoutPromise,
+        ]);
         if (response.text) {
           responseText = response.text;
           break;
@@ -498,13 +528,17 @@ export async function executeBankIngestionPipeline({
 
   flagInterAccountTransfers([...deduplicatedNew, ...upgradedExisting], nowIso);
 
-  const allMergedTransactions = [...deduplicatedNew, ...upgradedExisting].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  const rawMerged = [...deduplicatedNew, ...upgradedExisting];
+  const allMergedTransactions = sanitizeAndDeduplicateTransactions(rawMerged);
 
-  // Synchroniser également deduplicatedNewTransactions avec les transactions mises à niveau afin que le client reçoive toutes les mises à jour
-  const updatedOrNewTransactions =
-    deduplicatedNew.length > 0 ? deduplicatedNew : allMergedTransactions;
+  // Synchroniser également deduplicatedNewTransactions avec les transactions assainies
+  const deduplicatedIds = new Set(allMergedTransactions.map((t) => t.id));
+  const cleanNew = deduplicatedNew.filter((t) => deduplicatedIds.has(t.id));
+  const updatedOrNewTransactions = cleanNew.length > 0 ? cleanNew : allMergedTransactions;
+  const netRemovedDuplicates = Math.max(
+    removedDuplicatesCount,
+    rawMerged.length - allMergedTransactions.length
+  );
 
   return {
     candidateTransactions,
@@ -512,8 +546,8 @@ export async function executeBankIngestionPipeline({
     allMergedTransactions,
     learningRules: rulesCopy,
     usedSandboxFallback,
-    removedDuplicatesCount,
-    addedCount: deduplicatedNew.length,
+    removedDuplicatesCount: netRemovedDuplicates,
+    addedCount: cleanNew.length,
   };
 }
 
