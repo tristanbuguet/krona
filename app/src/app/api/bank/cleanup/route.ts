@@ -106,10 +106,12 @@ async function handleCleanup(req: NextRequest) {
     }
 
     const transactionsBefore = payload.transactions.length;
+    const accountsMeta = payload.bankSession?.accounts || payload.accounts || [];
 
-    // Détection des doublons avec conservation de la plus ancienne de chaque paire
-    const { cleanedTransactions, removedDuplicatesCount, removedTransactions } = cleanDatabaseDuplicates(
-      payload.transactions
+    // Diagnostic et détection des doublons par lot d'import
+    const { cleanedTransactions, removedDuplicatesCount, removedTransactions, diagnosticReport } = cleanDatabaseDuplicates(
+      payload.transactions,
+      { dryRun, accountsMeta }
     );
 
     const formattedDuplicates = removedTransactions.map((tx) => {
@@ -121,6 +123,10 @@ async function handleCleanup(req: NextRequest) {
         merchant: tx.name,
         source: isCsv ? "csv" : "bank",
         sourceLabel: isCsv ? "CSV" : "Banque",
+        lotId: tx.importBatchId || tx.updatedAt || `legacy_${tx.id}`,
+        insertedAt: tx.updatedAt,
+        bankAccountId: tx.bankAccountUid,
+        bankTransactionId: tx.bankTransactionId || tx.entryReference,
       };
     });
 
@@ -131,16 +137,23 @@ async function handleCleanup(req: NextRequest) {
         dryRun: true,
         applied: false,
         userId,
+        linkedAccountsCount: diagnosticReport.linkedAccountsCount,
+        linkedAccountNames: diagnosticReport.linkedAccountNames,
+        totalSignatures: diagnosticReport.totalSignatures,
+        duplicateSignaturesCount: diagnosticReport.duplicateSignaturesCount,
         transactionsBefore,
         removedDuplicatesCount,
         removedTransactions: formattedDuplicates,
-        message: `Simulation : ${removedDuplicatesCount} doublon(s) détecté(s) sur ${transactionsBefore} opérations. Aucune suppression effectuée.`,
+        signatures: diagnosticReport.signatures,
+        diagnosticReport,
+        message: `Simulation : ${removedDuplicatesCount} doublon(s) détecté(s) sur ${transactionsBefore} opérations (${diagnosticReport.linkedAccountsCount} compte(s) lié(s)). Aucune suppression effectuée.`,
       });
     }
 
     // En mode réel (dryRun: false) : mise à jour effective dans Neon ou local store
     if (removedDuplicatesCount > 0) {
       payload.transactions = cleanedTransactions;
+      payload.updatedAt = new Date().toISOString();
 
       if (sql) {
         await sql.query(
@@ -165,10 +178,15 @@ async function handleCleanup(req: NextRequest) {
       dryRun: false,
       applied: true,
       userId,
+      linkedAccountsCount: diagnosticReport.linkedAccountsCount,
+      linkedAccountNames: diagnosticReport.linkedAccountNames,
       transactionsBefore,
       transactionsAfter: cleanedTransactions.length,
       removedDuplicatesCount,
       removedTransactions: formattedDuplicates,
+      signatures: diagnosticReport.signatures,
+      diagnosticReport,
+      data: payload,
       message: `${removedDuplicatesCount} doublon(s) supprimé(s) avec succès dans Neon.`,
     });
   } catch (err: unknown) {

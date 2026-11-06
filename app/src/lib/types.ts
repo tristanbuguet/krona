@@ -16,6 +16,12 @@ export type Transaction = {
   source?: "csv" | "bank" | "manual";
   /** UID Enable Banking du sous-compte d'origine (multi-comptes : courant, épargne…). */
   bankAccountUid?: string;
+  /** Identifiant unique fourni par Enable Banking (entry_reference ou transaction_id). */
+  bankTransactionId?: string;
+  /** Référence d'écriture bancaire Enable Banking (entry_reference). */
+  entryReference?: string;
+  /** Identifiant du lot d'import ou de synchronisation. */
+  importBatchId?: string;
 };
 
 export type FixedIncomeSettings = {

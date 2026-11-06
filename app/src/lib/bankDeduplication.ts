@@ -425,6 +425,24 @@ export function deduplicateBeforeInsertion(
       continue;
     }
 
+    // Priorité 1 : Déjà présente par identifiant Enable Banking unique (entry_reference ou transaction_id)
+    const incEbId = inc.bankTransactionId || inc.entryReference;
+    if (incEbId) {
+      const existingByEbId = updatedExistingList.find((e) => {
+        const eEbId = e.bankTransactionId || e.entryReference;
+        return Boolean(eEbId && eEbId === incEbId);
+      });
+      if (existingByEbId) {
+        if (inc.updatedAt) existingByEbId.updatedAt = inc.updatedAt;
+        if (existingByEbId.type === "Autre" && inc.type && inc.type !== "Autre") {
+          existingByEbId.type = inc.type;
+        }
+        removedDuplicatesCount++;
+        continue;
+      }
+    }
+
+    // Priorité 2 : Signature date + montant + commerçant nettoyé (pour comparer avec CSV / historique)
     const sig = buildDeduplicationSignature(inc.date, inc.amount, inc.name);
     const available = existingPool.get(sig);
 
@@ -464,53 +482,266 @@ export function deduplicateBeforeInsertion(
 }
 
 /**
- * Supprime les doublons déjà présents dans la base Neon ou le stockage local
- * (en gardant la plus ancienne de chaque paire).
- * Appariement un pour un :
- * - Si une opération CSV et une opération Banque existent pour le même achat, garde la CSV (la plus ancienne).
- * - Si une opération en attente (PDNG) et une validée (BOOK) existent, garde la validée (remplacement).
- * - Si deux opérations bancaires identiques existent pour un même achat (double synchro ou compte carte/courant), garde la plus ancienne.
- * - Deux achats identiques légitimes le même jour restent deux opérations.
- * Ne fait aucun appel réseau vers la banque.
+ * Résout la source d'une transaction ("csv", "bank" ou "manual").
  */
-export function cleanDatabaseDuplicates(transactions: Transaction[]): {
+export function resolveTransactionSource(tx: Transaction): "csv" | "bank" | "manual" {
+  if (tx.source) return tx.source;
+  if (typeof tx.id === "string" && (tx.id.startsWith("eb_") || tx.bankAccountUid || tx.bankTransactionId)) {
+    return "bank";
+  }
+  if (typeof tx.id === "string" && /^(bourso|ca|ce|lcl|csv)_/i.test(tx.id)) {
+    return "csv";
+  }
+  return "bank";
+}
+
+/**
+ * Extrait l'identifiant du lot d'import ou la date d'insertion d'une opération.
+ */
+export function getImportBatchId(tx: Transaction, index: number = 0): string {
+  if (tx.importBatchId && tx.importBatchId.trim().length > 0) {
+    return tx.importBatchId.trim();
+  }
+  if (tx.updatedAt && tx.updatedAt.trim().length > 0) {
+    const parsed = Date.parse(tx.updatedAt);
+    if (!isNaN(parsed)) {
+      // Regroupe les opérations d'une même synchronisation (fenêtre de 5 secondes)
+      const windowMs = Math.floor(parsed / 5000) * 5000;
+      return new Date(windowMs).toISOString();
+    }
+    return tx.updatedAt.trim();
+  }
+  // Pour les données historiques sans métadonnées d'insertion, elles font partie du lot initial
+  return "legacy";
+}
+
+/**
+ * Clé unique de regroupement par lot d'import (source + date d'insertion de la même synchro).
+ */
+export function getTransactionLotKey(tx: Transaction, index: number = 0): string {
+  const source = resolveTransactionSource(tx);
+  const batchId = getImportBatchId(tx, index);
+  return `${source}_${batchId}`;
+}
+
+export interface DuplicateDiagnosticCopy {
+  id: string;
+  source: "csv" | "bank" | "manual";
+  sourceLabel: string;
+  lotId: string;
+  insertedAt?: string;
+  bankAccountId?: string;
+  account?: string;
+  bankTransactionId?: string;
+}
+
+export interface DuplicateSignatureDiagnostic {
+  signature: string;
+  merchant: string;
+  date: string;
+  amount: number;
+  totalCopies: number;
+  lotsCount: number;
+  keptCopiesCount: number;
+  removedCopiesCount: number;
+  copies: DuplicateDiagnosticCopy[];
+}
+
+export interface BankDiagnosticReport {
+  linkedAccountsCount: number;
+  linkedAccountNames: string[];
+  totalSignatures: number;
+  duplicateSignaturesCount: number;
+  totalDuplicatesCount: number;
+  signatures: DuplicateSignatureDiagnostic[];
+}
+
+/**
+ * Diagnostic en lecture seule des doublons bancaires et des comptes liés.
+ * N'écrit strictement rien en base ni en mémoire.
+ */
+export function diagnoseBankDuplicates(
+  transactions: Transaction[],
+  accountsMeta?: Array<{ uid?: string; name?: string; cashAccountType?: string }>
+): BankDiagnosticReport {
+  const linkedAccountNames: string[] = [];
+  const seenAccountNames = new Set<string>();
+
+  if (Array.isArray(accountsMeta) && accountsMeta.length > 0) {
+    for (const a of accountsMeta) {
+      const name = a.name || mapCashAccountType(a.cashAccountType, a.name);
+      if (name && !seenAccountNames.has(name)) {
+        seenAccountNames.add(name);
+        linkedAccountNames.push(name);
+      }
+    }
+  } else {
+    for (const t of transactions) {
+      if (t.source === "bank" || (typeof t.id === "string" && t.id.startsWith("eb_")) || t.bankAccountUid) {
+        const name = t.account || "Compte bancaire lié";
+        if (name && !seenAccountNames.has(name)) {
+          seenAccountNames.add(name);
+          linkedAccountNames.push(name);
+        }
+      }
+    }
+  }
+
+  const sigMap = new Map<string, Array<{ tx: Transaction; index: number }>>();
+  for (let i = 0; i < transactions.length; i++) {
+    const tx = transactions[i];
+    if (!tx) continue;
+    const sig = buildDeduplicationSignature(tx.date, tx.amount, tx.name);
+    const list = sigMap.get(sig) || [];
+    list.push({ tx, index: i });
+    sigMap.set(sig, list);
+  }
+
+  const signatures: DuplicateSignatureDiagnostic[] = [];
+  let totalDuplicatesCount = 0;
+
+  for (const [sig, items] of sigMap.entries()) {
+    const first = items[0].tx;
+    const copies: DuplicateDiagnosticCopy[] = items.map((item) => {
+      const src = resolveTransactionSource(item.tx);
+      return {
+        id: item.tx.id,
+        source: src,
+        sourceLabel: src === "csv" ? "CSV" : "Banque",
+        lotId: getImportBatchId(item.tx, item.index),
+        insertedAt: item.tx.updatedAt,
+        bankAccountId: item.tx.bankAccountUid,
+        account: item.tx.account,
+        bankTransactionId: item.tx.bankTransactionId || item.tx.entryReference,
+      };
+    });
+
+    const lotCounts = new Map<string, number>();
+    for (const item of items) {
+      const lotKey = getTransactionLotKey(item.tx, item.index);
+      lotCounts.set(lotKey, (lotCounts.get(lotKey) || 0) + 1);
+    }
+    const maxCopiesInSingleLot = Math.max(...Array.from(lotCounts.values()));
+    const keptCopiesCount = Math.min(items.length, maxCopiesInSingleLot);
+    const removedCopiesCount = Math.max(0, items.length - keptCopiesCount);
+    totalDuplicatesCount += removedCopiesCount;
+
+    signatures.push({
+      signature: sig,
+      merchant: first.name,
+      date: first.date,
+      amount: first.amount,
+      totalCopies: items.length,
+      lotsCount: lotCounts.size,
+      keptCopiesCount,
+      removedCopiesCount,
+      copies,
+    });
+  }
+
+  const duplicateSignaturesCount = signatures.filter((s) => s.removedCopiesCount > 0).length;
+
+  return {
+    linkedAccountsCount: linkedAccountNames.length,
+    linkedAccountNames,
+    totalSignatures: signatures.length,
+    duplicateSignaturesCount,
+    totalDuplicatesCount,
+    signatures,
+  };
+}
+
+/**
+ * Nettoyage des données existantes (par lot d'import) :
+ * - Pour chaque signature, regroupe les opérations par lot d'import (source + date d'insertion de la même synchro).
+ * - Conserve le nombre d'exemplaires du lot qui en contient le plus.
+ * - Supprime tous les exemplaires en plus, venant des autres lots.
+ *   Exemple : 1 signature présente 1 fois dans 3 lots différents donne 1 exemplaire gardé.
+ *   Une signature présente 2 fois dans un seul lot donne 2 exemplaires gardés (deux vrais achats).
+ * - En cas d'égalité, garde les opérations CSV puis les plus anciennes.
+ * - Dédoublonne en priorité sur l'identifiant Enable Banking (entry_reference ou transaction_id),
+ *   puis sur la signature date + montant + commerçant nettoyé.
+ * Ne fait aucun appel réseau vers Enable Banking.
+ */
+export function cleanDatabaseDuplicates(
+  transactions: Transaction[],
+  options?: {
+    dryRun?: boolean;
+    apply?: boolean;
+    accountsMeta?: Array<{ uid?: string; name?: string; cashAccountType?: string }>;
+  }
+): {
   cleanedTransactions: Transaction[];
   removedDuplicatesCount: number;
   removedTransactions: Transaction[];
+  diagnosticReport: BankDiagnosticReport;
 } {
+  const diagnosticReport = diagnoseBankDuplicates(transactions, options?.accountsMeta);
+
   if (!Array.isArray(transactions) || transactions.length <= 1) {
     return {
       cleanedTransactions: Array.isArray(transactions) ? transactions : [],
       removedDuplicatesCount: 0,
       removedTransactions: [],
+      diagnosticReport,
     };
   }
 
-  // 1. Déduplication d'abord par identifiant strict (garder la plus ancienne)
-  const byId = new Map<string, { tx: Transaction; index: number }>();
-  const idDuplicates: Transaction[] = [];
+  // 1. Déduplication prioritaire par identifiant Enable Banking unique (bankTransactionId / entry_reference)
+  const byEbId = new Map<string, { tx: Transaction; index: number }>();
+  const ebDuplicates: Transaction[] = [];
+  const afterEbDedup: Array<{ tx: Transaction; index: number }> = [];
 
   for (let i = 0; i < transactions.length; i++) {
     const tx = transactions[i];
     if (!tx || !tx.id) continue;
-    const existing = byId.get(tx.id);
+    const ebId = tx.bankTransactionId || tx.entryReference;
+    if (ebId && (tx.source === "bank" || tx.id.startsWith("eb_"))) {
+      const compositeEbKey = `${tx.bankAccountUid || "default"}_${ebId}`;
+      const existing = byEbId.get(compositeEbKey);
+      if (!existing) {
+        byEbId.set(compositeEbKey, { tx, index: i });
+        afterEbDedup.push({ tx, index: i });
+      } else {
+        const existingAge = getTransactionSortAge(existing.tx, existing.index);
+        const currentAge = getTransactionSortAge(tx, i);
+        if (currentAge < existingAge) {
+          ebDuplicates.push(existing.tx);
+          const foundIdx = afterEbDedup.findIndex((item) => item.tx === existing.tx);
+          if (foundIdx !== -1) afterEbDedup[foundIdx] = { tx, index: i };
+          byEbId.set(compositeEbKey, { tx, index: i });
+        } else {
+          ebDuplicates.push(tx);
+        }
+      }
+    } else {
+      afterEbDedup.push({ tx, index: i });
+    }
+  }
+
+  // 2. Déduplication par identifiant strict d'opération (id)
+  const byId = new Map<string, { tx: Transaction; index: number }>();
+  const idDuplicates: Transaction[] = [...ebDuplicates];
+
+  for (const item of afterEbDedup) {
+    const existing = byId.get(item.tx.id);
     if (!existing) {
-      byId.set(tx.id, { tx, index: i });
+      byId.set(item.tx.id, item);
     } else {
       const existingAge = getTransactionSortAge(existing.tx, existing.index);
-      const currentAge = getTransactionSortAge(tx, i);
+      const currentAge = getTransactionSortAge(item.tx, item.index);
       if (currentAge < existingAge) {
         idDuplicates.push(existing.tx);
-        byId.set(tx.id, { tx, index: i });
+        byId.set(item.tx.id, item);
       } else {
-        idDuplicates.push(tx);
+        idDuplicates.push(item.tx);
       }
     }
   }
 
   const uniqueByIdList = Array.from(byId.values()).sort((a, b) => a.index - b.index);
 
-  // 2. Regroupement par signature comptable (date + montant exact + commerçant nettoyé)
+  // 3. Regroupement par signature comptable (date + montant exact + commerçant nettoyé)
   const sigGroups = new Map<string, Array<{ tx: Transaction; index: number }>>();
   for (const item of uniqueByIdList) {
     const sig = buildDeduplicationSignature(item.tx.date, item.tx.amount, item.tx.name);
@@ -528,7 +759,7 @@ export function cleanDatabaseDuplicates(transactions: Transaction[]): {
       continue;
     }
 
-    // Gestion du cas BOOK vs PDNG : si une version BOOK et une version PDNG coexistent, éliminer la PDNG
+    // Gestion du cas BOOK vs PDNG
     const hasBook = group.some((item) => {
       const s = ((item.tx as unknown as { status?: string }).status || "").toUpperCase();
       return s === "BOOK" || s === "BOOKED";
@@ -551,13 +782,10 @@ export function cleanDatabaseDuplicates(transactions: Transaction[]): {
     }
 
     // Cas abonnement strict (Uber One, Bouygues Telecom, Basic Fit, Netflix, Loyer...) :
-    // Il ne peut physiquement y avoir qu'une seule opération par date/montant.
-    // On conserve STRICTEMENT la plus ancienne de la paire !
     if (isStrictRecurringSubscription(nonPdngGroup[0].tx.name)) {
       const sorted = [...nonPdngGroup].sort(
         (a, b) => getTransactionSortAge(a.tx, a.index) - getTransactionSortAge(b.tx, b.index)
       );
-      // Conserver la catégorie enrichie si l'ancienne était en "Autre"
       const bestCategory = sorted.find((i) => i.tx.type && i.tx.type !== "Autre")?.tx.type;
       const oldestTx = { ...sorted[0].tx };
       if (bestCategory && oldestTx.type === "Autre") {
@@ -570,74 +798,123 @@ export function cleanDatabaseDuplicates(transactions: Transaction[]): {
       continue;
     }
 
-    // Cas général : partition par rang d'occurrence (achat 1, achat 2, achat 3...)
-    // Les opérations CSV et bancaires sont indexées déterministement par _1, _2...
-    // Si des opérations n'ont pas de suffixe numérique explicite, on leur assigne
-    // un rang séquentiel (1 pour la première, 2 pour la deuxième) au sein de leur source.
-    const isBank = (t: Transaction) => t.source === "bank" || t.id.startsWith("eb_");
-    const nonBankItems = nonPdngGroup.filter((i) => !isBank(i.tx));
-    const bankItems = nonPdngGroup.filter((i) => isBank(i.tx));
+    // Règle du lot d'import (source + date d'insertion de la même synchro) :
+    // - Regroupe les opérations par lot d'import
+    // - Conserve le nombre d'exemplaires du lot qui en contient le plus
+    // - Supprime tous les exemplaires en plus, venant des autres lots
+    // - En cas d'égalité, garde les opérations CSV puis les plus anciennes
+    const lotsMap = new Map<
+      string,
+      {
+        lotKey: string;
+        source: "csv" | "bank" | "manual";
+        lotId: string;
+        insertedAt?: string;
+        items: Array<{ tx: Transaction; index: number }>;
+      }
+    >();
 
-    // Si toutes sont CSV / manuelles : deux lignes dans un relevé CSV représentent deux achats réels
-    if (bankItems.length === 0) {
-      for (const item of nonBankItems) keptResult.push(item.tx);
-      continue;
+    for (const item of nonPdngGroup) {
+      const lotKey = getTransactionLotKey(item.tx, item.index);
+      const src = resolveTransactionSource(item.tx);
+      const existing = lotsMap.get(lotKey);
+      if (!existing) {
+        lotsMap.set(lotKey, {
+          lotKey,
+          source: src,
+          lotId: getImportBatchId(item.tx, item.index),
+          insertedAt: item.tx.updatedAt,
+          items: [item],
+        });
+      } else {
+        existing.items.push(item);
+      }
     }
 
-    // Associer à chaque élément son rang d'occurrence (1, 2...)
-    const getOccurrenceRank = (
-      item: { tx: Transaction; index: number },
-      sourceIndex: number
-    ): number => {
+    const lots = Array.from(lotsMap.values());
+    const maxCopiesInSingleLot = Math.max(...lots.map((l) => l.items.length));
+
+    // Déterminer le rang d'occurrence de chaque transaction (1, 2...)
+    const getOccurrenceRank = (item: { tx: Transaction; index: number }, rankInLot: number): number => {
       const match = item.tx.id.match(/_(\d+)$/);
       if (match) {
         const val = parseInt(match[1], 10);
-        if (!isNaN(val) && val > 0) return val;
+        if (!isNaN(val) && val > 0 && val <= maxCopiesInSingleLot) return val;
       }
-      return sourceIndex + 1;
+      return rankInLot + 1;
     };
 
-    // Grouper par rang d'occurrence
-    const byRank = new Map<number, Array<{ tx: Transaction; index: number }>>();
+    // Grouper les candidats par rang d'occurrence
+    const byOccurrenceRank = new Map<number, Array<{ tx: Transaction; index: number }>>();
 
-    nonBankItems.forEach((item, idx) => {
-      const rank = getOccurrenceRank(item, idx);
-      const list = byRank.get(rank) || [];
-      list.push(item);
-      byRank.set(rank, list);
-    });
+    for (const lot of lots) {
+      lot.items.forEach((item, idx) => {
+        const rank = getOccurrenceRank(item, idx);
+        const list = byOccurrenceRank.get(rank) || [];
+        list.push(item);
+        byOccurrenceRank.set(rank, list);
+      });
+    }
 
-    bankItems.forEach((item, idx) => {
-      const rank = getOccurrenceRank(item, idx);
-      const list = byRank.get(rank) || [];
-      list.push(item);
-      byRank.set(rank, list);
-    });
+    // Pour chaque rang d'occurrence (1 jusqu'à maxCopiesInSingleLot) :
+    // Sélectionner le meilleur exemplaire : CSV prioritaire sur Banque, puis plus ancien (getTransactionSortAge).
+    const sortedRanks = Array.from(byOccurrenceRank.keys())
+      .sort((a, b) => a - b)
+      .slice(0, maxCopiesInSingleLot);
 
-    // Pour chaque rang d'occurrence (ex: achat n°1) :
-    // S'il y a plusieurs transactions pour le même rang (ex: 1 CSV + 1 Banque, ou 2 Banques dupliquées),
-    // on garde la plus ancienne (CSV prioritaire sur Banque, puis horodatage) et on élimine les doublons.
-    const sortedRanks = Array.from(byRank.keys()).sort((a, b) => a - b);
+    const keptForSig: Transaction[] = [];
+    const removedForSig: Transaction[] = [];
+    const coveredItems = new Set<{ tx: Transaction; index: number }>();
+
     for (const rank of sortedRanks) {
-      const rankItems = byRank.get(rank)!;
-      if (rankItems.length === 1) {
-        keptResult.push(rankItems[0].tx);
-      } else {
-        const sorted = [...rankItems].sort(
-          (a, b) => getTransactionSortAge(a.tx, a.index) - getTransactionSortAge(b.tx, b.index)
-        );
-        // Conserver la catégorie enrichie si la plus ancienne était en "Autre"
-        const bestCategory = sorted.find((i) => i.tx.type && i.tx.type !== "Autre")?.tx.type;
-        const oldestTx = { ...sorted[0].tx };
-        if (bestCategory && oldestTx.type === "Autre") {
-          oldestTx.type = bestCategory;
-        }
-        keptResult.push(oldestTx);
-        for (let k = 1; k < sorted.length; k++) {
-          removedDuplicates.push(sorted[k].tx);
-        }
+      const candidates = byOccurrenceRank.get(rank)!;
+      const sorted = [...candidates].sort((a, b) => {
+        const aIsCsv = a.tx.source === "csv" || /^(bourso|ca|ce|lcl|csv)_/i.test(a.tx.id);
+        const bIsCsv = b.tx.source === "csv" || /^(bourso|ca|ce|lcl|csv)_/i.test(b.tx.id);
+        if (aIsCsv && !bIsCsv) return -1;
+        if (!aIsCsv && bIsCsv) return 1;
+        return getTransactionSortAge(a.tx, a.index) - getTransactionSortAge(b.tx, b.index);
+      });
+
+      const best = { ...sorted[0].tx };
+      coveredItems.add(sorted[0]);
+
+      // Enrichissement de catégorie et métadonnées si "Autre"
+      const otherCandidates = sorted.slice(1).map((c) => c.tx);
+      if (best.type === "Autre") {
+        const betterCat = otherCandidates.find((t) => t.type && t.type !== "Autre")?.type;
+        if (betterCat) best.type = betterCat;
+      }
+      if (!best.bankTransactionId) {
+        const ebId = otherCandidates.find((t) => t.bankTransactionId)?.bankTransactionId;
+        if (ebId) best.bankTransactionId = ebId;
+      }
+      if (!best.entryReference) {
+        const entryRef = otherCandidates.find((t) => t.entryReference)?.entryReference;
+        if (entryRef) best.entryReference = entryRef;
+      }
+      if (!best.bankAccountUid) {
+        const accUid = otherCandidates.find((t) => t.bankAccountUid)?.bankAccountUid;
+        if (accUid) best.bankAccountUid = accUid;
+      }
+
+      keptForSig.push(best);
+
+      for (let k = 1; k < sorted.length; k++) {
+        coveredItems.add(sorted[k]);
+        removedForSig.push(sorted[k].tx);
       }
     }
+
+    // Tout élément excédentaire au-delà de maxCopiesInSingleLot est supprimé
+    for (const item of nonPdngGroup) {
+      if (!coveredItems.has(item)) {
+        removedForSig.push(item.tx);
+      }
+    }
+
+    keptResult.push(...keptForSig);
+    removedDuplicates.push(...removedForSig);
   }
 
   const cleanedTransactions = keptResult.sort(
@@ -648,6 +925,7 @@ export function cleanDatabaseDuplicates(transactions: Transaction[]): {
     cleanedTransactions,
     removedDuplicatesCount: removedDuplicates.length,
     removedTransactions: removedDuplicates,
+    diagnosticReport,
   };
 }
 

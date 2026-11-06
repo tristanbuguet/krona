@@ -5,6 +5,7 @@ import {
   UserFinancialPayload,
   mergeCloudAndLocalData,
   normalizeUserFinancialPayload,
+  sanitizeAndDeduplicateTransactions,
 } from "@/lib/cloudSync";
 import { getSql, ensureUserSyncTable } from "@/lib/db";
 
@@ -198,33 +199,58 @@ export async function POST(req: NextRequest) {
       await ensureUserSyncTable(sql);
 
       let existingCloudData: Partial<UserFinancialPayload> | null = null;
-      if (mode === "merge") {
-        const rows = await sql.query(
-          "SELECT data FROM user_sync WHERE user_id = $1 LIMIT 1;",
-          [userId]
-        );
-        if (rows.length > 0) {
-          const row = rows[0] as unknown as { data: unknown };
-          existingCloudData = (
-            typeof row.data === "string" ? JSON.parse(row.data) : row.data
-          ) as Partial<UserFinancialPayload>;
-        }
+      const rows = await sql.query(
+        "SELECT data, updated_at FROM user_sync WHERE user_id = $1 LIMIT 1;",
+        [userId]
+      );
+      if (rows.length > 0) {
+        const row = rows[0] as unknown as { data: unknown; updated_at: string | Date };
+        existingCloudData = (
+          typeof row.data === "string" ? JSON.parse(row.data) : row.data
+        ) as Partial<UserFinancialPayload>;
       }
 
-      const finalPayload: UserFinancialPayload =
-        mode === "overwrite"
-          ? normalizeUserFinancialPayload(rawIncoming)
-          : mergeCloudAndLocalData(rawIncoming, existingCloudData);
+      // Vérification d'obsolescence : l'app ne doit jamais envoyer une copie locale obsolète
+      // vers Neon en écrasant les données propres issues d'un nettoyage ou d'une synchronisation.
+      const cloudTime = existingCloudData?.updatedAt || existingCloudData?.lastUpdated
+        ? Date.parse(existingCloudData.updatedAt || existingCloudData.lastUpdated || "0")
+        : 0;
+      const localTime = rawIncoming?.updatedAt || rawIncoming?.lastUpdated
+        ? Date.parse(rawIncoming.updatedAt || rawIncoming.lastUpdated || "0")
+        : 0;
 
-      await sql.query(
-        `INSERT INTO user_sync (user_id, email, data, updated_at)
-         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-         ON CONFLICT (user_id)
-         DO UPDATE SET
-           data = EXCLUDED.data,
-           updated_at = CURRENT_TIMESTAMP;`,
-        [userId, email, JSON.stringify(finalPayload)]
+      const isLocalObsolete = Boolean(
+        existingCloudData &&
+        cloudTime > 0 &&
+        localTime > 0 &&
+        cloudTime > localTime
       );
+
+      let finalPayload: UserFinancialPayload;
+
+      if (isLocalObsolete && existingCloudData) {
+        // La copie locale est obsolète : on préserve l'intégrité de la base Neon
+        // et on renvoie le payload propre du cloud au client pour remplacement du store local.
+        finalPayload = normalizeUserFinancialPayload(existingCloudData);
+      } else {
+        finalPayload =
+          mode === "overwrite"
+            ? normalizeUserFinancialPayload(rawIncoming)
+            : mergeCloudAndLocalData(rawIncoming, existingCloudData);
+
+        // Assainit et déduplique systématiquement avant écriture dans Neon
+        finalPayload.transactions = sanitizeAndDeduplicateTransactions(finalPayload.transactions);
+
+        await sql.query(
+          `INSERT INTO user_sync (user_id, email, data, updated_at)
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+           ON CONFLICT (user_id)
+           DO UPDATE SET
+             data = EXCLUDED.data,
+             updated_at = CURRENT_TIMESTAMP;`,
+          [userId, email, JSON.stringify(finalPayload)]
+        );
+      }
 
       return NextResponse.json(
         {
@@ -248,13 +274,34 @@ export async function POST(req: NextRequest) {
     const store = readLocalCloudStore();
     const existingCloud = store[userId] || null;
 
-    const finalPayload: UserFinancialPayload =
-      mode === "overwrite"
-        ? normalizeUserFinancialPayload(rawIncoming)
-        : mergeCloudAndLocalData(rawIncoming, existingCloud);
+    const cloudTimeLocal = existingCloud?.updatedAt || existingCloud?.lastUpdated
+      ? Date.parse(existingCloud.updatedAt || existingCloud.lastUpdated || "0")
+      : 0;
+    const localTimeLocal = rawIncoming?.updatedAt || rawIncoming?.lastUpdated
+      ? Date.parse(rawIncoming.updatedAt || rawIncoming.lastUpdated || "0")
+      : 0;
 
-    store[userId] = finalPayload;
-    writeLocalCloudStore(store);
+    const isLocalObsoleteLocal = Boolean(
+      existingCloud &&
+      cloudTimeLocal > 0 &&
+      localTimeLocal > 0 &&
+      cloudTimeLocal > localTimeLocal
+    );
+
+    let finalPayload: UserFinancialPayload;
+
+    if (isLocalObsoleteLocal && existingCloud) {
+      finalPayload = normalizeUserFinancialPayload(existingCloud);
+    } else {
+      finalPayload =
+        mode === "overwrite"
+          ? normalizeUserFinancialPayload(rawIncoming)
+          : mergeCloudAndLocalData(rawIncoming, existingCloud);
+
+      finalPayload.transactions = sanitizeAndDeduplicateTransactions(finalPayload.transactions);
+      store[userId] = finalPayload;
+      writeLocalCloudStore(store);
+    }
 
     return NextResponse.json(
       {

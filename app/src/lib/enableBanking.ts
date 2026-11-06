@@ -18,6 +18,8 @@ import {
   pickBestTransaction,
   mapCashAccountType,
   daysUntilConsentExpiry,
+  cleanDatabaseDuplicates,
+  diagnoseBankDuplicates,
 } from "./bankDeduplication";
 
 export {
@@ -34,6 +36,8 @@ export {
   buildDeduplicationSignature,
   deduplicateCrossAccountBankTransactions,
   sanitizeAndDeduplicateTransactions,
+  cleanDatabaseDuplicates,
+  diagnoseBankDuplicates,
   isStrictRecurringSubscription,
   pickBestTransaction,
   mapCashAccountType,
@@ -706,6 +710,8 @@ export function normalizeEnableBankingTransactions(
     // Identifiant 100 % déterministe et canonique (date + montant signé + commerçant nettoyé + rang d'occurrence) :
     // indépendant des identifiants techniques éphémères et invariant d'une synchronisation à l'autre.
     const uniqueId = `eb_${baseKey}_${occurrence}`;
+    const ebUniqueId = (tx.entry_reference || tx.transaction_id || "").trim() || undefined;
+    const entryRef = (tx.entry_reference || "").trim() || undefined;
 
     normalized.push({
       id: uniqueId,
@@ -717,6 +723,8 @@ export function normalizeEnableBankingTransactions(
       account: cleanAccountLabel,
       source: "bank",
       ...(accountUid ? { bankAccountUid: accountUid } : {}),
+      ...(ebUniqueId ? { bankTransactionId: ebUniqueId } : {}),
+      ...(entryRef ? { entryReference: entryRef } : {}),
     });
   }
 

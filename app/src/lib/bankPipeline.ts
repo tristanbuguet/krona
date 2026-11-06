@@ -344,9 +344,12 @@ export async function executeBankIngestionPipeline({
       isInternalTransfer: localCat.isInternalTransfer,
       excludeFromSpending: localCat.excludeFromSpending ?? localCat.isInternalTransfer,
       excludeFromIncome: localCat.excludeFromIncome ?? localCat.isInternalTransfer,
-      account: formatBankDisplayName(raw.account || cleanAspspLabel),
+      account: raw.account || cleanAspspLabel,
       source: "bank",
       ...(raw.bankAccountUid ? { bankAccountUid: raw.bankAccountUid } : {}),
+      ...(raw.bankTransactionId ? { bankTransactionId: raw.bankTransactionId } : {}),
+      ...(raw.entryReference ? { entryReference: raw.entryReference } : {}),
+      importBatchId: `bank_${nowIso}`,
       updatedAt: nowIso,
     };
 
@@ -537,17 +540,14 @@ export async function executeBankIngestionPipeline({
 
   flagInterAccountTransfers([...deduplicatedNew, ...upgradedExisting], nowIso);
 
-  const rawMerged = [...deduplicatedNew, ...upgradedExisting];
-  const allMergedTransactions = sanitizeAndDeduplicateTransactions(rawMerged);
+  const allMergedTransactions = [...deduplicatedNew, ...upgradedExisting].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
 
-  // Synchroniser également deduplicatedNewTransactions avec les transactions assainies
   const deduplicatedIds = new Set(allMergedTransactions.map((t) => t.id));
   const cleanNew = deduplicatedNew.filter((t) => deduplicatedIds.has(t.id));
   const updatedOrNewTransactions = cleanNew.length > 0 ? cleanNew : allMergedTransactions;
-  const netRemovedDuplicates = Math.max(
-    removedDuplicatesCount,
-    rawMerged.length - allMergedTransactions.length
-  );
+  const netRemovedDuplicates = removedDuplicatesCount;
 
   return {
     candidateTransactions,

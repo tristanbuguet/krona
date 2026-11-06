@@ -220,7 +220,9 @@ export async function POST(req: NextRequest) {
           fetchAccountBalance(accUid),
         ]);
         if (txResult.status === "fulfilled") {
-          rawTransactionsList.push(...normalizeEnableBankingTransactions(txResult.value, aspspLabel, accUid));
+          const accountType = mapCashAccountType(meta?.cashAccountType, meta?.name);
+          const specificAccountName = meta?.name || accountType || aspspLabel;
+          rawTransactionsList.push(...normalizeEnableBankingTransactions(txResult.value, specificAccountName, accUid));
         } else {
           console.warn(`[Enable Banking Sync] fetchTransactions (${accUid}):`, txResult.reason);
           fetchErrors.push(txResult.reason);

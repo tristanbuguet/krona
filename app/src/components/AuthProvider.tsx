@@ -302,9 +302,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Si le quota local est saturé, la sauvegarde serveur /api/sync prime
           }
 
-          if (mode === "merge") {
-            writeLocalFinancialData(syncedPayload);
-          }
+          // Met à jour systématiquement le stockage local avec les données propres confirmées par le serveur
+          writeLocalFinancialData(syncedPayload);
         } catch {
         } finally {
           isInternalWriteRef.current = false;
